@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TOOLS_DIR="${ROOT_DIR}/../volcano-scheduling-demo/.tools"
+TOOLS_DIR="${ROOT_DIR}/../.tools"
 RESULTS_DIR="${ROOT_DIR}/results"
 CLUSTER_NAME="${CLUSTER_NAME:-volcano-ngd-ngg-v2-demo}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-kind-${CLUSTER_NAME}}"
