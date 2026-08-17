@@ -1,0 +1,7 @@
+FROM python:3.13-alpine
+WORKDIR /app
+COPY src /app
+ENV PYTHONPATH=/app
+ENV PYTHONDONTWRITEBYTECODE=1
+USER 65532:65532
+ENTRYPOINT ["python3", "-m", "ngd_ngg_demo.lldp_agent"]

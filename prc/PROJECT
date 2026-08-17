@@ -1,0 +1,6 @@
+domain: demo.ngg.io
+layout:
+- go.kubebuilder.io/v4
+projectName: ngd-ngg-prc
+repo: scheduling.demo.ngg.io/prc
+version: "3"

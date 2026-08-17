@@ -1,0 +1,153 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: nodegroupdemands.scheduling.demo.ngg.io
+spec:
+  group: scheduling.demo.ngg.io
+  scope: Namespaced
+  names:
+    plural: nodegroupdemands
+    singular: nodegroupdemand
+    kind: NodeGroupDemand
+    shortNames: [ngd]
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    subresources:
+      status: {}
+    additionalPrinterColumns:
+    - name: Phase
+      type: string
+      jsonPath: .status.phase
+    - name: Grant
+      type: string
+      jsonPath: .status.grantRef.name
+    - name: Observed
+      type: integer
+      jsonPath: .status.observedGeneration
+    schema:
+      openAPIV3Schema:
+        type: object
+        required: [spec]
+        properties:
+          spec:
+            type: object
+            required: [taskRef, schedulerName, podSets]
+            properties:
+              taskRef:
+                type: object
+                required: [apiVersion, kind, name]
+                properties:
+                  apiVersion: {type: string, minLength: 1}
+                  kind: {type: string, minLength: 1}
+                  name: {type: string, minLength: 1}
+                  uid: {type: string}
+              schedulerName:
+                type: string
+                enum: [volcano, default-scheduler, ngg-scheduler]
+              workloadClass:
+                type: string
+              podSets:
+                type: array
+                minItems: 1
+                maxItems: 16
+                x-kubernetes-list-type: map
+                x-kubernetes-list-map-keys: [name]
+                items:
+                  type: object
+                  required: [name, replicas, minAvailable, resourcesPerPod]
+                  x-kubernetes-validations:
+                  - rule: "self.minAvailable <= self.replicas"
+                    message: minAvailable must not exceed replicas
+                  properties:
+                    name: {type: string, minLength: 1}
+                    replicas: {type: integer, format: int32, minimum: 1, maximum: 10000}
+                    minAvailable: {type: integer, format: int32, minimum: 1, maximum: 10000}
+                    resourcesPerPod:
+                      type: object
+                      minProperties: 1
+                      additionalProperties:
+                        type: string
+              nodeRequirements:
+                type: object
+                properties:
+                  nodeSelector:
+                    type: object
+                    additionalProperties:
+                      type: string
+              topologyRequirement:
+                type: object
+                properties:
+                  level:
+                    type: string
+                    enum: [leafGroup]
+                    default: leafGroup
+                  mode:
+                    type: string
+                    enum: [same]
+                    default: same
+              algorithms:
+                type: array
+                maxItems: 8
+                items:
+                  type: object
+                  required: [name, version]
+                  properties:
+                    name: {type: string, minLength: 1}
+                    version: {type: string, minLength: 1}
+                    parameters:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+              grantPolicy:
+                type: object
+                properties:
+                  ttlSeconds:
+                    type: integer
+                    format: int32
+                    minimum: 60
+                    maximum: 86400
+                    default: 600
+                  refreshBeforeSeconds:
+                    type: integer
+                    format: int32
+                    minimum: 10
+                    maximum: 3600
+                    default: 120
+                  algorithmTimeoutSeconds:
+                    type: integer
+                    format: int32
+                    minimum: 1
+                    maximum: 60
+                    default: 5
+                  maxCandidateGroups:
+                    type: integer
+                    format: int32
+                    minimum: 1
+                    maximum: 3
+                    default: 3
+                  groupAttemptTimeoutSeconds:
+                    type: integer
+                    format: int32
+                    minimum: 5
+                    maximum: 600
+                    default: 30
+              candidatePolicy:
+                description: Deprecated compatibility field for the original demo.
+                type: object
+                properties:
+                  maxNodes:
+                    type: integer
+                    format: int32
+                    minimum: 1
+                    maximum: 64
+                    default: 8
+                  grantTTLSeconds:
+                    type: integer
+                    format: int32
+                    minimum: 60
+                    maximum: 86400
+                    default: 600
+          status:
+            type: object
+            x-kubernetes-preserve-unknown-fields: true

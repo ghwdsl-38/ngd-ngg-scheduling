@@ -1,0 +1,36 @@
+apiVersion: scheduling.demo.ngg.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  name: topology
+  namespace: ngd-ngg-demo
+spec:
+  taskRef:
+    apiVersion: batch.volcano.sh/v1alpha1
+    kind: Job
+    name: ngg-topology
+  schedulerName: volcano
+  workloadClass: topology-sensitive
+  podSets:
+  - name: worker
+    replicas: 4
+    minAvailable: 4
+    resourcesPerPod:
+      cpu: "100m"
+      memory: "64Mi"
+  nodeRequirements:
+    nodeSelector:
+      demo.ngg/worker: "true"
+  topologyRequirement:
+    level: leafGroup
+    mode: same
+  algorithms:
+  - {name: requirement, version: v1}
+  - {name: topology, version: v1}
+  - {name: loadbalance, version: v1}
+  grantPolicy:
+    ttlSeconds: 600
+    refreshBeforeSeconds: 120
+    algorithmTimeoutSeconds: 5
+    maxCandidateGroups: 3
+    groupAttemptTimeoutSeconds: 15
+

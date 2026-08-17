@@ -1,0 +1,10 @@
+.cache/
+build/
+images/*.tar
+results/*
+!results/.gitkeep
+__pycache__/
+*.pyc
+.coverage
+coverage.out
+coverage.html

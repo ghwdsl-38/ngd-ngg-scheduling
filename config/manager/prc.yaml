@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prc
+  namespace: ngd-ngg-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ngd-ngg-prc
+  template:
+    metadata:
+      labels:
+        app: ngd-ngg-prc
+    spec:
+      serviceAccountName: prc
+      containers:
+      - name: prc
+        image: ngd-ngg-prc:v0.3.0
+        imagePullPolicy: IfNotPresent
+        args:
+        - --leader-elect=true
+        - --health-probe-bind-address=:8081
+        env:
+        - name: ALGORITHM_URL
+          value: http://ngd-ngg-algorithm.ngd-ngg-system.svc:8080
+        - name: CLUSTER_ID
+          value: volcano-ngd-ngg-v2-demo
+        ports:
+        - name: health
+          containerPort: 8081
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi

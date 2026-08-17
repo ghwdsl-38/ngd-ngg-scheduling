@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ngd-ngg-demo
+---
+apiVersion: scheduling.volcano.sh/v1beta1
+kind: Queue
+metadata:
+  name: ngd-ngg
+spec:
+  weight: 1
+  reclaimable: true
+  capability:
+    cpu: "8"
+    memory: "8Gi"
+

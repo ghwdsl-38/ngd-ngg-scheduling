@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: lldp-agent
+  namespace: ngd-ngg-system
+spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 3
+  selector:
+    matchLabels:
+      app: ngd-ngg-lldp-agent
+  template:
+    metadata:
+      labels:
+        app: ngd-ngg-lldp-agent
+    spec:
+      terminationGracePeriodSeconds: 5
+      serviceAccountName: lldp-agent
+      nodeSelector:
+        demo.ngg/worker: "true"
+      containers:
+      - name: lldp-agent
+        image: ngd-ngg-lldp-agent:v0.1.0
+        imagePullPolicy: IfNotPresent
+        args: ["--interval=30"]
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: COLLECTION_MODE
+          value: Simulated
+        resources:
+          requests:
+            cpu: 10m
+            memory: 24Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]

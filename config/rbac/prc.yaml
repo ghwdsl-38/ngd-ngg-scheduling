@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ngd-ngg-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prc
+  namespace: ngd-ngg-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ngd-ngg-prc
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+- apiGroups: ["batch.volcano.sh"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["scheduling.demo.ngg.io"]
+  resources: ["nodegroupdemands"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["scheduling.demo.ngg.io"]
+  resources: ["nodegroupdemands/status"]
+  verbs: ["get", "update", "patch"]
+- apiGroups: ["scheduling.demo.ngg.io"]
+  resources: ["nodegroupgrants"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+- apiGroups: ["scheduling.demo.ngg.io"]
+  resources: ["nodegroupgrants/status"]
+  verbs: ["get", "update", "patch"]
+- apiGroups: ["scheduling.demo.ngg.io"]
+  resources: ["nodenetworktopologies"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ngd-ngg-prc
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ngd-ngg-prc
+subjects:
+- kind: ServiceAccount
+  name: prc
+  namespace: ngd-ngg-system

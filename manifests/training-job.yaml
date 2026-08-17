@@ -1,0 +1,32 @@
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: ngg-training
+  namespace: ngd-ngg-demo
+  labels:
+    app: ngg-training
+spec:
+  minAvailable: 2
+  schedulerName: volcano
+  queue: ngd-ngg
+  tasks:
+  - name: worker
+    replicas: 2
+    template:
+      metadata:
+        labels:
+          app: ngg-training
+        annotations:
+          scheduling.demo.ngg.io/node-group-demand: training
+      spec:
+        schedulerName: volcano
+        restartPolicy: Never
+        containers:
+        - name: worker
+          image: busybox:1.36.1
+          command: ["sh", "-c", "sleep 3600"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+

@@ -1,0 +1,22 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: volcano-nodegroupgrant-reader
+rules:
+- apiGroups: ["scheduling.demo.ngg.io"]
+  resources: ["nodegroupgrants"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: volcano-nodegroupgrant-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: volcano-nodegroupgrant-reader
+subjects:
+- kind: ServiceAccount
+  name: volcano-scheduler
+  namespace: volcano-system
+

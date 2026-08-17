@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ngg-kubernetes
+  namespace: ngd-ngg-demo
+spec:
+  completions: 4
+  parallelism: 4
+  backoffLimit: 0
+  template:
+    metadata:
+      annotations:
+        scheduling.demo.ngg.io/node-group-demand: kubernetes
+      labels:
+        demo.ngg/workload: kubernetes
+    spec:
+      schedulerName: ngg-scheduler
+      restartPolicy: Never
+      containers:
+      - name: worker
+        # 复用 Demo 已加载到所有 Kind Node 的本地镜像，避免外网拉取影响调度验证。
+        image: ngd-ngg-algorithm:v0.3.0
+        imagePullPolicy: IfNotPresent
+        command: ["python3", "-c", "import socket,time; print('running on', socket.gethostname()); time.sleep(300)"]
+        resources:
+          requests: {cpu: 100m, memory: 64Mi}
+          limits: {cpu: 200m, memory: 128Mi}

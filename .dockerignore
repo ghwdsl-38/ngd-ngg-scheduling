@@ -1,0 +1,17 @@
+.cache
+archive
+__pycache__
+*.pyc
+results
+images
+tests
+docs
+plugin
+patches
+kind
+config
+manifests
+scripts
+*.md
+.git
+.gitignore

@@ -1,0 +1,21 @@
+diff --git a/pkg/scheduler/plugins/factory.go b/pkg/scheduler/plugins/factory.go
+index 78ace4b..e26dd57 100644
+--- a/pkg/scheduler/plugins/factory.go
++++ b/pkg/scheduler/plugins/factory.go
+@@ -31,6 +31,7 @@ import (
+ 	"volcano.sh/volcano/pkg/scheduler/plugins/extender"
+ 	"volcano.sh/volcano/pkg/scheduler/plugins/gang"
+ 	networktopologyaware "volcano.sh/volcano/pkg/scheduler/plugins/network-topology-aware"
++	"volcano.sh/volcano/pkg/scheduler/plugins/nodegroupgrant"
+ 	"volcano.sh/volcano/pkg/scheduler/plugins/nodegroup"
+ 	"volcano.sh/volcano/pkg/scheduler/plugins/nodeorder"
+ 	"volcano.sh/volcano/pkg/scheduler/plugins/numaaware"
+@@ -52,6 +53,7 @@ func init() {
+ 	framework.RegisterPluginBuilder(predicates.PluginName, predicates.New)
+ 	framework.RegisterPluginBuilder(priority.PluginName, priority.New)
+ 	framework.RegisterPluginBuilder(nodeorder.PluginName, nodeorder.New)
++	framework.RegisterPluginBuilder(nodegroupgrant.PluginName, nodegroupgrant.New)
+ 	framework.RegisterPluginBuilder(conformance.PluginName, conformance.New)
+ 	framework.RegisterPluginBuilder(binpack.PluginName, binpack.New)
+ 	framework.RegisterPluginBuilder(resourcestrategyfit.PluginName, resourcestrategyfit.New)
+

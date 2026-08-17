@@ -1,0 +1,12 @@
+{
+  "balanced-v1": {
+    "resourceWeight": 0.4,
+    "loadWeight": 0.6,
+    "topologyWeight": 0.15
+  },
+  "resource-only": {
+    "resourceWeight": 1.0,
+    "loadWeight": 0.0,
+    "topologyWeight": 0.15
+  }
+}

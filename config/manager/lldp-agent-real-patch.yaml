@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: lldp-agent
+  namespace: ngd-ngg-system
+spec:
+  template:
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: lldp-agent
+        env:
+        - name: COLLECTION_MODE
+          value: LLDP
+        - name: LLDP_LISTEN_SECONDS
+          value: "35"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+            add: ["NET_RAW"]

@@ -1,0 +1,642 @@
+#!/usr/bin/env python3
+"""Run a real HTTP demo of Algorithm API Server with 1,000 simulated Nodes."""
+
+from __future__ import annotations
+
+import copy
+import hashlib
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+
+
+DEMO_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = DEMO_DIR.parents[1]
+RESULTS_DIR = Path(
+    os.getenv(
+        "ALGORITHM_1000_RESULTS_DIR",
+        str(PROJECT_ROOT / "results" / "algorithm-1000-nodes"),
+    )
+)
+ALGORITHM_IMAGE = os.getenv(
+    "ALGORITHM_IMAGE",
+    "ngd-ngg-algorithm:v0.3.0",
+)
+NODE_COUNT = 1_000
+CORE_COUNT = 4
+LEAVES_PER_CORE = 25
+NODES_PER_LEAF = 10
+
+
+def canonical_hash(value: Any) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def build_demo_data() -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    list[dict[str, Any]],
+    dict[str, dict[str, float]],
+]:
+    nodes: list[dict[str, Any]] = []
+    usage_states: list[dict[str, Any]] = []
+    metrics: dict[str, dict[str, float]] = {}
+    cores: dict[str, dict[str, Any]] = {}
+
+    for node_number in range(1, NODE_COUNT + 1):
+        zero_based = node_number - 1
+        leaf_number = zero_based // NODES_PER_LEAF + 1
+        position = zero_based % NODES_PER_LEAF + 1
+        core_number = (leaf_number - 1) // LEAVES_PER_CORE + 1
+        node_name = f"worker-{node_number:04d}"
+        node_uid = f"uid-worker-{node_number:04d}"
+        core_id = f"core-{core_number:02d}"
+        leaf_id = f"leaf-{leaf_number:03d}"
+
+        bandwidth = (25, 40, 50, 100)[(leaf_number - 1) % 4]
+        latency = (4.0, 2.5, 1.5, 0.8)[(leaf_number - 1) % 4]
+        nodes.append(
+            {
+                "nodeName": node_name,
+                "nodeUID": node_uid,
+                "allocatable": {
+                    "cpu": "32",
+                    "memory": "128Gi",
+                    "nvidia.com/gpu": "4",
+                },
+                "labels": {
+                    "demo.ngg/worker": "true",
+                    "demo.ngg/core": core_id,
+                    "demo.ngg/leaf": leaf_id,
+                },
+                "topology": {
+                    "coreSwitchId": core_id,
+                    "leafSwitchId": leaf_id,
+                    "bandwidthGbps": bandwidth,
+                    "latencyMillis": latency,
+                },
+            }
+        )
+
+        # 每 5 个节点模拟 1 个正被其他任务占用的节点，共 200 个。
+        usage_states.append(
+            {
+                "nodeUID": node_uid,
+                "inUse": node_number % 5 == 0,
+            }
+        )
+
+        # 生成确定性的 CPU/内存利用率，便于重复演示得到稳定排序。
+        cpu = round(
+            0.08 + ((leaf_number * 13 + position * 7) % 65) / 100,
+            3,
+        )
+        memory = round(
+            0.10 + ((leaf_number * 11 + position * 5) % 60) / 100,
+            3,
+        )
+        metrics[node_name] = {
+            "cpuUsageRatio": min(cpu, 0.95),
+            "memoryUsageRatio": min(memory, 0.95),
+        }
+
+        core = cores.setdefault(
+            core_id,
+            {"coreSwitchId": core_id, "leafSwitches": {}},
+        )
+        leaf = core["leafSwitches"].setdefault(
+            leaf_id,
+            {
+                "leafSwitchId": leaf_id,
+                "bandwidthGbps": bandwidth,
+                "latencyMillis": latency,
+                "nodeNames": [],
+            },
+        )
+        leaf["nodeNames"].append(node_name)
+
+    topology = {
+        "model": "core-leaf-node",
+        "coreSwitchCount": CORE_COUNT,
+        "leafSwitchCount": CORE_COUNT * LEAVES_PER_CORE,
+        "nodeCount": NODE_COUNT,
+        "cores": [
+            {
+                "coreSwitchId": core["coreSwitchId"],
+                "leafSwitches": [
+                    core["leafSwitches"][leaf_id]
+                    for leaf_id in sorted(core["leafSwitches"])
+                ],
+            }
+            for core_id, core in sorted(cores.items())
+        ],
+    }
+    static_snapshot = {
+        "clusterId": "algorithm-1000-node-demo",
+        "topologyVersion": "core-leaf-node-v1",
+        "nodes": nodes,
+    }
+    return static_snapshot, topology, usage_states, metrics
+
+
+class MockPrometheusHandler(BaseHTTPRequestHandler):
+    metrics: dict[str, dict[str, float]] = {}
+    query_count = 0
+
+    def do_GET(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path != "/api/v1/query":
+            self.send_error(404)
+            return
+
+        query = urllib.parse.parse_qs(parsed.query).get("query", [""])[0]
+        field = (
+            "cpuUsageRatio"
+            if "cpu" in query.lower()
+            else "memoryUsageRatio"
+        )
+        timestamp = int(time.time())
+        result = [
+            {
+                "metric": {"node": node_name},
+                "value": [timestamp, str(values[field])],
+            }
+            for node_name, values in sorted(self.metrics.items())
+        ]
+        payload = json.dumps(
+            {
+                "status": "success",
+                "data": {
+                    "resultType": "vector",
+                    "result": result,
+                },
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        type(self).query_count += 1
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, _format: str, *args: Any) -> None:
+        del args
+
+
+def start_mock_prometheus(
+    metrics: dict[str, dict[str, float]],
+) -> tuple[ThreadingHTTPServer, threading.Thread]:
+    MockPrometheusHandler.metrics = metrics
+    MockPrometheusHandler.query_count = 0
+    server = ThreadingHTTPServer(
+        ("0.0.0.0", 0),
+        MockPrometheusHandler,
+    )
+    thread = threading.Thread(
+        target=server.serve_forever,
+        name="mock-prometheus",
+        daemon=True,
+    )
+    thread.start()
+    return server, thread
+
+
+def free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
+
+
+def docker(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["docker", *arguments],
+        check=check,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+
+def start_algorithm_container(prometheus_port: int) -> tuple[str, int]:
+    if shutil.which("docker") is None:
+        raise RuntimeError("缺少 docker，请先安装 Docker")
+    inspected = docker(
+        "image",
+        "inspect",
+        ALGORITHM_IMAGE,
+        check=False,
+    )
+    if inspected.returncode != 0:
+        raise RuntimeError(
+            f"未找到镜像 {ALGORITHM_IMAGE}，请先运行 make algorithm-image"
+        )
+
+    api_port = free_port()
+    container_name = f"algorithm-1000-demo-{os.getpid()}"
+    result = docker(
+        "run",
+        "--detach",
+        "--rm",
+        "--name",
+        container_name,
+        "--add-host",
+        "host.docker.internal:host-gateway",
+        "--publish",
+        f"127.0.0.1:{api_port}:8080",
+        "--env",
+        f"PROMETHEUS_URL=http://host.docker.internal:{prometheus_port}",
+        "--env",
+        "PROMETHEUS_REFRESH_SECONDS=1",
+        "--env",
+        "PROMETHEUS_STALE_SECONDS=60",
+        "--env",
+        "PROMETHEUS_REQUEST_TIMEOUT_SECONDS=5",
+        ALGORITHM_IMAGE,
+    )
+    if not result.stdout.strip():
+        raise RuntimeError("Algorithm 容器启动失败")
+    return container_name, api_port
+
+
+def http_json(
+    method: str,
+    url: str,
+    payload: dict[str, Any] | None = None,
+    timeout: float = 10,
+) -> dict[str, Any]:
+    body = (
+        json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        if payload is not None
+        else None
+    )
+    request = urllib.request.Request(
+        url,
+        data=body,
+        method=method,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"{method} {url} 返回 HTTP {exc.code}: {detail}"
+        ) from exc
+
+
+def wait_for_api(base_url: str, timeout_seconds: float = 30) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    last_error = ""
+    while time.monotonic() < deadline:
+        try:
+            if http_json("GET", f"{base_url}/healthz")["status"] == "ok":
+                return
+        except Exception as exc:
+            last_error = str(exc)
+        time.sleep(0.2)
+    raise RuntimeError(f"等待 Algorithm API 超时: {last_error}")
+
+
+def wait_for_metrics(
+    base_url: str,
+    expected_nodes: int,
+    timeout_seconds: float = 30,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout_seconds
+    last_status: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        last_status = http_json(
+            "GET",
+            f"{base_url}/internal/v1/cache/status",
+        )
+        metrics = last_status["metrics"]
+        if (
+            metrics["ready"]
+            and not metrics["degraded"]
+            and metrics["nodeCount"] == expected_nodes
+        ):
+            return last_status
+        time.sleep(0.2)
+    raise RuntimeError(
+        "Prometheus 指标缓存未就绪: "
+        + json.dumps(last_status, ensure_ascii=False)
+    )
+
+
+def write_json(name: str, value: Any) -> None:
+    path = RESULTS_DIR / name
+    path.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def build_request(
+    snapshot_id: str,
+    usage_states: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "requestId": "algorithm-1000-request-1",
+        "taskUID": "task-algorithm-1000",
+        "ngdUID": "ngd-algorithm-1000",
+        "ngdGeneration": 1,
+        "nodeStaticSnapshotId": snapshot_id,
+        "podSets": [
+            {
+                "name": "distributed-workers",
+                "replicas": 32,
+                "minAvailable": 32,
+                "resourcesPerPod": {
+                    "cpu": "4",
+                    "memory": "8Gi",
+                    "nvidia.com/gpu": "1",
+                },
+            }
+        ],
+        "nodeRequirements": {
+            "nodeSelector": {"demo.ngg/worker": "true"}
+        },
+        "nodeUsageStates": usage_states,
+        "algorithms": [
+            {
+                "name": "requirement",
+                "version": "v1",
+                "parameters": {"requiredDistinctNodes": 6},
+            },
+            {
+                "name": "topology",
+                "version": "v1",
+                "parameters": {
+                    "strategy": "NarrowestFit",
+                    "widestAllowedLevel": "coreSwitch",
+                    "requiredDistinctNodes": 6,
+                },
+            },
+            {
+                "name": "loadbalance",
+                "version": "v1",
+                "parameters": {
+                    "profile": "balanced-v1",
+                    "requireMetrics": True,
+                },
+            },
+        ],
+        "maxCandidateGroups": 3,
+    }
+
+
+def verify_response(
+    response: dict[str, Any],
+    snapshot_id: str,
+    forbidden_group: str = "",
+) -> None:
+    assert response["status"] == "SUCCESS", response
+    assert response["nodeStaticSnapshotId"] == snapshot_id
+    assert response["metricsSnapshotId"] != "metrics-disabled"
+    assert response["degraded"] is False
+    candidates = response["candidateNodeGroups"]
+    assert len(candidates) == 3
+    assert [item["rank"] for item in candidates] == [1, 2, 3]
+    scores = [item["groupScore"] for item in candidates]
+    assert scores == sorted(scores, reverse=True)
+    assert all(item["topologyLevel"] == "leafSwitch" for item in candidates)
+    if forbidden_group:
+        assert forbidden_group not in {
+            item["groupId"] for item in candidates
+        }
+
+
+def candidate_summary(response: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "rank": item["rank"],
+            "groupId": item["groupId"],
+            "topologyLevel": item["topologyLevel"],
+            "groupScore": item["groupScore"],
+            "availableNodeCount": len(item["nodes"]),
+        }
+        for item in response["candidateNodeGroups"]
+    ]
+
+
+def main() -> int:
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    (
+        static_snapshot,
+        topology,
+        usage_states,
+        metrics,
+    ) = build_demo_data()
+    snapshot_id = canonical_hash(static_snapshot)
+    unavailable_count = sum(
+        1 for item in usage_states if item["inUse"]
+    )
+
+    write_json(
+        "node-static-snapshot.json",
+        {
+            "snapshotId": snapshot_id,
+            **static_snapshot,
+        },
+    )
+    write_json("topology.json", topology)
+    write_json(
+        "prometheus-metrics.json",
+        {
+            "source": "mock-prometheus-http-api",
+            "nodeCount": len(metrics),
+            "nodes": metrics,
+        },
+    )
+    write_json(
+        "node-dynamic-state.json",
+        {
+            "scope": "request",
+            "nodeCount": len(usage_states),
+            "inUseCount": unavailable_count,
+            "nodes": usage_states,
+        },
+    )
+
+    prometheus, prometheus_thread = start_mock_prometheus(metrics)
+    container_name = ""
+    started_at = time.perf_counter()
+    try:
+        prometheus_port = int(prometheus.server_address[1])
+        container_name, api_port = start_algorithm_container(
+            prometheus_port
+        )
+        base_url = f"http://127.0.0.1:{api_port}"
+        wait_for_api(base_url)
+        cache_status = wait_for_metrics(base_url, NODE_COUNT)
+
+        encoded_id = urllib.parse.quote(snapshot_id, safe="")
+        static_ack = http_json(
+            "PUT",
+            (
+                f"{base_url}/internal/v1/node-static-snapshots/"
+                f"{encoded_id}"
+            ),
+            static_snapshot,
+            timeout=30,
+        )
+        assert static_ack["nodeCount"] == NODE_COUNT
+        assert static_ack["snapshotId"] == snapshot_id
+        cache_status = http_json(
+            "GET",
+            f"{base_url}/internal/v1/cache/status",
+        )
+        assert cache_status["nodeStatic"]["ready"] is True
+        assert (
+            cache_status["nodeStatic"]["nodeCount"] == NODE_COUNT
+        )
+
+        first_request = build_request(snapshot_id, usage_states)
+        write_json("allocation-request-1.json", first_request)
+        first_response = http_json(
+            "POST",
+            f"{base_url}/api/v1/allocate",
+            first_request,
+            timeout=30,
+        )
+        verify_response(first_response, snapshot_id)
+        write_json("allocation-response-1.json", first_response)
+
+        # 把第一候选叶交换机中的可用节点全部标为占用，验证动态状态
+        # 不进入跨请求缓存，并且第二次请求会重新过滤该候选组。
+        first_group = first_response["candidateNodeGroups"][0]
+        newly_busy = {
+            item["nodeUID"] for item in first_group["nodes"]
+        }
+        second_request = copy.deepcopy(first_request)
+        second_request["requestId"] = "algorithm-1000-request-2"
+        for item in second_request["nodeUsageStates"]:
+            if item["nodeUID"] in newly_busy:
+                item["inUse"] = True
+        write_json("allocation-request-2.json", second_request)
+        second_response = http_json(
+            "POST",
+            f"{base_url}/api/v1/allocate",
+            second_request,
+            timeout=30,
+        )
+        verify_response(
+            second_response,
+            snapshot_id,
+            forbidden_group=first_group["groupId"],
+        )
+        write_json("allocation-response-2.json", second_response)
+
+        elapsed_ms = round(
+            (time.perf_counter() - started_at) * 1000,
+            2,
+        )
+        summary = {
+            "status": "PASS",
+            "algorithmImage": ALGORITHM_IMAGE,
+            "elapsedMilliseconds": elapsed_ms,
+            "staticSnapshotId": snapshot_id,
+            "staticNodeCount": len(static_snapshot["nodes"]),
+            "topology": {
+                "levels": ["coreSwitch", "leafSwitch", "node"],
+                "coreSwitchCount": CORE_COUNT,
+                "leafSwitchCount": CORE_COUNT * LEAVES_PER_CORE,
+                "nodeCount": NODE_COUNT,
+            },
+            "prometheus": {
+                "nodeMetricCount": len(metrics),
+                "queryCount": MockPrometheusHandler.query_count,
+                "metricsSnapshotId": first_response[
+                    "metricsSnapshotId"
+                ],
+                "degraded": first_response["degraded"],
+            },
+            "dynamicState": {
+                "request1InUseCount": unavailable_count,
+                "request2InUseCount": unavailable_count
+                + len(newly_busy),
+                "requestScoped": True,
+            },
+            "request1Candidates": candidate_summary(first_response),
+            "request2Candidates": candidate_summary(second_response),
+            "removedAfterDynamicStateChange": first_group["groupId"],
+            "cacheStatus": cache_status,
+        }
+        write_json("demo-summary.json", summary)
+
+        print("Algorithm API Server 1000 节点独立演示：PASS")
+        print(
+            f"静态节点={NODE_COUNT}，Core={CORE_COUNT}，"
+            f"Leaf={CORE_COUNT * LEAVES_PER_CORE}"
+        )
+        print(
+            f"Prometheus节点指标={len(metrics)}，"
+            f"查询次数={MockPrometheusHandler.query_count}"
+        )
+        print(
+            "第一次Top-3="
+            + " -> ".join(
+                item["groupId"]
+                for item in first_response["candidateNodeGroups"]
+            )
+        )
+        print(
+            f"标记 {first_group['groupId']} 为占用后，第二次Top-3="
+            + " -> ".join(
+                item["groupId"]
+                for item in second_response["candidateNodeGroups"]
+            )
+        )
+        print(f"结果目录：{RESULTS_DIR}")
+        return 0
+    finally:
+        if container_name:
+            logs = docker(
+                "logs",
+                container_name,
+                check=False,
+            ).stdout
+            (RESULTS_DIR / "algorithm-server.log").write_text(
+                logs,
+                encoding="utf-8",
+            )
+            docker(
+                "stop",
+                "--time",
+                "3",
+                container_name,
+                check=False,
+            )
+        prometheus.shutdown()
+        prometheus.server_close()
+        prometheus_thread.join(timeout=3)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (AssertionError, RuntimeError) as exc:
+        print(f"Algorithm API Server 1000 节点独立演示：FAIL: {exc}", file=sys.stderr)
+        raise SystemExit(1)
