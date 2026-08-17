@@ -2,7 +2,7 @@
 
 本工程验证“任务级节点组划分 + Pod 级调度”的完整闭环，并同时支持 VolcanoJob 和 Kubernetes Job。
 
-- 第一层：Go PRC 读取 NGD、Node、Pod 和 NNT，调用 Go Algorithm API Server；Go 负责 HTTP、静态/Prometheus 缓存和编排，单一 Python Worker 只执行算法函数，生成最多 3 个有序候选组的 NGG；
+- 第一层：Go PRC 读取 NGD、Node、Pod 和三层拓扑 Label，调用 Go Algorithm API Server；Go 负责 HTTP、静态/Prometheus 缓存和编排，单一 Python Worker 只执行算法函数，生成最多 3 个有序候选组的 NGG；
 - 第二层：Volcano 插件或自定义 kube-scheduler 插件只允许当前 `activeGroupRef` 中的 Node；
 - 当前组超时且零 Pod 绑定时，PRC 按 Algorithm 原顺序切到下一组；
 - 任意任务 Pod 首次绑定后立即锁组，同一 NGD generation 不再跨组；
@@ -12,10 +12,11 @@
 
 ```mermaid
 flowchart TB
-    NODE[9个Kind Worker] -->|模拟标签或真实LLDP帧| LLDP[LLDP Agent DaemonSet]
-    LLDP -->|创建并更新| NNT[NodeNetworkTopology CR]
-    KAPI[Kubernetes API Server] -->|Watch NGD / Node / Pod / NNT| PRC[Go PRC<br/>Kubebuilder + controller-runtime]
-    NNT --> KAPI
+    STATIC[Leaf到Border到Core静态JSON] -->|ConfigMap挂载| LLDP[Go LLDP Agent DaemonSet]
+    NODE[9个Kind Worker] -->|模拟种子或真实LLDP帧<br/>取得Node到Leaf| LLDP
+    LLDP -->|持久化Leaf/Border/Core| LABEL[Node Labels]
+    LABEL --> KAPI[Kubernetes API Server]
+    KAPI -->|Watch NGD / Node / Pod| PRC[Go PRC<br/>Kubebuilder + controller-runtime]
     NGD[NodeGroupDemand] --> KAPI
     PRC -->|内容Hash标识的静态快照| ALG[Go Algorithm API Server<br/>HTTP + 缓存 + 编排]
     PRC -->|每任务Node使用状态，不在Algorithm缓存| ALG
@@ -52,7 +53,8 @@ Kind 拓扑为 1 个 Control Plane 和 9 个 Worker：
 - `prc/`：正式 Go PRC，包含 controller-runtime Manager、Watch、Snapshot、Algorithm Client 和 NGG 状态机；
 - `algorithm_server/`：Go Algorithm 主进程，负责 HTTP、Hash 静态缓存、Prometheus 缓存、动态状态适配和 Python Worker 生命周期；
 - `algorithm_api_server/`：Python 算法 Worker 及算法模块；旧 FastAPI 入口只作为迁移期兼容/单元测试代码，不再是镜像入口；
-- `src/ngd_ngg_demo/`：保留的 Python legacy PRC、LLDP Agent 和公共领域逻辑；
+- `topology_agent/`：Go LLDP 采集、静态三层拓扑解析、Node Watch 和 Label 持久化；
+- `src/ngd_ngg_demo/`：保留的 Python legacy PRC/LLDP 对照实现和公共领域逻辑，不作为当前镜像入口；
 - `plugin/nodegroupgrant/`：Volcano NGG 插件；
 - `plugin/kubescheduler/`：kube-scheduler NGG 插件及自定义 scheduler 注册入口；
 - `config/crd/`：NGD、NGG、NNT CRD；
@@ -63,7 +65,7 @@ Kind 拓扑为 1 个 Control Plane 和 9 个 Worker：
 - `manifests/kubernetes-*`：Kubernetes Job 演示；
 - `scripts/08-run-demo.sh`：Volcano Top-3、超时切组和锁组验收；
 - `scripts/09-run-kubernetes-demo.sh`：kube-scheduler Fail Closed 和绑定验收；
-- `results/generated-ngg-v2/`：实跑导出的 NGD、NGG 和 NNT YAML。
+- `results/generated-ngg-v2/`：实跑导出的 NGD、NGG、三层拓扑 Node YAML 和旧 NNT 对照 YAML。
 
 ## 从零运行
 
@@ -123,7 +125,7 @@ make kube-scheduler
 images/
 ├── ngd-ngg-prc-v0.3.0.tar
 ├── ngd-ngg-algorithm-v0.4.0.tar
-├── ngd-ngg-lldp-agent-v0.1.0.tar
+├── ngd-ngg-lldp-agent-v0.2.0.tar
 ├── volcano-ngg-scheduler-v1.15.0.tar
 └── ngg-kube-scheduler-v1.35.3.tar
 ```
@@ -137,7 +139,7 @@ PRC 和自定义 kube-scheduler 都使用 Go 1.25 构建，Kubernetes 依赖锁�
 - Go PRC 测试通过；主机没有 Go 时，测试脚本自动使用 `golang:1.25-alpine`，依赖缓存写入数据盘 `.cache/`；
 - Go Algorithm v0.4.0 镜像构建成功；`/healthz`、`/readyz`、Go 静态/Prometheus 缓存、Python Worker、新 `/api/v1/allocate` 和旧 PRC 兼容接口均完成真实容器测试；
 - Volcano 和 kube-scheduler 插件测试通过；
-- LLDP Agent DaemonSet `9/9 Ready`，能够自动生成 9 个 NNT；
+- Go LLDP Agent DaemonSet `9/9 Ready`，9 个 Worker 均写入 Leaf/Border/Core、带宽、时延、来源和拓扑版本 Label；
 - Prometheus、kube-state-metrics 和 9 个 Worker 上的 node-exporter 正常运行；Algorithm 指标缓存包含 9 个 Node，`degraded=false`；
 - Volcano 路径返回 `switch-c → switch-a → switch-b`，阻塞 switch-c 后切到 switch-a，4 个 Pod 绑定并锁组；
 - Kubernetes Job 在没有 NGG 时 4 个 Pod 全部 Pending；创建 NGD/NGG 后 4 个 Pod 只落在 activeGroup 并进入 Running；
@@ -163,4 +165,4 @@ Kind 集群已部署 Prometheus、kube-state-metrics 和 node-exporter。node-ex
 
 新接口使用 `nodeUsageStates[].inUse`。当前 Go PRC 尚未切换该字段，因此 Algorithm 暂时保留 `/api/v1/node-groups/calculate` 和旧 `schedulerState` 请求适配；这条兼容路径只用于项目平滑衔接，后续修改 PRC 后可删除。
 
-Kind 使用 LLDP Agent 的 `Simulated` 模式；物理集群可用 `config/manager/lldp-agent-real-patch.yaml` 切为真实 `0x88CC` 监听。真实网卡、交换机命名和 NET_RAW 权限仍需在目标物理网络验证。
+Kind 使用 Go LLDP Agent 的 `Simulated` 模式；物理集群可用 `config/manager/lldp-agent-real-patch.yaml` 切为真实 `0x88CC` 监听。Agent 使用 Cobra CLI，启动时优先从 Node Label 恢复内存状态；仅在 Label 不完整时采集 Node→Leaf，再与 ConfigMap 中 Leaf→Border→Core 静态 JSON 合并并 Patch Node。PRC 优先读取 Label，旧 NNT 仅作为迁移回退。真实网卡、交换机命名和 NET_RAW 权限仍需在目标物理网络验证。

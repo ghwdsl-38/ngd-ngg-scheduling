@@ -16,13 +16,7 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["nodes"]
-  verbs: ["get"]
-- apiGroups: ["scheduling.demo.ngg.io"]
-  resources: ["nodenetworktopologies"]
-  verbs: ["get", "create", "update", "patch"]
-- apiGroups: ["scheduling.demo.ngg.io"]
-  resources: ["nodenetworktopologies/status"]
-  verbs: ["get", "update", "patch"]
+  verbs: ["get", "list", "watch", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

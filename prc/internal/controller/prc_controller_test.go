@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -114,5 +115,33 @@ func TestNestedNumberAcceptsKubernetesIntegerAndFloatRepresentations(t *testing.
 	}
 	if got := nestedNumber(object, "status", "latencyMillis"); got != 1.5 {
 		t.Fatalf("float latency decoded as %v", got)
+	}
+}
+
+func TestStaticSnapshotPrefersThreeLevelNodeLabels(t *testing.T) {
+	node := corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name: "worker-a", UID: types.UID("uid-a"), Labels: map[string]string{
+			"topology.demo.ngg.io/leaf-switch":      "leaf-a",
+			"topology.demo.ngg.io/border-switch":    "border-a",
+			"topology.demo.ngg.io/core-switch":      "core-0",
+			"topology.demo.ngg.io/bandwidth-gbps":   "25",
+			"topology.demo.ngg.io/latency-ms":       "1.5",
+			"topology.demo.ngg.io/topology-version": "leaf-border-core-v1",
+		},
+	}}
+	node.Status.Allocatable = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("64")}
+	_, snapshot, err := buildStaticSnapshot("demo", []corev1.Node{node}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Nodes) != 1 {
+		t.Fatalf("got %d Nodes", len(snapshot.Nodes))
+	}
+	topology := snapshot.Nodes[0].Topology
+	if topology.LeafSwitchID != "leaf-a" || topology.BorderSwitchID != "border-a" || topology.CoreSwitchID != "core-0" {
+		t.Fatalf("unexpected three-level topology: %#v", topology)
+	}
+	if snapshot.TopologyVersion != "leaf-border-core-v1" {
+		t.Fatalf("unexpected version %q", snapshot.TopologyVersion)
 	}
 }

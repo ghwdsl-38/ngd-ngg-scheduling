@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: check test algorithm-test algorithm-go-test algorithm-1000-test algorithm-integration-test algorithm-1000-demo kube-plugin-test load-images cluster volcano monitoring monitoring-check crds algorithm-image algorithm lldp-agent-image lldp-agent prc-image prc plugin-image plugin kube-scheduler-image kube-scheduler deploy deploy-prebuilt run run-kubernetes demo demo-prebuilt clean
+.PHONY: check test algorithm-test algorithm-go-test algorithm-1000-test algorithm-integration-test algorithm-1000-demo topology-go-test kube-plugin-test load-images cluster volcano monitoring monitoring-check crds algorithm-image algorithm lldp-agent-image lldp-agent prc-image prc plugin-image plugin kube-scheduler-image kube-scheduler deploy deploy-prebuilt run run-kubernetes demo demo-prebuilt clean
 
 check:
 	./scripts/00-check-env.sh
@@ -13,6 +13,9 @@ algorithm-test:
 
 algorithm-go-test:
 	docker run --rm -v "$(CURDIR)/algorithm_server:/workspace:ro" -w /workspace golang:1.25-alpine go test ./...
+
+topology-go-test:
+	docker run --rm -e GOPROXY=https://goproxy.cn,direct -v "$(CURDIR)/topology_agent:/workspace:ro" -w /workspace golang:1.25-alpine go test ./...
 
 algorithm-1000-test:
 	PYTHONPATH=algorithm_api_server python3 -m unittest discover -s tests -p 'test_algorithm_1000_nodes.py' -v

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,10 +25,12 @@ type staticNode struct {
 }
 
 type topology struct {
-	SwitchID      string  `json:"switchId"`
-	CoreSwitchID  string  `json:"coreSwitchId"`
-	BandwidthGbps float64 `json:"bandwidthGbps"`
-	LatencyMillis float64 `json:"latencyMillis"`
+	SwitchID       string  `json:"switchId"`
+	LeafSwitchID   string  `json:"leafSwitchId"`
+	BorderSwitchID string  `json:"borderSwitchId,omitempty"`
+	CoreSwitchID   string  `json:"coreSwitchId"`
+	BandwidthGbps  float64 `json:"bandwidthGbps"`
+	LatencyMillis  float64 `json:"latencyMillis"`
 }
 
 type staticSnapshot struct {
@@ -57,7 +60,7 @@ func buildStaticSnapshot(clusterID string, nodes []corev1.Node, topologies []uns
 		bandwidth := nestedNumber(item.Object, "status", "bandwidthGbps")
 		latency := nestedNumber(item.Object, "status", "latencyMillis")
 		version, _, _ := unstructured.NestedString(item.Object, "status", "topologyVersion")
-		byUID[uid] = topology{SwitchID: switchID, CoreSwitchID: coreSwitch, BandwidthGbps: bandwidth, LatencyMillis: latency}
+		byUID[uid] = topology{SwitchID: switchID, LeafSwitchID: switchID, CoreSwitchID: coreSwitch, BandwidthGbps: bandwidth, LatencyMillis: latency}
 		if version != "" {
 			versions[version] = struct{}{}
 		}
@@ -65,7 +68,12 @@ func buildStaticSnapshot(clusterID string, nodes []corev1.Node, topologies []uns
 	result := staticSnapshot{ClusterID: clusterID}
 	for i := range nodes {
 		node := &nodes[i]
-		topo, found := byUID[string(node.UID)]
+		topo, topologyVersion, found := topologyFromNodeLabels(node.Labels)
+		if found {
+			versions[topologyVersion] = struct{}{}
+		} else {
+			topo, found = byUID[string(node.UID)]
+		}
 		if !found {
 			continue
 		}
@@ -94,10 +102,33 @@ func buildStaticSnapshot(clusterID string, nodes []corev1.Node, topologies []uns
 		result.TopologyVersion = "unknown"
 	}
 	if len(result.Nodes) == 0 {
-		return "", result, fmt.Errorf("no Worker has a usable NodeNetworkTopology status")
+		return "", result, fmt.Errorf("no Worker has usable topology labels or NodeNetworkTopology status")
 	}
 	id, err := contentHash(result)
 	return id, result, err
+}
+
+func topologyFromNodeLabels(labels map[string]string) (topology, string, bool) {
+	const prefix = "topology.demo.ngg.io/"
+	leaf := labels[prefix+"leaf-switch"]
+	if leaf == "" {
+		leaf = labels[prefix+"switch"]
+	}
+	core := labels[prefix+"core-switch"]
+	version := labels[prefix+"topology-version"]
+	if leaf == "" || core == "" || version == "" {
+		return topology{}, "", false
+	}
+	bandwidth, bandwidthErr := strconv.ParseFloat(labels[prefix+"bandwidth-gbps"], 64)
+	latency, latencyErr := strconv.ParseFloat(labels[prefix+"latency-ms"], 64)
+	if bandwidthErr != nil || latencyErr != nil {
+		return topology{}, "", false
+	}
+	return topology{
+		SwitchID: leaf, LeafSwitchID: leaf,
+		BorderSwitchID: labels[prefix+"border-switch"], CoreSwitchID: core,
+		BandwidthGbps: bandwidth, LatencyMillis: latency,
+	}, version, true
 }
 
 func nestedNumber(object map[string]any, fields ...string) float64 {

@@ -119,7 +119,10 @@ kube -n "${DEMO_NAMESPACE}" get ngg ngg-topology -o yaml \
   >"${ngg_output_dir}/ngg-topology.yaml"
 kube -n "${DEMO_NAMESPACE}" get ngd topology -o yaml \
   >"${ngg_output_dir}/ngd-topology.yaml"
-kube get nnt -o yaml >"${ngg_output_dir}/node-network-topologies.yaml"
+kube get nodes -l demo.ngg/worker=true -o yaml \
+  >"${ngg_output_dir}/topology-labeled-nodes.yaml"
+# 迁移期仍导出旧 NNT，便于和 Node Label 新路径做对照。
+kube get nnt -o yaml >"${ngg_output_dir}/node-network-topologies-legacy.yaml"
 
 failed=0
 placement_lines=()
@@ -139,7 +142,7 @@ done < <(
 printf '%s\n' "${placement_lines[@]}" | tee "${RESULTS_DIR}/topology-placement.txt"
 
 {
-  kube get nodes -L topology.demo.ngg.io/switch
+  kube get nodes -L topology.demo.ngg.io/leaf-switch,topology.demo.ngg.io/border-switch,topology.demo.ngg.io/core-switch
   kube get nnt
   kube -n "${SYSTEM_NAMESPACE}" get daemonset/lldp-agent -o wide
   kube -n "${SYSTEM_NAMESPACE}" get pods -l app=ngd-ngg-lldp-agent -o wide
