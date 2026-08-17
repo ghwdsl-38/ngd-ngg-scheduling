@@ -6,26 +6,26 @@ check:
 	./scripts/00-check-env.sh
 
 test:
-	PYTHONPATH=algorithm_api_server:src python3 -m unittest discover -s tests -v
+	PYTHONPATH=algorithm_server/python:src python3 -m unittest discover -s tests -v
 
 algorithm-test:
-	PYTHONPATH=algorithm_api_server python3 -m unittest discover -s tests -p 'test_algorithm*.py' -v
+	PYTHONPATH=algorithm_server/python python3 -m unittest discover -s tests -p 'test_algorithm*.py' -v
 
 algorithm-go-test:
-	docker run --rm -v "$(CURDIR)/algorithm_server:/workspace:ro" -w /workspace golang:1.25-alpine go test ./...
+	docker run --rm -v "$(CURDIR)/algorithm_server/go:/workspace:ro" -w /workspace golang:1.25-alpine go test ./...
 
 topology-go-test:
 	docker run --rm -e GOPROXY=https://goproxy.cn,direct -v "$(CURDIR)/topology_agent:/workspace:ro" -w /workspace golang:1.25-alpine go test ./...
 
 algorithm-1000-test:
-	PYTHONPATH=algorithm_api_server python3 -m unittest discover -s tests -p 'test_algorithm_1000_nodes.py' -v
+	PYTHONPATH=algorithm_server/python python3 -m unittest discover -s tests -p 'test_algorithm_1000_nodes.py' -v
 
 algorithm-integration-test:
 	./scripts/10-test-algorithm-integration.sh
 
 algorithm-1000-demo:
 	docker build --tag "$${ALGORITHM_IMAGE:-ngd-ngg-algorithm:v0.4.0}" --file Dockerfile.algorithm .
-	PYTHONPATH=algorithm_api_server python3 algorithm_api_server/demo_1000_nodes/run_demo.py
+	PYTHONPATH=algorithm_server/python python3 algorithm_server/demo_1000_nodes/run_demo.py
 
 kube-plugin-test:
 	./scripts/06b-test-kubescheduler-plugin.sh

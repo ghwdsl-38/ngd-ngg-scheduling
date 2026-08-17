@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 cd "${ROOT_DIR}"
-PYTHONPATH=algorithm_api_server:src python3 -m unittest discover -s tests -p 'test_project_algorithm_contract.py' -v
+PYTHONPATH=algorithm_server/python:src python3 -m unittest discover -s tests -p 'test_project_algorithm_contract.py' -v
 
 if command -v go >/dev/null 2>&1; then
   (cd "${ROOT_DIR}/prc" && go test ./...)

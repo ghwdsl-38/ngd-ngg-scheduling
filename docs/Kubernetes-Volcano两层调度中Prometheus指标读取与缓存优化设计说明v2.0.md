@@ -69,7 +69,7 @@ Prometheus 指标不能覆盖这个结果。例如 CPU 实际利用率只有 10%
 实现文件为：
 
 ```text
-algorithm_api_server/algorithm_api_server/cache/metrics.py
+algorithm_server/python/algorithm_worker/cache/metrics.py
 ```
 
 缓存行为：

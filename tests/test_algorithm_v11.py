@@ -1,13 +1,13 @@
 import unittest
 
-from algorithm_api_server.pipeline import AlgorithmService as AlgorithmEngine
-from algorithm_api_server.errors import (
+from algorithm_worker.pipeline import AlgorithmService as AlgorithmEngine
+from algorithm_worker.errors import (
     InvalidAlgorithmOrder,
     RequiredMetricsNotReady,
     StaticSnapshotNotFound,
 )
-from algorithm_api_server.cache.metrics import MetricsCache
-from algorithm_api_server.cache.static_nodes import canonical_hash
+from algorithm_worker.cache.metrics import MetricsCache
+from algorithm_worker.cache.static_nodes import canonical_hash
 
 
 def node(name, leaf, core="core-1", bandwidth=10, latency=5):

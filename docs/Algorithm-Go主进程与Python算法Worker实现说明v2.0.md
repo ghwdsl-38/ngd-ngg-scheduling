@@ -32,7 +32,7 @@ Python 只实现算法。它不监听 HTTP、不访问 Kubernetes、不查询 Pr
 Go 与 Python 没有使用 cgo 或嵌入式解释器。Go 启动子进程：
 
 ```bash
-python3 -m algorithm_api_server.worker
+python3 -m algorithm_worker.worker
 ```
 
 双方使用标准输入/输出上的一行一个 JSON 消息。Go 每次传入已经解析好的静态快照、指标快照、动态状态和任务要求；Python 只返回候选组或结构化算法错误。
@@ -40,22 +40,29 @@ python3 -m algorithm_api_server.worker
 ## 3. 代码位置
 
 ```text
-algorithm_server/                     # Go 主进程
-├── main.go                            # 启动、路由、健康检查
-├── cache.go                           # 静态 current/previous Hash 缓存
-├── metrics.go                         # Prometheus 读取和指标缓存
-├── service.go                         # 请求适配、Worker 调用、响应构造
-├── worker.go                          # Python 子进程与 JSON Lines RPC
-├── types.go                           # 协议结构
-└── cache_test.go                      # 缓存与 1000 Node Go 测试
-
-algorithm_api_server/algorithm_api_server/
-├── worker.py                          # 唯一 Python 生产入口
-├── pipeline.py                        # 算法注册、阶段校验、Top-3
-└── algorithms/
-    ├── requirement.py
-    ├── topology.py
-    └── loadbalance.py
+algorithm_server/                       # Algorithm 统一目录
+├── go/                                 # Go 主进程
+│   ├── main.go                         # HTTP 启动和健康检查
+│   ├── cache.go                        # 静态 current/previous Hash 缓存
+│   ├── metrics.go                      # Prometheus 读取和指标缓存
+│   ├── service.go                      # 请求适配、Worker 调用、响应构造
+│   ├── worker.go                       # Python 子进程与 JSON Lines RPC
+│   ├── types.go                        # 协议结构
+│   └── cache_test.go                   # Go 缓存与 1000 Node 测试
+├── python/
+│   ├── requirements-legacy.txt         # 旧 FastAPI 对照测试依赖
+│   └── algorithm_worker/               # Python 包
+│       ├── worker.py                   # 唯一 Python 生产入口
+│       ├── pipeline.py                 # 算法注册、阶段校验、Top-3
+│       ├── algorithms/
+│       │   ├── requirement.py
+│       │   ├── topology.py
+│       │   └── loadbalance.py
+│       └── config/
+│           └── loadbalance_profiles.json
+├── demo_1000_nodes/
+│   └── run_demo.py
+└── README.md
 ```
 
 镜像由 `Dockerfile.algorithm` 多阶段构建：第一阶段编译静态 Go 二进制，第二阶段只放入 Python 解释器、算法包和 Go 二进制。容器入口为 `/app/algorithm-server`，版本为 `ngd-ngg-algorithm:v0.4.0`。

@@ -1,14 +1,14 @@
 FROM golang:1.25-alpine AS go-builder
-WORKDIR /src/algorithm_server
-COPY algorithm_server/go.mod ./go.mod
-COPY algorithm_server/*.go ./
+WORKDIR /src/algorithm_server/go
+COPY algorithm_server/go/go.mod ./go.mod
+COPY algorithm_server/go/*.go ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/algorithm-server .
 
 FROM python:3.13-alpine
 WORKDIR /app
-COPY algorithm_api_server /app/algorithm_api_server
+COPY algorithm_server/python /app/python
 COPY --from=go-builder /out/algorithm-server /app/algorithm-server
-ENV PYTHONPATH=/app/algorithm_api_server
+ENV PYTHONPATH=/app/python
 ENV PYTHONDONTWRITEBYTECODE=1
 USER 65532:65532
 ENTRYPOINT ["/app/algorithm-server"]

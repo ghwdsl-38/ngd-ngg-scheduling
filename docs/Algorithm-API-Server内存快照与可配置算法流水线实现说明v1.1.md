@@ -56,8 +56,8 @@ Algorithm API Server 负责接收 PRC 发来的任务计算请求，结合以下
 ```text
 ngd-ngg-scheduling-demo/
 ├── prc/
-├── algorithm_api_server/
-│   └── algorithm_api_server/
+├── algorithm_server/
+│   └── python/algorithm_worker/
 │       ├── __init__.py
 │       ├── app.py
 │       ├── models.py
@@ -788,8 +788,8 @@ Node 动态使用状态在每次请求中重新发送，因此不需要恢复动
 ## 13. 推荐代码结构
 
 ```text
-algorithm_api_server/
-└── algorithm_api_server/
+algorithm_server/
+└── python/algorithm_worker/
     ├── __init__.py
     ├── app.py
     ├── models.py

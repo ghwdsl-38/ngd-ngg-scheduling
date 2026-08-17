@@ -1,7 +1,7 @@
 import unittest
 
-from algorithm_api_server.cache.static_nodes import canonical_hash
-from algorithm_api_server.worker import AlgorithmWorker
+from algorithm_worker.cache.static_nodes import canonical_hash
+from algorithm_worker.worker import AlgorithmWorker
 
 
 class AlgorithmWorkerTests(unittest.TestCase):

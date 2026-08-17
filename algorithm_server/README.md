@@ -1,8 +1,8 @@
 # Algorithm API Server 说明（Go 主进程 + Python 算法 Worker）
 
-当前镜像版本为 `v0.4.0`。Algorithm 的 HTTP 主服务、静态快照缓存、Prometheus 缓存、请求适配和进程管理已经迁移到同级目录 `algorithm_server/`（Go）；本目录只保留 Python 算法实现、单一 Worker 入口以及迁移期兼容测试代码。
+当前镜像版本为 `v0.4.0`。本目录集中保存 Algorithm 的全部实现：`go/` 是 HTTP 主服务、静态快照缓存、Prometheus 缓存、请求适配和进程管理；`python/algorithm_worker/` 是 Python 算法、单一 Worker 入口以及迁移期兼容测试代码。
 
-Python 不再启动 FastAPI，也不保存跨请求缓存。镜像入口是 Go 二进制 `/app/algorithm-server`，它启动并管理唯一的 `python3 -m algorithm_api_server.worker` 子进程。旧 `app.py`、Python cache/service 模块暂时保留，用于兼容对照测试，不能视为当前部署入口。
+Python 不再启动 FastAPI，也不保存跨请求缓存。镜像入口是 Go 二进制 `/app/algorithm-server`，它启动并管理唯一的 `python3 -m algorithm_worker.worker` 子进程。旧 `app.py`、Python cache/service 模块暂时保留，用于兼容对照测试，不能视为当前部署入口。
 
 ## 1. 在整体系统中的位置
 
@@ -29,41 +29,45 @@ flowchart TB
 ## 2. 目录结构
 
 ```text
-algorithm_api_server/
+algorithm_server/
 ├── README.md
 ├── demo_1000_nodes/
 │   └── run_demo.py
-└── algorithm_api_server/
-    ├── app.py
-    ├── worker.py
-    ├── models.py
-    ├── pipeline.py
-    ├── context.py
-    ├── errors.py
-    ├── quantity.py
-    ├── cache/
-    │   ├── static_nodes.py
-    │   ├── scheduler_state.py
-    │   ├── metrics.py
-    │   └── snapshot_resolver.py
-    ├── collectors/
-    │   └── prometheus_collector.py
-    ├── services/
-    │   ├── node_view_builder.py
-    │   └── result_builder.py
-    ├── algorithms/
-    │   ├── requirement.py
-    │   ├── topology.py
-    │   └── loadbalance.py
-    └── config/
-        └── loadbalance_profiles.json
+├── go/
+│   ├── main.go
+│   ├── cache.go
+│   ├── metrics.go
+│   ├── service.go
+│   ├── worker.go
+│   ├── types.go
+│   └── cache_test.go
+└── python/
+    ├── requirements-legacy.txt
+    └── algorithm_worker/
+        ├── app.py
+        ├── worker.py
+        ├── models.py
+        ├── pipeline.py
+        ├── context.py
+        ├── errors.py
+        ├── quantity.py
+        ├── cache/
+        ├── collectors/
+        ├── services/
+        ├── algorithms/
+        │   ├── requirement.py
+        │   ├── topology.py
+        │   └── loadbalance.py
+        └── config/
+            └── loadbalance_profiles.json
 ```
 
 各模块职责：
 
 | 模块 | 职责 |
 |---|---|
-| `../algorithm_server/` | 当前 Go HTTP 主服务、缓存、Prometheus 采集、请求适配和 Worker 管理 |
+| `go/` | 当前 Go HTTP 主服务、缓存、Prometheus 采集、请求适配和 Worker 管理 |
+| `python/algorithm_worker/` | Python Worker 包及算法实现 |
 | `worker.py` | 当前 Python 进程入口；逐请求接收完整上下文，只执行算法流水线 |
 | `app.py` | 旧 FastAPI 兼容入口，不被 v0.4.0 镜像启动 |
 | `pipeline.py` | 注册并校验 Python 算法流水线；其中旧 Service 仅用于兼容单测 |

@@ -1,8 +1,8 @@
 import unittest
 
-from algorithm_api_server.pipeline import AlgorithmService as AlgorithmEngine
-from algorithm_api_server.cache.static_nodes import canonical_hash
-from algorithm_api_server.cache.metrics import MetricsCache
+from algorithm_worker.pipeline import AlgorithmService as AlgorithmEngine
+from algorithm_worker.cache.static_nodes import canonical_hash
+from algorithm_worker.cache.metrics import MetricsCache
 
 
 def static_node(name, switch_id, bandwidth, latency):

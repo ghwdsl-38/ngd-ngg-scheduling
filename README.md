@@ -51,8 +51,7 @@ Kind 拓扑为 1 个 Control Plane 和 9 个 Worker：
 ## 关键目录
 
 - `prc/`：正式 Go PRC，包含 controller-runtime Manager、Watch、Snapshot、Algorithm Client 和 NGG 状态机；
-- `algorithm_server/`：Go Algorithm 主进程，负责 HTTP、Hash 静态缓存、Prometheus 缓存、动态状态适配和 Python Worker 生命周期；
-- `algorithm_api_server/`：Python 算法 Worker 及算法模块；旧 FastAPI 入口只作为迁移期兼容/单元测试代码，不再是镜像入口；
+- `algorithm_server/`：Algorithm 完整实现目录；`go/` 负责 HTTP、缓存、Prometheus 与进程管理，`python/algorithm_worker/` 负责 Python 算法；
 - `topology_agent/`：Go LLDP 采集、静态三层拓扑解析、Node Watch 和 Label 持久化；
 - `src/ngd_ngg_demo/`：保留的 Python legacy PRC/LLDP 对照实现和公共领域逻辑，不作为当前镜像入口；
 - `plugin/nodegroupgrant/`：Volcano NGG 插件；

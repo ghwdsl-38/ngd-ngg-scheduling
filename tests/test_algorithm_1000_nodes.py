@@ -2,9 +2,9 @@ import copy
 import time
 import unittest
 
-from algorithm_api_server.cache.metrics import MetricsCache
-from algorithm_api_server.cache.static_nodes import canonical_hash
-from algorithm_api_server.pipeline import AlgorithmService
+from algorithm_worker.cache.metrics import MetricsCache
+from algorithm_worker.cache.static_nodes import canonical_hash
+from algorithm_worker.pipeline import AlgorithmService
 
 
 NODE_COUNT = 1_000

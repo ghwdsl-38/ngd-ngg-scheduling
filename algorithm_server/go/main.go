@@ -17,7 +17,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	python := env("PYTHON_EXECUTABLE", "python3")
-	module := env("PYTHON_WORKER_MODULE", "algorithm_api_server.worker")
+	module := env("PYTHON_WORKER_MODULE", "algorithm_worker.worker")
 	worker, err := startPythonWorker(ctx, python, "-m", module)
 	if err != nil {
 		log.Fatalf("start Python algorithm worker: %v", err)
