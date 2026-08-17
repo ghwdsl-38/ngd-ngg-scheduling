@@ -19,7 +19,7 @@ spec:
       containers:
       - name: worker
         # 复用 Demo 已加载到所有 Kind Node 的本地镜像，避免外网拉取影响调度验证。
-        image: ngd-ngg-algorithm:v0.3.0
+        image: ngd-ngg-algorithm:v0.4.0
         imagePullPolicy: IfNotPresent
         command: ["python3", "-c", "import socket,time; print('running on', socket.gethostname()); time.sleep(300)"]
         resources:

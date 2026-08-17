@@ -1,9 +1,14 @@
+FROM golang:1.25-alpine AS go-builder
+WORKDIR /src/algorithm_server
+COPY algorithm_server/go.mod ./go.mod
+COPY algorithm_server/*.go ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/algorithm-server .
+
 FROM python:3.13-alpine
 WORKDIR /app
-COPY algorithm-requirements.txt /app/algorithm-requirements.txt
-RUN pip install --no-cache-dir -r /app/algorithm-requirements.txt
 COPY algorithm_api_server /app/algorithm_api_server
+COPY --from=go-builder /out/algorithm-server /app/algorithm-server
 ENV PYTHONPATH=/app/algorithm_api_server
 ENV PYTHONDONTWRITEBYTECODE=1
 USER 65532:65532
-ENTRYPOINT ["python3", "-m", "uvicorn", "algorithm_api_server.app:app", "--host=0.0.0.0", "--port=8080", "--workers=1"]
+ENTRYPOINT ["/app/algorithm-server"]

@@ -1,26 +1,30 @@
-# Algorithm API Server 说明
+# Algorithm API Server 说明（Go 主进程 + Python 算法 Worker）
 
-本目录是 NGD/NGG 两层调度系统中的第一层算法服务。它不直接创建 Pod、不绑定 Node，也不写 NGG；它接收 PRC 提供的节点静态快照和任务级动态状态，读取并缓存 Prometheus 指标，执行可配置算法流水线，返回按分数排序的候选节点组。
+当前镜像版本为 `v0.4.0`。Algorithm 的 HTTP 主服务、静态快照缓存、Prometheus 缓存、请求适配和进程管理已经迁移到同级目录 `algorithm_server/`（Go）；本目录只保留 Python 算法实现、单一 Worker 入口以及迁移期兼容测试代码。
+
+Python 不再启动 FastAPI，也不保存跨请求缓存。镜像入口是 Go 二进制 `/app/algorithm-server`，它启动并管理唯一的 `python3 -m algorithm_api_server.worker` 子进程。旧 `app.py`、Python cache/service 模块暂时保留，用于兼容对照测试，不能视为当前部署入口。
 
 ## 1. 在整体系统中的位置
 
 ```mermaid
 flowchart TB
     K8S[Kubernetes API Server] -->|Node、Pod、NGD、NNT| PRC[PRC]
-    PRC -->|PUT：Node静态Hash快照| API[Algorithm API Server]
+    PRC -->|PUT：Node静态Hash快照| API[Go Algorithm API Server]
     PRC -->|POST：任务需求和Node动态状态| API
-    PROM[Prometheus] -->|周期拉取CPU和内存指标| API
-    API -->|Top-3候选组，按groupScore降序| PRC
+    PROM[Prometheus] -->|Go周期拉取CPU和内存指标| API
+    API -->|完整上下文/JSON Lines| WORKER[单一Python算法Worker]
+    WORKER -->|Top-3候选组| API
+    API -->|保持groupScore与排序| PRC
     PRC -->|创建或更新NGG| K8S
 ```
 
 数据边界如下：
 
-- Node 静态数据：由 PRC 上传，Algorithm 保存当前和前一个内容 Hash 快照。
+- Node 静态数据：由 PRC 上传，Go 保存当前和前一个内容 Hash 快照。
 - Node 动态数据：由 PRC 随每次任务请求发送，只在本次请求中使用，不跨请求缓存。
-- Prometheus 指标：由 Algorithm 自己周期读取，进程内保存当前和前一个有效快照。
+- Prometheus 指标：由 Go 自己周期读取，进程内保存当前和前一个有效快照。
 - 拓扑数据：位于静态 Node 的 `topology` 字段中，当前模型是 Core Switch → Leaf Switch → Node。
-- 输出：最多 3 个候选组；Algorithm 稳定排序，PRC 不修改分数和顺序。
+- 输出：Python 最多返回 3 个稳定排序候选组；Go 和 PRC 均不修改分数和顺序。
 
 ## 2. 目录结构
 
@@ -31,6 +35,7 @@ algorithm_api_server/
 │   └── run_demo.py
 └── algorithm_api_server/
     ├── app.py
+    ├── worker.py
     ├── models.py
     ├── pipeline.py
     ├── context.py
@@ -58,17 +63,15 @@ algorithm_api_server/
 
 | 模块 | 职责 |
 |---|---|
-| `app.py` | FastAPI 路由、生命周期和统一错误响应 |
-| `pipeline.py` | 装配缓存和服务，校验并执行算法流水线 |
+| `../algorithm_server/` | 当前 Go HTTP 主服务、缓存、Prometheus 采集、请求适配和 Worker 管理 |
+| `worker.py` | 当前 Python 进程入口；逐请求接收完整上下文，只执行算法流水线 |
+| `app.py` | 旧 FastAPI 兼容入口，不被 v0.4.0 镜像启动 |
+| `pipeline.py` | 注册并校验 Python 算法流水线；其中旧 Service 仅用于兼容单测 |
 | `context.py` | 保存一次调度计算中的数据和阶段结果 |
 | `models.py` | 算法阶段及插件协议 |
 | `errors.py` | 400、409、422、503 等业务错误 |
 | `quantity.py` | Kubernetes CPU、内存、扩展资源数量解析与装箱检查 |
-| `cache/static_nodes.py` | Hash 标识的当前/上一份 Node 静态快照 |
-| `cache/scheduler_state.py` | 校验请求携带的动态状态；不做跨请求缓存 |
-| `cache/metrics.py` | Prometheus 当前/上一份有效指标快照和降级状态 |
-| `cache/snapshot_resolver.py` | 为一次计算解析静态和指标快照 |
-| `collectors/prometheus_collector.py` | 调用 Prometheus instant query API |
+| `cache/*`、`collectors/*` | 旧 Python 对照实现和测试夹具；生产缓存/采集已由 Go 接管 |
 | `services/node_view_builder.py` | 合并静态 Node、动态占用状态和任务选择条件 |
 | `services/result_builder.py` | 构造新版响应及当前 PRC 使用的兼容响应 |
 | `algorithms/requirement.py` | FILTER：节点标签、资源和占用状态过滤 |

@@ -2,7 +2,7 @@
 
 本工程验证“任务级节点组划分 + Pod 级调度”的完整闭环，并同时支持 VolcanoJob 和 Kubernetes Job。
 
-- 第一层：Go PRC 读取 NGD、Node、Pod 和 NNT，调用 Python Algorithm API Server，生成最多 3 个有序候选组的 NGG；
+- 第一层：Go PRC 读取 NGD、Node、Pod 和 NNT，调用 Go Algorithm API Server；Go 负责 HTTP、静态/Prometheus 缓存和编排，单一 Python Worker 只执行算法函数，生成最多 3 个有序候选组的 NGG；
 - 第二层：Volcano 插件或自定义 kube-scheduler 插件只允许当前 `activeGroupRef` 中的 Node；
 - 当前组超时且零 Pod 绑定时，PRC 按 Algorithm 原顺序切到下一组；
 - 任意任务 Pod 首次绑定后立即锁组，同一 NGD generation 不再跨组；
@@ -17,11 +17,13 @@ flowchart TB
     KAPI[Kubernetes API Server] -->|Watch NGD / Node / Pod / NNT| PRC[Go PRC<br/>Kubebuilder + controller-runtime]
     NNT --> KAPI
     NGD[NodeGroupDemand] --> KAPI
-    PRC -->|内容Hash标识的静态快照| ALG[Python FastAPI<br/>Algorithm API Server]
+    PRC -->|内容Hash标识的静态快照| ALG[Go Algorithm API Server<br/>HTTP + 缓存 + 编排]
     PRC -->|每任务Node使用状态，不在Algorithm缓存| ALG
-    PROM[Prometheus] -->|后台周期查询| CACHE[Algorithm进程内指标缓存]
+    PROM[Prometheus] -->|Go后台周期查询| CACHE[Go进程内指标缓存]
     CACHE --> ALG
-    ALG -->|groupScore降序稳定Top-3| PRC
+    ALG -->|完整计算上下文/本地JSON-RPC| PY[单一Python算法Worker]
+    PY -->|groupScore降序稳定Top-3| ALG
+    ALG -->|保持算法原顺序| PRC
     PRC -->|写入候选组和唯一activeGroupRef| NGG[NodeGroupGrant CR]
     NGG --> V[Volcano NGG插件]
     NGG --> K[kube-scheduler NGG插件]
@@ -48,7 +50,8 @@ Kind 拓扑为 1 个 Control Plane 和 9 个 Worker：
 ## 关键目录
 
 - `prc/`：正式 Go PRC，包含 controller-runtime Manager、Watch、Snapshot、Algorithm Client 和 NGG 状态机；
-- `algorithm_api_server/`：与 `prc/` 同级的分层 FastAPI 服务，缓存、采集器、服务、算法和配置相互独立；
+- `algorithm_server/`：Go Algorithm 主进程，负责 HTTP、Hash 静态缓存、Prometheus 缓存、动态状态适配和 Python Worker 生命周期；
+- `algorithm_api_server/`：Python 算法 Worker 及算法模块；旧 FastAPI 入口只作为迁移期兼容/单元测试代码，不再是镜像入口；
 - `src/ngd_ngg_demo/`：保留的 Python legacy PRC、LLDP Agent 和公共领域逻辑；
 - `plugin/nodegroupgrant/`：Volcano NGG 插件；
 - `plugin/kubescheduler/`：kube-scheduler NGG 插件及自定义 scheduler 注册入口；
@@ -93,6 +96,9 @@ make monitoring-check # 检查 Prometheus 查询和 Algorithm 指标缓存
 
 ```bash
 make algorithm-test
+make algorithm-go-test
+make algorithm-1000-test
+make algorithm-1000-demo
 make algorithm-integration-test
 ```
 单独构建或部署：
@@ -116,7 +122,7 @@ make kube-scheduler
 ```text
 images/
 ├── ngd-ngg-prc-v0.3.0.tar
-├── ngd-ngg-algorithm-v0.3.0.tar
+├── ngd-ngg-algorithm-v0.4.0.tar
 ├── ngd-ngg-lldp-agent-v0.1.0.tar
 ├── volcano-ngg-scheduler-v1.15.0.tar
 └── ngg-kube-scheduler-v1.35.3.tar
@@ -126,10 +132,10 @@ PRC 和自定义 kube-scheduler 都使用 Go 1.25 构建，Kubernetes 依赖锁�
 
 ## 当前验证结果
 
-- Python 全项目 27 项测试通过，其中 Algorithm 独立测试 14 项；
+- Python 全项目 30 项测试通过，包含算法函数、单一 Worker、PRC 兼容契约和 1000 节点测试；
 - 新 Algorithm 与当前 PRC/NGG 协议衔接测试 3 项通过；
 - Go PRC 测试通过；主机没有 Go 时，测试脚本自动使用 `golang:1.25-alpine`，依赖缓存写入数据盘 `.cache/`；
-- 新 FastAPI 镜像构建成功，`/healthz`、`/readyz`、静态快照 PUT、新 `/api/v1/allocate` 和旧 PRC 兼容接口均完成真实容器测试；
+- Go Algorithm v0.4.0 镜像构建成功；`/healthz`、`/readyz`、Go 静态/Prometheus 缓存、Python Worker、新 `/api/v1/allocate` 和旧 PRC 兼容接口均完成真实容器测试；
 - Volcano 和 kube-scheduler 插件测试通过；
 - LLDP Agent DaemonSet `9/9 Ready`，能够自动生成 9 个 NNT；
 - Prometheus、kube-state-metrics 和 9 个 Worker 上的 node-exporter 正常运行；Algorithm 指标缓存包含 9 个 Node，`degraded=false`；
@@ -151,7 +157,7 @@ PRC 和自定义 kube-scheduler 都使用 Go 1.25 构建，Kubernetes 依赖锁�
 
 ## Prometheus 和 LLDP 边界
 
-Kind 集群已部署 Prometheus、kube-state-metrics 和 node-exporter。node-exporter 只运行在 9 个 Worker 上；Prometheus 同时采集这 9 个 Worker 的主机指标、10 个 Kubernetes Node 的对象状态以及 kubelet/cAdvisor 指标。Algorithm 通过集群内地址 `http://prometheus.monitoring.svc.cluster.local:9090` 每 30 秒查询 CPU、内存利用率并保存进程内快照，不使用 Redis、Kafka或跨 Pod 共享内存。调度请求读取该快照参与评分；Prometheus 暂时不可用时保留最后一次有效快照并标记 degraded。
+Kind 集群已部署 Prometheus、kube-state-metrics 和 node-exporter。node-exporter 只运行在 9 个 Worker 上；Prometheus 同时采集这 9 个 Worker 的主机指标、10 个 Kubernetes Node 的对象状态以及 kubelet/cAdvisor 指标。Go Algorithm 主进程通过集群内地址 `http://prometheus.monitoring.svc.cluster.local:9090` 每 30 秒查询 CPU、内存利用率并保存当前/上一份内存快照，不使用 Redis、Kafka或跨 Pod 共享内存。调度时 Go 将选定的指标快照连同静态节点和当次动态状态发给 Python Worker；Prometheus 暂时不可用时保留最后一次有效快照并标记 degraded。
 
 `make demo` 和 `make demo-prebuilt` 已包含监控安装与端到端检查。也可执行 `make monitoring` 重新部署，再执行 `make monitoring-check` 验证 PromQL 返回值以及 Algorithm 缓存的 `enabled=true`、`ready=true`、`degraded=false` 和 `nodeCount=9`。最新 Volcano 实跑生成了非空的 `sha256:...` 指标快照身份，具体值见 `results/algorithm-calculation-result.txt`。
 

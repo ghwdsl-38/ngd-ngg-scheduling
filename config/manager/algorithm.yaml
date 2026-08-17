@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: algorithm
-        image: ngd-ngg-algorithm:v0.3.0
+        image: ngd-ngg-algorithm:v0.4.0
         imagePullPolicy: IfNotPresent
         ports:
         - name: http

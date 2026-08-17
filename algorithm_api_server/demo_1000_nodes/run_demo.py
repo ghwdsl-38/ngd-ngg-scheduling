@@ -31,7 +31,7 @@ RESULTS_DIR = Path(
 )
 ALGORITHM_IMAGE = os.getenv(
     "ALGORITHM_IMAGE",
-    "ngd-ngg-algorithm:v0.3.0",
+    "ngd-ngg-algorithm:v0.4.0",
 )
 NODE_COUNT = 1_000
 CORE_COUNT = 4

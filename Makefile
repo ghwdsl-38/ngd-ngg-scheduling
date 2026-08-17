@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: check test algorithm-test algorithm-integration-test algorithm-1000-demo kube-plugin-test load-images cluster volcano monitoring monitoring-check crds algorithm-image algorithm lldp-agent-image lldp-agent prc-image prc plugin-image plugin kube-scheduler-image kube-scheduler deploy deploy-prebuilt run run-kubernetes demo demo-prebuilt clean
+.PHONY: check test algorithm-test algorithm-go-test algorithm-1000-test algorithm-integration-test algorithm-1000-demo kube-plugin-test load-images cluster volcano monitoring monitoring-check crds algorithm-image algorithm lldp-agent-image lldp-agent prc-image prc plugin-image plugin kube-scheduler-image kube-scheduler deploy deploy-prebuilt run run-kubernetes demo demo-prebuilt clean
 
 check:
 	./scripts/00-check-env.sh
@@ -11,11 +11,17 @@ test:
 algorithm-test:
 	PYTHONPATH=algorithm_api_server python3 -m unittest discover -s tests -p 'test_algorithm*.py' -v
 
+algorithm-go-test:
+	docker run --rm -v "$(CURDIR)/algorithm_server:/workspace:ro" -w /workspace golang:1.25-alpine go test ./...
+
+algorithm-1000-test:
+	PYTHONPATH=algorithm_api_server python3 -m unittest discover -s tests -p 'test_algorithm_1000_nodes.py' -v
+
 algorithm-integration-test:
 	./scripts/10-test-algorithm-integration.sh
 
 algorithm-1000-demo:
-	docker build --tag "$${ALGORITHM_IMAGE:-ngd-ngg-algorithm:v0.3.0}" --file Dockerfile.algorithm .
+	docker build --tag "$${ALGORITHM_IMAGE:-ngd-ngg-algorithm:v0.4.0}" --file Dockerfile.algorithm .
 	PYTHONPATH=algorithm_api_server python3 algorithm_api_server/demo_1000_nodes/run_demo.py
 
 kube-plugin-test:
