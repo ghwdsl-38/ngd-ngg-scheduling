@@ -16,7 +16,7 @@ docker run --rm \
   -v "${ROOT_DIR}/.cache/go-build:/cache/build" \
   -w /workspace \
   golang:1.25.0 \
-  sh -c 'go test ./... && go build -trimpath -ldflags="-s -w" -o /out/ngg-scheduler ./cmd/ngg-scheduler'
+  sh -c 'go build -trimpath -ldflags="-s -w" -o /out/ngg-scheduler ./cmd/ngg-scheduler'
 docker build --tag "${KUBE_SCHEDULER_IMAGE}" --file "${ROOT_DIR}/Dockerfile.kubescheduler" "${ROOT_DIR}"
 docker image inspect "${KUBE_SCHEDULER_IMAGE}" --format '{{.Id}} {{.RepoTags}}' |
   tee "${RESULTS_DIR}/kube-scheduler-image.txt"

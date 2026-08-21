@@ -1,1 +1,1 @@
-"""Application services used by algorithms and API orchestration."""
+"""算法共享服务；当前负责构造一次请求范围内的 Node 视图。"""

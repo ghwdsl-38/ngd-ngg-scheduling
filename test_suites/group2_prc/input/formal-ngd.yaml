@@ -1,0 +1,39 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  name: demand-3000-normal
+spec:
+  schedulerName: volcano
+  nodeSelector:
+    matchLabels:
+      tests.ngg.io/worker: "true"
+  # NarrowestFit从Leaf开始逐层扩大；coreSwitch表示最多允许放宽到Core层。
+  topologyRequirement:
+    profile: leaf-border-core-v1
+    strategy: NarrowestFit
+    widestAllowedLevel: coreSwitch
+  # 数组顺序就是Algorithm Worker的执行顺序，PRC只转发、不重新排序。
+  algorithms:
+    - name: requirement
+      version: v1
+      parameters:
+        requiredDistinctNodes: 1000
+    - name: topology
+      version: v1
+      parameters:
+        profile: leaf-border-core-v1
+        strategy: NarrowestFit
+        widestAllowedLevel: coreSwitch
+        requiredDistinctNodes: 1000
+    - name: loadbalance
+      version: v1
+      parameters:
+        profile: balanced-v2
+        requireMetrics: true
+        requireNetworkMetrics: true
+  maxCandidateGroups: 3
+  maxNodes: 1000
+  minResources:
+    cpu: "1000"
+    memory: 1000Gi
+  preferredSubnet: subnet-test-a

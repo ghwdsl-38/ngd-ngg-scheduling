@@ -1,7 +1,11 @@
+"""定义可跨 Go/Python 边界返回的结构化算法业务错误。"""
+
 from __future__ import annotations
 
 
 class AlgorithmError(ValueError):
+    """业务错误基类，携带 HTTP 语义和是否允许 PRC 重试的信息。"""
+
     code = "ALGORITHM_ERROR"
     status_code = 400
     retryable = False
@@ -34,32 +38,31 @@ class AlgorithmError(ValueError):
 
 
 class InvalidRequest(AlgorithmError):
+    """请求结构、资源数量或快照内容不合法。"""
     code = "INVALID_REQUEST"
     status_code = 400
 
 
-class StaticSnapshotNotFound(AlgorithmError):
-    code = "STATIC_SNAPSHOT_NOT_FOUND"
-    status_code = 409
-    retryable = True
-
-
 class UnknownAlgorithm(AlgorithmError):
+    """请求引用了当前 Worker 未注册的算法名称或版本。"""
     code = "UNKNOWN_ALGORITHM"
     status_code = 422
 
 
 class InvalidAlgorithmOrder(AlgorithmError):
+    """算法重复、缺阶段或没有遵循 FILTER→GROUP→SCORE。"""
     code = "INVALID_ALGORITHM_ORDER"
     status_code = 422
 
 
 class InvalidAlgorithmParameters(AlgorithmError):
+    """插件参数名称或取值不受当前算法版本支持。"""
     code = "INVALID_ALGORITHM_PARAMETERS"
     status_code = 422
 
 
 class RequiredMetricsNotReady(AlgorithmError):
+    """任务强制要求指标，但 Prometheus 快照未就绪或已降级。"""
     code = "REQUIRED_METRICS_NOT_READY"
     status_code = 503
     retryable = True

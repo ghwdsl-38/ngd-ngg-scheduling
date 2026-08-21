@@ -1,0 +1,38 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  name: spark-zone-a-demand
+  labels:
+    app.kubernetes.io/name: spark
+    scheduling.platform.example.io/scheduler: volcano
+spec:
+  schedulerName: volcano
+  nodeSelector:
+    matchLabels:
+      topology.kubernetes.io/zone: zone-a
+      kubernetes.io/arch: amd64
+    matchExpressions:
+    - key: node-role.kubernetes.io/worker
+      operator: Exists
+  maxNodes: 50
+  quota:
+    cpu: "500"
+    memory: 2Ti
+  minThroughput: "5Gbps"
+  minResources:
+    cpu: "200"
+    memory: 800Gi
+  networkReachability:
+    targets:
+    - ozone
+    - shuffle
+  crossClusterAffinity:
+    ipList:
+    - 10.0.2.15
+    - 10.0.2.16
+    enforce: true
+  intraClusterAffinity:
+    ipList:
+    - 10.0.1.20
+    - 10.0.1.21
+  preferredSubnet: 10.0.1.0/24

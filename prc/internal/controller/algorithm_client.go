@@ -14,7 +14,21 @@ import (
 type AlgorithmClient struct {
 	BaseURL string
 	Client  *http.Client
+	// Recorder 是可选的协议观测钩子。生产默认为 nil；验收测试用它保存
+	// PRC→Algorithm 的原始请求、响应、状态码和耗时。
+	Recorder AlgorithmExchangeRecorder
 }
+
+type AlgorithmExchange struct {
+	Method     string
+	Path       string
+	Request    []byte
+	Response   []byte
+	StatusCode int
+	Duration   time.Duration
+}
+
+type AlgorithmExchangeRecorder func(AlgorithmExchange)
 
 type StaticAck struct {
 	AlgorithmBootID  string `json:"algorithmBootId"`
@@ -45,6 +59,9 @@ type AlgorithmResponse struct {
 	NodeStaticSnapshotID     string           `json:"nodeStaticSnapshotId"`
 	SchedulerStateSnapshotID string           `json:"schedulerStateSnapshotId"`
 	MetricSnapshotID         string           `json:"metricSnapshotId"`
+	MetricSnapshotCapturedAt string           `json:"metricSnapshotCapturedAt"`
+	Degraded                 bool             `json:"degraded"`
+	Warnings                 []string         `json:"warnings"`
 	Status                   string           `json:"status"`
 	CandidateNodeGroups      []CandidateGroup `json:"candidateNodeGroups"`
 }
@@ -59,7 +76,7 @@ func (a AlgorithmClient) calculate(ctx context.Context, body any, timeout time.D
 	var result AlgorithmResponse
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	err := a.do(requestCtx, http.MethodPost, "/api/v1/node-groups/calculate", body, &result)
+	err := a.do(requestCtx, http.MethodPost, "/api/v1/allocate", body, &result)
 	return result, err
 }
 
@@ -73,14 +90,21 @@ func (a AlgorithmClient) do(ctx context.Context, method, path string, body, resu
 		return fmt.Errorf("create Algorithm request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
+	started := time.Now()
 	response, err := a.Client.Do(request)
 	if err != nil {
+		if a.Recorder != nil {
+			a.Recorder(AlgorithmExchange{Method: method, Path: path, Request: raw, Duration: time.Since(started)})
+		}
 		return fmt.Errorf("call Algorithm: %w", err)
 	}
 	defer response.Body.Close()
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
 	if err != nil {
 		return fmt.Errorf("read Algorithm response: %w", err)
+	}
+	if a.Recorder != nil {
+		a.Recorder(AlgorithmExchange{Method: method, Path: path, Request: raw, Response: responseBody, StatusCode: response.StatusCode, Duration: time.Since(started)})
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return fmt.Errorf("Algorithm HTTP %d: %s", response.StatusCode, string(responseBody))

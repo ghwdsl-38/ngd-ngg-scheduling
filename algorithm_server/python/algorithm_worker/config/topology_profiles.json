@@ -1,0 +1,10 @@
+{
+  "leaf-border-core-v1": {
+    "strategy": "NarrowestFit",
+    "levels": [
+      {"name": "leafSwitch", "field": "leafSwitchId", "groupPrefix": "leaf"},
+      {"name": "borderSwitch", "field": "borderSwitchId", "groupPrefix": "border", "optional": true},
+      {"name": "coreSwitch", "field": "coreSwitchId", "groupPrefix": "core"}
+    ]
+  }
+}

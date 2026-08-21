@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Run a real HTTP demo of Algorithm API Server with 1,000 simulated Nodes."""
+"""使用 1000 个内存模拟 Node，通过真实 HTTP/容器验证 Algorithm Server。
+
+该脚本不会创建 1000 个 Kubernetes Node。它模拟 PRC 和 Prometheus 的输入，
+启动一个正式 Algorithm 镜像，发送两次请求并把全部输入、输出和日志写入 results。
+"""
 
 from __future__ import annotations
 
@@ -40,6 +44,8 @@ NODES_PER_LEAF = 10
 
 
 def canonical_hash(value: Any) -> str:
+    """按协议使用稳定 JSON 编码计算 Node 静态快照身份。"""
+
     encoded = json.dumps(
         value,
         ensure_ascii=False,
@@ -55,11 +61,14 @@ def build_demo_data() -> tuple[
     list[dict[str, Any]],
     dict[str, dict[str, float]],
 ]:
+    """生成静态节点、Core/Leaf 拓扑、任务级占用状态和指标。"""
+
     nodes: list[dict[str, Any]] = []
     usage_states: list[dict[str, Any]] = []
     metrics: dict[str, dict[str, float]] = {}
     cores: dict[str, dict[str, Any]] = {}
 
+    # 4 Core × 25 Leaf × 10 Node = 1000 Node。
     for node_number in range(1, NODE_COUNT + 1):
         zero_based = node_number - 1
         leaf_number = zero_based // NODES_PER_LEAF + 1
@@ -157,10 +166,14 @@ def build_demo_data() -> tuple[
 
 
 class MockPrometheusHandler(BaseHTTPRequestHandler):
+    """提供与 Prometheus instant-query vector 相同格式的临时 HTTP 服务。"""
+
     metrics: dict[str, dict[str, float]] = {}
     query_count = 0
 
     def do_GET(self) -> None:
+        """根据 PromQL 中是否含 cpu 返回相应的 1000 Node 指标。"""
+
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path != "/api/v1/query":
             self.send_error(404)
@@ -204,6 +217,8 @@ class MockPrometheusHandler(BaseHTTPRequestHandler):
 def start_mock_prometheus(
     metrics: dict[str, dict[str, float]],
 ) -> tuple[ThreadingHTTPServer, threading.Thread]:
+    """在随机空闲端口启动后台模拟 Prometheus。"""
+
     MockPrometheusHandler.metrics = metrics
     MockPrometheusHandler.query_count = 0
     server = ThreadingHTTPServer(
@@ -220,12 +235,16 @@ def start_mock_prometheus(
 
 
 def free_port() -> int:
+    """向操作系统申请一个用于临时 Algorithm HTTP 映射的空闲端口。"""
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind(("127.0.0.1", 0))
         return int(listener.getsockname()[1])
 
 
 def docker(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """执行 Docker 命令并统一捕获标准输出，便于写入演示证据。"""
+
     return subprocess.run(
         ["docker", *arguments],
         check=check,
@@ -236,6 +255,8 @@ def docker(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[s
 
 
 def start_algorithm_container(prometheus_port: int) -> tuple[str, int]:
+    """启动正式 Algorithm 镜像，并让容器访问宿主机模拟 Prometheus。"""
+
     if shutil.which("docker") is None:
         raise RuntimeError("缺少 docker，请先安装 Docker")
     inspected = docker(
@@ -282,6 +303,8 @@ def http_json(
     payload: dict[str, Any] | None = None,
     timeout: float = 10,
 ) -> dict[str, Any]:
+    """发送 JSON HTTP 请求；非 2xx 响应转换为包含响应体的异常。"""
+
     body = (
         json.dumps(payload, separators=(",", ":")).encode("utf-8")
         if payload is not None
@@ -307,6 +330,8 @@ def http_json(
 
 
 def wait_for_api(base_url: str, timeout_seconds: float = 30) -> None:
+    """轮询 healthz，避免容器已启动但 HTTP 尚未监听的竞态。"""
+
     deadline = time.monotonic() + timeout_seconds
     last_error = ""
     while time.monotonic() < deadline:
@@ -324,6 +349,8 @@ def wait_for_metrics(
     expected_nodes: int,
     timeout_seconds: float = 30,
 ) -> dict[str, Any]:
+    """等待 Go 指标缓存完整获取 1000 个 Node 且不处于降级状态。"""
+
     deadline = time.monotonic() + timeout_seconds
     last_status: dict[str, Any] = {}
     while time.monotonic() < deadline:
@@ -346,6 +373,8 @@ def wait_for_metrics(
 
 
 def write_json(name: str, value: Any) -> None:
+    """把一份可阅读的演示输入或输出写入固定 results 目录。"""
+
     path = RESULTS_DIR / name
     path.write_text(
         json.dumps(value, ensure_ascii=False, indent=2) + "\n",
@@ -357,6 +386,8 @@ def build_request(
     snapshot_id: str,
     usage_states: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    """构造 32 个 GPU Pod、至少 6 个不同节点的任务级算法请求。"""
+
     return {
         "requestId": "algorithm-1000-request-1",
         "taskUID": "task-algorithm-1000",
@@ -412,6 +443,8 @@ def verify_response(
     snapshot_id: str,
     forbidden_group: str = "",
 ) -> None:
+    """断言响应身份、Top-3 排序、Leaf 层级和动态排除结果。"""
+
     assert response["status"] == "SUCCESS", response
     assert response["nodeStaticSnapshotId"] == snapshot_id
     assert response["metricsSnapshotId"] != "metrics-disabled"
@@ -429,6 +462,8 @@ def verify_response(
 
 
 def candidate_summary(response: dict[str, Any]) -> list[dict[str, Any]]:
+    """抽取便于人阅读的候选组摘要，不丢弃原始完整响应文件。"""
+
     return [
         {
             "rank": item["rank"],
@@ -442,6 +477,8 @@ def candidate_summary(response: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def main() -> int:
+    """编排数据生成、服务启动、两次计算、证据落盘和资源清理。"""
+
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     (
         static_snapshot,

@@ -1,8 +1,7 @@
-"""Single Python algorithm worker managed by the Go Algorithm API process.
+"""由 Go Algorithm API 主进程管理的单一 Python 算法 Worker。
 
-The worker owns algorithm implementations only. Static Node snapshots,
-Prometheus snapshots, HTTP and cross-request cache state are owned by Go and
-are sent here as a fully resolved calculation context for every request.
+Worker 只拥有算法实现。Node 静态快照、Prometheus 快照、HTTP 和跨请求缓存
+由 Go 持有，并在每次请求中以完整计算上下文发送给本进程。
 """
 
 from __future__ import annotations
@@ -12,19 +11,21 @@ import sys
 import traceback
 from typing import Any
 
-from .cache.metrics import MetricSnapshot
-from .cache.static_nodes import StaticNodeSnapshot
-from .context import AllocationContext
+from .context import AllocationContext, MetricSnapshot, StaticNodeSnapshot
 from .errors import AlgorithmError, InvalidRequest
 from .pipeline import PipelineRunner
 from .quantity import pod_set_minimums
 
 
 class AlgorithmWorker:
+    """把 Go 传入的普通 JSON 对象转换为上下文并执行算法流水线。"""
+
     def __init__(self) -> None:
         self.pipeline = PipelineRunner()
 
     def calculate(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """执行一次无跨请求副作用的候选组计算。"""
+
         request = payload.get("request")
         static = payload.get("staticSnapshot")
         metric = payload.get("metricSnapshot")
@@ -52,19 +53,33 @@ class AlgorithmWorker:
                 nodes=metric_nodes,
             )
 
+        # 正式资源池 NGD 没有 PodSet。它以 maxNodes 表达所需节点规模，
+        # Topology 的 requiredDistinctNodes 负责组容量约束；这里使用一个
+        # 空资源探针，避免把资源池需求伪造成业务 Pod。
+        if request.get("requestMode") == "resourcePool":
+            minimums = [("resource-pool", 1, {})]
+        else:
+            minimums = pod_set_minimums(request.get("podSets", []))
+
         context = AllocationContext(
             request=request,
             static_snapshot=static_snapshot,
             metric_snapshot=metric_snapshot,
             metrics_degraded=bool(payload.get("metricsDegraded", True)),
-            warnings=[str(item) for item in payload.get("warnings", [])],
-            pod_minimums=pod_set_minimums(request.get("podSets", [])),
+            # Go 的 nil slice 会编码为 JSON null；把 null 和缺失都统一成空列表。
+            warnings=[str(item) for item in (payload.get("warnings") or [])],
+            pod_minimums=minimums,
         )
         candidates = self.pipeline.run(context)
-        return {"candidateNodeGroups": candidates}
+        result = {"candidateNodeGroups": candidates}
+        if request.get("debugTrace") is True:
+            result["pipelineTrace"] = context.pipeline_trace
+        return result
 
 
 def _error(exc: Exception, request_id: str) -> dict[str, Any]:
+    """把已知业务异常或未知异常转换为 Go 可识别的错误对象。"""
+
     if isinstance(exc, AlgorithmError):
         return {
             "code": exc.code,
@@ -84,6 +99,8 @@ def _error(exc: Exception, request_id: str) -> dict[str, Any]:
 
 
 def main() -> int:
+    """持续读取一行请求并写出一行响应；单次坏请求不会退出进程。"""
+
     worker = AlgorithmWorker()
     for line in sys.stdin:
         if not line.strip():

@@ -11,7 +11,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -25,7 +25,8 @@ import (
 )
 
 const (
-	group                 = "scheduling.demo.ngg.io"
+	demandGroup           = "scheduling.demo.ngg.io"
+	grantGroup            = "scheduling.platform.example.io"
 	version               = "v1alpha1"
 	demandKind            = "NodeGroupDemand"
 	grantKind             = "NodeGroupGrant"
@@ -38,12 +39,16 @@ const (
 )
 
 var (
-	demandGVK    = schema.GroupVersionKind{Group: group, Version: version, Kind: demandKind}
-	demandList   = schema.GroupVersionKind{Group: group, Version: version, Kind: demandKind + "List"}
-	grantGVK     = schema.GroupVersionKind{Group: group, Version: version, Kind: grantKind}
-	topologyGVK  = schema.GroupVersionKind{Group: group, Version: version, Kind: topologyKind}
+	demandGVK          = schema.GroupVersionKind{Group: demandGroup, Version: version, Kind: demandKind}
+	demandList         = schema.GroupVersionKind{Group: demandGroup, Version: version, Kind: demandKind + "List"}
+	platformDemandGVK  = schema.GroupVersionKind{Group: grantGroup, Version: version, Kind: demandKind}
+	platformDemandList = schema.GroupVersionKind{
+		Group: grantGroup, Version: version, Kind: demandKind + "List",
+	}
+	grantGVK     = schema.GroupVersionKind{Group: grantGroup, Version: version, Kind: grantKind}
+	topologyGVK  = schema.GroupVersionKind{Group: demandGroup, Version: version, Kind: topologyKind}
 	topologyList = schema.GroupVersionKind{
-		Group: group, Version: version, Kind: topologyKind + "List",
+		Group: demandGroup, Version: version, Kind: topologyKind + "List",
 	}
 )
 
@@ -53,16 +58,24 @@ type NodeGroupDemandReconciler struct {
 	AlgorithmURL string
 	ClusterID    string
 	HTTPClient   *http.Client
+	// AlgorithmRecorder/DebugAlgorithmTrace 仅用于显式开启的协议留痕；
+	// 默认值不会改变生产请求、响应或调度结果。
+	AlgorithmRecorder   AlgorithmExchangeRecorder
+	DebugAlgorithmTrace bool
+	// ReconcileObserver 在正式NGD开始业务处理时通知测试计时器；生产为nil。
+	ReconcileObserver func(uid string, generation int64, observedAt time.Time)
 }
 
 // SetupWithManager uses the Kubebuilder/controller-runtime builder pattern.
 // NGD generation changes are primary events; Node, Pod and NNT changes enqueue
 // all demands so Pending/Unsatisfied/Degraded workloads are actively retried.
 func (r *NodeGroupDemandReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	demand := newUnstructured(demandGVK)
+	formalDemand := newUnstructured(platformDemandGVK)
+	legacyDemand := newUnstructured(demandGVK)
 	topology := newUnstructured(topologyGVK)
 	return ctrl.NewControllerManagedBy(mgr).
-		For(demand, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(formalDemand, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(legacyDemand, &handler.EnqueueRequestForObject{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(r.mapAllDemands)).
 		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.mapAllDemands)).
 		Watches(topology, handler.EnqueueRequestsFromMapFunc(r.mapAllDemands)).
@@ -70,24 +83,34 @@ func (r *NodeGroupDemandReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *NodeGroupDemandReconciler) mapAllDemands(ctx context.Context, _ client.Object) []reconcile.Request {
-	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(demandList)
-	if err := r.List(ctx, list); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "list demands for event fan-out")
-		return nil
-	}
-	requests := make([]reconcile.Request, 0, len(list.Items))
-	for i := range list.Items {
-		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+	requests := []reconcile.Request{}
+	for _, listGVK := range []schema.GroupVersionKind{platformDemandList, demandList} {
+		list := &unstructured.UnstructuredList{}
+		list.SetGroupVersionKind(listGVK)
+		if err := r.List(ctx, list); err != nil {
+			ctrl.LoggerFrom(ctx).Error(err, "list demands for event fan-out", "gvk", listGVK.String())
+			continue
+		}
+		for i := range list.Items {
+			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+		}
 	}
 	return requests
 }
 
 func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("ngd", request.NamespacedName)
-	demand := newUnstructured(demandGVK)
+	formal := request.Namespace == ""
+	demandType := demandGVK
+	if formal {
+		demandType = platformDemandGVK
+	}
+	demand := newUnstructured(demandType)
 	if err := r.Get(ctx, request.NamespacedName, demand); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if formal {
+		return r.reconcilePlatformDemand(ctx, demand)
 	}
 
 	nodes := &corev1.NodeList{}
@@ -129,7 +152,7 @@ func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.
 		return r.degradeAndRetry(ctx, demand, "TaskUIDMismatch", "taskRef.uid does not match the live workload UID")
 	}
 
-	algorithm := AlgorithmClient{BaseURL: strings.TrimRight(r.AlgorithmURL, "/"), Client: r.httpClient()}
+	algorithm := AlgorithmClient{BaseURL: strings.TrimRight(r.AlgorithmURL, "/"), Client: r.httpClient(), Recorder: r.AlgorithmRecorder}
 	ack, err := algorithm.putStatic(ctx, staticID, staticBody)
 	if err != nil {
 		return r.degradeAndRetry(ctx, demand, "AlgorithmUnavailable", err.Error())
@@ -139,7 +162,8 @@ func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.
 	}
 
 	grant := newUnstructured(grantGVK)
-	grantKey := types.NamespacedName{Namespace: request.Namespace, Name: grantName(request.Name)}
+	// 联通 NGG 是 Cluster-scoped；名称带上来源 Namespace，避免不同租户同名 NGD 冲突。
+	grantKey := types.NamespacedName{Name: grantName(request.Namespace + "-" + request.Name)}
 	grantErr := r.Get(ctx, grantKey, grant)
 	if grantErr != nil && !apierrors.IsNotFound(grantErr) {
 		return ctrl.Result{}, grantErr
@@ -150,18 +174,6 @@ func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.
 	}
 
 	policy := grantPolicy(spec)
-	taskPods := directTaskPods(pods.Items, request.Namespace, task.GetUID())
-	if existing != nil && grantMatches(existing, demand, task.GetUID()) {
-		handled, result, handleErr := r.handleExisting(
-			ctx, demand, existing, taskPods, nodes.Items, staticID, stateID, policy,
-		)
-		if handleErr != nil {
-			return ctrl.Result{}, handleErr
-		}
-		if handled {
-			return result, nil
-		}
-	}
 
 	requestID := fmt.Sprintf("%s-generation-%d-state-%s", demand.GetUID(), demand.GetGeneration(), shortHash(stateID))
 	algorithmRequest := map[string]any{
@@ -181,34 +193,300 @@ func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.
 		return r.degradeAndRetry(ctx, demand, "AlgorithmResponseInvalid", err.Error())
 	}
 
-	now := time.Now().UTC()
-	revision := int64(1)
-	if existing != nil {
-		revision = nestedInt64(existing.Object, "spec", "revision") + 1
-	}
-	desiredSpec := buildGrantSpec(demand, task, spec, response, policy, revision, now)
-	applied, err := r.upsertGrant(ctx, demand, existing, desiredSpec)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
 	if len(response.CandidateNodeGroups) == 0 {
-		if err := r.setGrantStatus(ctx, applied, "Inactive", "Exhausted", taskPods, "", "NoFeasibleGroup", "candidateGroups=0"); err != nil {
-			return ctrl.Result{}, err
+		if existing != nil {
+			if err := r.setPlatformGrantReturned(ctx, existing); err != nil {
+				return ctrl.Result{}, err
+			}
 		}
-		if err := r.setDemandStatus(ctx, demand, "Unsatisfied", "NoFeasibleGroup", "candidateGroups=0", applied, time.Time{}); err != nil {
+		if err := r.setDemandStatus(ctx, demand, "Unsatisfied", "NoFeasibleGroup", "candidateGroups=0", nil, time.Time{}); err != nil {
 			return ctrl.Result{}, err
 		}
 		log.Info("Algorithm returned no feasible group")
 		return ctrl.Result{}, nil
 	}
-	if err := r.setGrantStatus(ctx, applied, "Active", "Trying", taskPods, "", "ActiveGroupReady", fmt.Sprintf("candidateGroups=%d", len(response.CandidateNodeGroups))); err != nil {
+
+	now := time.Now().UTC()
+	desiredSpec := buildPlatformGrantSpec(demand, spec, response, nodes.Items, now)
+	applied, err := r.upsertGrant(ctx, demand, existing, desiredSpec)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := r.setDemandStatus(ctx, demand, "Fulfilled", "ActiveGroupReady", fmt.Sprintf("candidateGroups=%d", len(response.CandidateNodeGroups)), applied, time.Time{}); err != nil {
+	if err := r.setPlatformGrantStatus(ctx, applied, response.CandidateNodeGroups[0], nodes.Items); err != nil {
 		return ctrl.Result{}, err
 	}
-	log.Info("created candidate groups", "count", len(response.CandidateNodeGroups), "active", response.CandidateNodeGroups[0].GroupID)
-	return ctrl.Result{RequeueAfter: defaultPodPoll}, nil
+	message := fmt.Sprintf("selectedGroup=%s candidates=%d nodes=%d", response.CandidateNodeGroups[0].GroupID, len(response.CandidateNodeGroups), len(response.CandidateNodeGroups[0].Nodes))
+	if err := r.setDemandStatus(ctx, demand, "Fulfilled", "GrantPublished", message, applied, time.Time{}); err != nil {
+		return ctrl.Result{}, err
+	}
+	log.Info("published platform NGG", "candidateCount", len(response.CandidateNodeGroups), "selectedGroup", response.CandidateNodeGroups[0].GroupID, "nodeCount", len(response.CandidateNodeGroups[0].Nodes))
+	// 联通协议要求持续刷新 timestamp/nodes；Node、Pod、NNT Watch 仍会提前触发。
+	return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+}
+
+// reconcilePlatformDemand handles the formal, cluster-scoped China Unicom
+// resource-pool contract. Unlike the legacy task mode it does not resolve a
+// VolcanoJob/Kubernetes Job: the NGD UID itself is the request identity.
+func (r *NodeGroupDemandReconciler) reconcilePlatformDemand(ctx context.Context, demand *unstructured.Unstructured) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx).WithValues("formalNGD", demand.GetName())
+	if r.ReconcileObserver != nil {
+		r.ReconcileObserver(string(demand.GetUID()), demand.GetGeneration(), time.Now())
+	}
+	spec, _, _ := unstructured.NestedMap(demand.Object, "spec")
+	if err := validatePlatformDemandSpec(spec); err != nil {
+		return r.failPlatformDemand(ctx, demand, "UnsupportedDemand", err.Error(), false)
+	}
+
+	nodes := &corev1.NodeList{}
+	if err := r.List(ctx, nodes); err != nil {
+		return ctrl.Result{}, fmt.Errorf("list Nodes: %w", err)
+	}
+	pods := &corev1.PodList{}
+	if err := r.List(ctx, pods); err != nil {
+		return ctrl.Result{}, fmt.Errorf("list Pods: %w", err)
+	}
+	topologies := &unstructured.UnstructuredList{}
+	topologies.SetGroupVersionKind(topologyList)
+	if err := r.List(ctx, topologies); err != nil {
+		return ctrl.Result{}, fmt.Errorf("list NNT: %w", err)
+	}
+	staticID, staticBody, err := buildStaticSnapshot(r.ClusterID, nodes.Items, topologies.Items)
+	if err != nil {
+		return r.failPlatformDemand(ctx, demand, "StaticSnapshotNotReady", err.Error(), true)
+	}
+	stateID, stateCapturedAt, schedulerState, err := buildSchedulerState(nodes.Items, pods.Items)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	algorithm := AlgorithmClient{BaseURL: strings.TrimRight(r.AlgorithmURL, "/"), Client: r.httpClient(), Recorder: r.AlgorithmRecorder}
+	ack, err := algorithm.putStatic(ctx, staticID, staticBody)
+	if err != nil {
+		return r.failPlatformDemand(ctx, demand, "AlgorithmUnavailable", err.Error(), true)
+	}
+	if ack.AcceptedSnapshot != staticID {
+		return r.failPlatformDemand(ctx, demand, "SnapshotNotAcknowledged", "Algorithm did not acknowledge static snapshot", true)
+	}
+
+	grant := newUnstructured(grantGVK)
+	grantKey := types.NamespacedName{Name: grantName(demand.GetName())}
+	grantErr := r.Get(ctx, grantKey, grant)
+	if grantErr != nil && !apierrors.IsNotFound(grantErr) {
+		return ctrl.Result{}, grantErr
+	}
+	var existing *unstructured.Unstructured
+	if grantErr == nil {
+		existing = grant
+	}
+
+	maxNodes := intOr(spec, "maxNodes", int64(len(nodes.Items)))
+	if maxNodes < 1 {
+		maxNodes = int64(len(nodes.Items))
+	}
+	topologyRequirement := platformTopologyRequirement(spec)
+	algorithms := platformAlgorithms(spec, topologyRequirement, maxNodes)
+	maxCandidateGroups := clamp(intOr(spec, "maxCandidateGroups", 3), 1, 3)
+	requestID := fmt.Sprintf("%s-generation-%d-state-%s", demand.GetUID(), demand.GetGeneration(), shortHash(stateID))
+	algorithmRequest := map[string]any{
+		"requestId": requestID, "taskUID": string(demand.GetUID()), "ngdUID": string(demand.GetUID()),
+		"ngdGeneration": demand.GetGeneration(), "requestMode": "resourcePool",
+		"nodeStaticSnapshotId": staticID, "schedulerStateSnapshotId": stateID,
+		"schedulerStateCapturedAt": stateCapturedAt, "schedulerState": schedulerState,
+		"nodeRequirements": map[string]any{"labelSelector": mapOrEmpty(spec, "nodeSelector")},
+		"poolRequirements": map[string]any{
+			"maxNodes": maxNodes, "minResources": mapOrEmpty(spec, "minResources"),
+		},
+		"topologyRequirement": topologyRequirement,
+		"algorithms":          algorithms, "maxCandidateGroups": maxCandidateGroups,
+	}
+	if r.DebugAlgorithmTrace {
+		algorithmRequest["debugTrace"] = true
+	}
+	policy := grantPolicy(spec)
+	response, err := algorithm.calculate(ctx, algorithmRequest, time.Duration(policy.AlgorithmTimeoutSeconds)*time.Second)
+	if err != nil {
+		return r.failPlatformDemand(ctx, demand, "AlgorithmRequestFailed", err.Error(), true)
+	}
+	if err := validateResponse(response, requestID, demand, demand.GetUID(), staticID, stateID, ack.AlgorithmBootID, schedulerState); err != nil {
+		return r.failPlatformDemand(ctx, demand, "AlgorithmResponseInvalid", err.Error(), true)
+	}
+	if len(response.CandidateNodeGroups) == 0 {
+		if existing != nil {
+			if err := r.setPlatformGrantReturned(ctx, existing); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return r.failPlatformDemand(ctx, demand, "NoFeasibleGroup", "Algorithm returned no feasible topology group", false)
+	}
+
+	selected := response.CandidateNodeGroups[0]
+	if int64(len(selected.Nodes)) > maxNodes {
+		selected.Nodes = append([]CandidateNode(nil), selected.Nodes[:maxNodes]...)
+	}
+	if err := validateMinimumResources(spec, selected, nodes.Items); err != nil {
+		return r.failPlatformDemand(ctx, demand, "MinimumResourcesNotMet", err.Error(), false)
+	}
+	response.CandidateNodeGroups[0] = selected
+	now := time.Now().UTC()
+	desiredSpec := buildPlatformGrantSpec(demand, spec, response, nodes.Items, now)
+	applied, err := r.upsertGrant(ctx, demand, existing, desiredSpec)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.setPlatformGrantStatus(ctx, applied, selected, nodes.Items); err != nil {
+		return ctrl.Result{}, err
+	}
+	message := fmt.Sprintf("selectedGroup=%s nodes=%d", selected.GroupID, len(selected.Nodes))
+	if err := r.setPlatformDemandStatus(ctx, demand, "Fulfilled", applied.GetName(), int64(len(selected.Nodes)), message); err != nil {
+		return ctrl.Result{}, err
+	}
+	log.Info("published formal platform NGG", "selectedGroup", selected.GroupID, "nodeCount", len(selected.Nodes))
+	return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+}
+
+func validatePlatformDemandSpec(spec map[string]any) error {
+	if stringValue(spec, "schedulerName") == "" {
+		return fmt.Errorf("spec.schedulerName is required")
+	}
+	// These fields require IP/topology/reachability data that the current
+	// Algorithm protocol does not yet carry. Failing explicitly is safer than
+	// silently granting a pool that violates a hard constraint.
+	for _, field := range []string{"crossClusterAffinity", "intraClusterAffinity", "networkReachability"} {
+		if value := mapValue(spec, field); len(value) > 0 {
+			return fmt.Errorf("spec.%s is not implemented in formal adapter v1", field)
+		}
+	}
+	if value := stringValue(spec, "minThroughput"); value != "" {
+		return fmt.Errorf("spec.minThroughput is not implemented in formal adapter v1")
+	}
+	topology := mapValue(spec, "topologyRequirement")
+	if len(topology) > 0 {
+		if profile := stringValue(topology, "profile"); profile != "leaf-border-core-v1" {
+			return fmt.Errorf("spec.topologyRequirement.profile must be leaf-border-core-v1")
+		}
+		if strategy := stringValue(topology, "strategy"); strategy != "NarrowestFit" {
+			return fmt.Errorf("spec.topologyRequirement.strategy must be NarrowestFit")
+		}
+		switch stringValue(topology, "widestAllowedLevel") {
+		case "leafSwitch", "borderSwitch", "coreSwitch":
+		default:
+			return fmt.Errorf("spec.topologyRequirement.widestAllowedLevel must be leafSwitch, borderSwitch or coreSwitch")
+		}
+	}
+	if algorithms := sliceOrEmpty(spec, "algorithms"); len(algorithms) > 0 {
+		expected := []string{"requirement", "topology", "loadbalance"}
+		if len(algorithms) != len(expected) {
+			return fmt.Errorf("spec.algorithms must contain requirement, topology and loadbalance exactly once")
+		}
+		for index, name := range expected {
+			item, _ := algorithms[index].(map[string]any)
+			if item == nil || stringValue(item, "name") != name || stringValue(item, "version") != "v1" {
+				return fmt.Errorf("spec.algorithms[%d] must be %s/v1", index, name)
+			}
+		}
+	}
+	return nil
+}
+
+// platformTopologyRequirement把正式NGD的高层拓扑约束转换为Algorithm协议字段。
+// 缺省值只用于兼容旧NGD；新NGD应显式声明允许放宽到的最宽层级。
+func platformTopologyRequirement(spec map[string]any) map[string]any {
+	configured := mapValue(spec, "topologyRequirement")
+	if len(configured) == 0 {
+		return map[string]any{
+			"profile": "leaf-border-core-v1", "strategy": "NarrowestFit", "widestAllowedLevel": "coreSwitch",
+		}
+	}
+	return map[string]any{
+		"profile": stringValue(configured, "profile"), "strategy": stringValue(configured, "strategy"),
+		"widestAllowedLevel": stringValue(configured, "widestAllowedLevel"),
+	}
+}
+
+// platformAlgorithms保留NGD中声明的插件顺序，并以topologyRequirement作为
+// 拓扑边界的唯一权威来源，防止高层约束和topology插件参数互相冲突。
+func platformAlgorithms(spec map[string]any, topology map[string]any, maxNodes int64) []any {
+	configured := sliceOrEmpty(spec, "algorithms")
+	if len(configured) == 0 {
+		configured = []any{
+			map[string]any{"name": "requirement", "version": "v1", "parameters": map[string]any{"requiredDistinctNodes": maxNodes}},
+			map[string]any{"name": "topology", "version": "v1", "parameters": map[string]any{"requiredDistinctNodes": maxNodes}},
+			map[string]any{"name": "loadbalance", "version": "v1", "parameters": map[string]any{"profile": "balanced-v2", "requireMetrics": true, "requireNetworkMetrics": true}},
+		}
+	}
+	result := make([]any, 0, len(configured))
+	for _, raw := range configured {
+		item, _ := runtime.DeepCopyJSONValue(raw).(map[string]any)
+		if item == nil {
+			continue
+		}
+		if stringValue(item, "name") == "topology" {
+			parameters := mapValue(item, "parameters")
+			if len(parameters) == 0 {
+				parameters = map[string]any{}
+			}
+			parameters["profile"] = topology["profile"]
+			parameters["strategy"] = topology["strategy"]
+			parameters["widestAllowedLevel"] = topology["widestAllowedLevel"]
+			if intValue(parameters, "requiredDistinctNodes") == 0 {
+				parameters["requiredDistinctNodes"] = maxNodes
+			}
+			item["parameters"] = parameters
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func validateMinimumResources(spec map[string]any, selected CandidateGroup, liveNodes []corev1.Node) error {
+	minimum := mapOrEmpty(spec, "minResources")
+	if len(minimum) == 0 {
+		return nil
+	}
+	allowed := make(map[string]struct{}, len(selected.Nodes))
+	for _, node := range selected.Nodes {
+		allowed[node.NodeName] = struct{}{}
+	}
+	var totalCPU, totalMemory resource.Quantity
+	for i := range liveNodes {
+		if _, ok := allowed[liveNodes[i].Name]; !ok {
+			continue
+		}
+		totalCPU.Add(liveNodes[i].Status.Allocatable[corev1.ResourceCPU])
+		totalMemory.Add(liveNodes[i].Status.Allocatable[corev1.ResourceMemory])
+	}
+	for name, total := range map[string]resource.Quantity{"cpu": totalCPU, "memory": totalMemory} {
+		raw := stringValue(minimum, name)
+		if raw == "" {
+			continue
+		}
+		required, err := resource.ParseQuantity(raw)
+		if err != nil {
+			return fmt.Errorf("spec.minResources.%s is invalid: %w", name, err)
+		}
+		if total.Cmp(required) < 0 {
+			return fmt.Errorf("selected pool %s=%s is below required %s", name, total.String(), required.String())
+		}
+	}
+	return nil
+}
+
+func (r *NodeGroupDemandReconciler) setPlatformDemandStatus(ctx context.Context, demand *unstructured.Unstructured, phase, grantRef string, count int64, message string) error {
+	status := map[string]any{
+		"phase": phase, "grantRef": grantRef, "resolvedNodeCount": count,
+		"lastUpdated": time.Now().UTC().Format(time.RFC3339Nano), "message": message,
+	}
+	return patchStatus(ctx, r.Client, demand, status)
+}
+
+func (r *NodeGroupDemandReconciler) failPlatformDemand(ctx context.Context, demand *unstructured.Unstructured, reason, message string, retry bool) (ctrl.Result, error) {
+	if err := r.setPlatformDemandStatus(ctx, demand, "Failed", "", 0, reason+": "+message); err != nil {
+		return ctrl.Result{}, err
+	}
+	if retry {
+		return ctrl.Result{RequeueAfter: defaultRetry}, nil
+	}
+	return ctrl.Result{}, nil
 }
 
 type policyValues struct {
@@ -377,17 +655,19 @@ func (r *NodeGroupDemandReconciler) getTask(ctx context.Context, namespace strin
 func (r *NodeGroupDemandReconciler) upsertGrant(ctx context.Context, demand, existing *unstructured.Unstructured, spec map[string]any) (*unstructured.Unstructured, error) {
 	if existing == nil {
 		grant := newUnstructured(grantGVK)
-		grant.SetName(grantName(demand.GetName()))
-		grant.SetNamespace(demand.GetNamespace())
-		controller := true
-		block := true
-		grant.SetOwnerReferences([]metav1.OwnerReference{{
-			APIVersion: demand.GetAPIVersion(), Kind: demand.GetKind(), Name: demand.GetName(), UID: demand.GetUID(),
-			Controller: &controller, BlockOwnerDeletion: &block,
-		}})
+		demandRef := demand.GetName()
+		grantSourceName := demand.GetName()
+		if demand.GetNamespace() != "" {
+			demandRef = demand.GetNamespace() + "/" + demand.GetName()
+			grantSourceName = demand.GetNamespace() + "-" + demand.GetName()
+		}
+		grant.SetName(grantName(grantSourceName))
+		// Cluster-scoped NGG 不能 ownerReference 到 namespaced 旧 NGD；用 demandRef 和标签追溯。
 		grant.SetLabels(map[string]string{
-			group + "/demand": demand.GetName(), group + "/scheduler": stringValue(spec, "schedulerName"),
+			grantGroup + "/demand-uid": shortHash(string(demand.GetUID())),
+			grantGroup + "/scheduler":  stringValue(spec, "schedulerName"),
 		})
+		grant.SetAnnotations(map[string]string{grantGroup + "/demand-ref": demandRef})
 		_ = unstructured.SetNestedMap(grant.Object, spec, "spec")
 		if err := r.Create(ctx, grant); err != nil {
 			return nil, fmt.Errorf("create NGG: %w", err)
@@ -403,6 +683,103 @@ func (r *NodeGroupDemandReconciler) upsertGrant(ctx context.Context, demand, exi
 		return nil, err
 	}
 	return existing, nil
+}
+
+// buildPlatformGrantSpec 将 Algorithm 排名第一的拓扑组转换为联通正式 NGG 契约。
+// PRC 不重新排序、不修改正常模式分数；降级/关闭负载感知时按契约使用中性分 50。
+func buildPlatformGrantSpec(demand *unstructured.Unstructured, demandSpec map[string]any, response AlgorithmResponse, liveNodes []corev1.Node, now time.Time) map[string]any {
+	selected := response.CandidateNodeGroups[0]
+	byName := make(map[string]*corev1.Node, len(liveNodes))
+	for i := range liveNodes {
+		byName[liveNodes[i].Name] = &liveNodes[i]
+	}
+	source := "normal"
+	if response.MetricSnapshotID == "metrics-disabled" {
+		source = "disabled"
+	} else if response.MetricSnapshotID == "" || response.Degraded {
+		source = "degraded"
+	}
+	items := make([]any, 0, len(selected.Nodes))
+	for _, candidate := range selected.Nodes {
+		score := candidate.Score
+		if source != "normal" {
+			score = 50
+		}
+		item := map[string]any{"name": candidate.NodeName, "score": score}
+		if node := byName[candidate.NodeName]; node != nil {
+			if topology := platformTopology(node.Labels); len(topology) > 0 {
+				item["topology"] = topology
+			}
+		}
+		items = append(items, item)
+	}
+	timestamp := response.MetricSnapshotCapturedAt
+	if timestamp == "" {
+		timestamp = now.Format(time.RFC3339Nano)
+	}
+	demandRef := demand.GetName()
+	if demand.GetNamespace() != "" {
+		demandRef = demand.GetNamespace() + "/" + demand.GetName()
+	}
+	return map[string]any{
+		"schedulerName": stringValue(demandSpec, "schedulerName"),
+		"version":       "v1", "timestamp": timestamp, "source": source,
+		"demandRef": demandRef,
+		"nodes":     items,
+	}
+}
+
+func platformTopology(labels map[string]string) map[string]any {
+	const demoPrefix = "topology.demo.ngg.io/"
+	value := map[string]any{}
+	fields := map[string]string{
+		"dataCenter":        labels["topology.kubernetes.io/region"],
+		"convergenceSwitch": labels[demoPrefix+"border-switch"],
+		"accessSwitch":      labels[demoPrefix+"leaf-switch"],
+		"subnet":            labels[demoPrefix+"subnet"],
+		"rack":              labels["topology.kubernetes.io/rack"],
+	}
+	for name, item := range fields {
+		if item != "" {
+			value[name] = item
+		}
+	}
+	return value
+}
+
+func (r *NodeGroupDemandReconciler) setPlatformGrantStatus(ctx context.Context, grant *unstructured.Unstructured, selected CandidateGroup, liveNodes []corev1.Node) error {
+	allowed := map[string]struct{}{}
+	for _, node := range selected.Nodes {
+		allowed[node.NodeName] = struct{}{}
+	}
+	var cpu, memory resource.Quantity
+	for i := range liveNodes {
+		if _, ok := allowed[liveNodes[i].Name]; !ok {
+			continue
+		}
+		cpu.Add(liveNodes[i].Status.Allocatable[corev1.ResourceCPU])
+		memory.Add(liveNodes[i].Status.Allocatable[corev1.ResourceMemory])
+	}
+	status := map[string]any{
+		"phase":            "Active",
+		"resolvedCapacity": map[string]any{"nodes": int64(len(allowed)), "cpu": cpu.String(), "memory": memory.String()},
+	}
+	// status.consumer 由调度侧写入；PRC 更新自身字段时必须原样保留。
+	if consumer, found, _ := unstructured.NestedMap(grant.Object, "status", "consumer"); found {
+		status["consumer"] = consumer
+	}
+	return patchStatus(ctx, r.Client, grant, status)
+}
+
+func (r *NodeGroupDemandReconciler) setPlatformGrantReturned(ctx context.Context, grant *unstructured.Unstructured) error {
+	status := map[string]any{
+		"phase":            "Returned",
+		"resolvedCapacity": map[string]any{"nodes": int64(0), "cpu": "0", "memory": "0"},
+	}
+	if consumer, found, _ := unstructured.NestedMap(grant.Object, "status", "consumer"); found {
+		status["consumer"] = consumer
+	}
+	return patchStatus(ctx, r.Client, grant, status)
 }
 
 func buildGrantSpec(demand, task *unstructured.Unstructured, demandSpec map[string]any, response AlgorithmResponse, policy policyValues, revision int64, now time.Time) map[string]any {
@@ -453,12 +830,15 @@ func validateResponse(response AlgorithmResponse, requestID string, demand *unst
 	if response.Status == "SUCCESS" && len(response.CandidateNodeGroups) == 0 {
 		return fmt.Errorf("SUCCESS contains no candidate group")
 	}
-	known := map[string]struct{}{}
+	known := map[string]string{}
 	for _, item := range state {
-		known[item.NodeUID] = struct{}{}
+		known[item.NodeUID] = item.NodeName
 	}
 	seen := map[string]struct{}{}
 	for index, group := range response.CandidateNodeGroups {
+		if group.GroupID == "" || len(group.Nodes) == 0 {
+			return fmt.Errorf("candidate group must contain groupId and Nodes")
+		}
 		if group.Rank != int64(index+1) {
 			return fmt.Errorf("candidate ranks are not continuous")
 		}
@@ -469,13 +849,27 @@ func validateResponse(response AlgorithmResponse, requestID string, demand *unst
 			}
 		}
 		for _, node := range group.Nodes {
-			if _, ok := known[node.NodeUID]; !ok {
+			if node.Score < 0 || node.Score > 100 {
+				return fmt.Errorf("Algorithm returned Node score outside 0..100")
+			}
+			knownName, ok := known[node.NodeUID]
+			if !ok {
 				return fmt.Errorf("Algorithm returned unknown Node UID %s", node.NodeUID)
+			}
+			if knownName != "" && node.NodeName != knownName {
+				return fmt.Errorf("Algorithm returned mismatched Node name/UID %s/%s", node.NodeName, node.NodeUID)
 			}
 			if _, duplicate := seen[node.NodeUID]; duplicate {
 				return fmt.Errorf("candidate groups overlap on Node UID %s", node.NodeUID)
 			}
 			seen[node.NodeUID] = struct{}{}
+		}
+		for nodeIndex := 1; nodeIndex < len(group.Nodes); nodeIndex++ {
+			previousNode := group.Nodes[nodeIndex-1]
+			currentNode := group.Nodes[nodeIndex]
+			if currentNode.Score > previousNode.Score || (currentNode.Score == previousNode.Score && currentNode.NodeName < previousNode.NodeName) {
+				return fmt.Errorf("candidate Nodes are not stably sorted")
+			}
 		}
 	}
 	return nil

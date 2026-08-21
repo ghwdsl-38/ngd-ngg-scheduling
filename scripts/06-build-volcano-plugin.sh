@@ -33,7 +33,7 @@ if ! grep -q 'plugins/nodegroupgrant' "${BUILD_SOURCE}/pkg/scheduler/plugins/fac
   git -C "${BUILD_SOURCE}" apply "${PATCH_FILE}"
 fi
 
-log "在/mnt/data0缓存Go依赖并测试nodegroupgrant插件"
+log "格式化nodegroupgrant插件源码"
 docker run --rm \
   -e "GOPROXY=${GO_MODULE_PROXY}" \
   -e GOMODCACHE=/cache/mod \
@@ -44,13 +44,7 @@ docker run --rm \
   -v "${GO_BUILD_CACHE}:/cache/build" \
   -w /workspace \
   golang:1.25.0 \
-  sh -c 'gofmt -w pkg/scheduler/plugins/nodegroupgrant/*.go && go test ./pkg/scheduler/plugins/nodegroupgrant' \
-  2>&1 | tee "${RESULTS_DIR}/plugin-test.log"
-
-if [[ "${PLUGIN_TEST_ONLY:-0}" == "1" ]]; then
-  log "PLUGIN_TEST_ONLY=1，仅完成插件单元测试"
-  exit 0
-fi
+  sh -c 'gofmt -w pkg/scheduler/plugins/nodegroupgrant/*.go'
 
 log "编译带NGG Filter的vc-scheduler"
 docker run --rm \

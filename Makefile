@@ -1,34 +1,55 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: check test algorithm-test algorithm-go-test algorithm-1000-test algorithm-integration-test algorithm-1000-demo topology-go-test kube-plugin-test load-images cluster volcano monitoring monitoring-check crds algorithm-image algorithm lldp-agent-image lldp-agent prc-image prc plugin-image plugin kube-scheduler-image kube-scheduler deploy deploy-prebuilt run run-kubernetes demo demo-prebuilt clean
+.PHONY: check algorithm-1000-demo demo-group1-timing demo-group1-evidence demo-group1 demo-group2-timing demo-group2-evidence demo-group2 demo-group3-timing demo-group3-evidence demo-group3 demo-all-groups demo-show-latest test-algorithm-complete test-prc-complete test-full-chain-simulated test-acceptance-v2 test-showcase load-images cluster volcano monitoring monitoring-check crds algorithm-image algorithm lldp-agent-image lldp-agent prc-image prc plugin-image plugin kube-scheduler-image kube-scheduler deploy deploy-prebuilt run run-kubernetes demo demo-prebuilt clean
 
 check:
 	./scripts/00-check-env.sh
-
-test:
-	PYTHONPATH=algorithm_server/python:src python3 -m unittest discover -s tests -v
-
-algorithm-test:
-	PYTHONPATH=algorithm_server/python python3 -m unittest discover -s tests -p 'test_algorithm*.py' -v
-
-algorithm-go-test:
-	docker run --rm -v "$(CURDIR)/algorithm_server/go:/workspace:ro" -w /workspace golang:1.25-alpine go test ./...
-
-topology-go-test:
-	docker run --rm -e GOPROXY=https://goproxy.cn,direct -v "$(CURDIR)/topology_agent:/workspace:ro" -w /workspace golang:1.25-alpine go test ./...
-
-algorithm-1000-test:
-	PYTHONPATH=algorithm_server/python python3 -m unittest discover -s tests -p 'test_algorithm_1000_nodes.py' -v
-
-algorithm-integration-test:
-	./scripts/10-test-algorithm-integration.sh
 
 algorithm-1000-demo:
 	docker build --tag "$${ALGORITHM_IMAGE:-ngd-ngg-algorithm:v0.4.0}" --file Dockerfile.algorithm .
 	PYTHONPATH=algorithm_server/python python3 algorithm_server/demo_1000_nodes/run_demo.py
 
-kube-plugin-test:
-	./scripts/06b-test-kubescheduler-plugin.sh
+demo-group1-timing: algorithm-image
+	./test_suites/group1_algorithm/run-group.sh --mode timing
+
+demo-group1-evidence: algorithm-image
+	./test_suites/group1_algorithm/run-group.sh --mode evidence
+
+demo-group1: algorithm-image
+	./test_suites/group1_algorithm/run-group.sh --mode all
+
+demo-group2-timing:
+	./test_suites/group2_prc/run-group.sh --mode timing
+
+demo-group2-evidence:
+	./test_suites/group2_prc/run-group.sh --mode evidence
+
+demo-group2:
+	./test_suites/group2_prc/run-group.sh --mode all
+
+demo-group3-timing: algorithm-image
+	./test_suites/group3_full_chain/run-group.sh --mode timing
+
+demo-group3-evidence: algorithm-image
+	./test_suites/group3_full_chain/run-group.sh --mode evidence
+
+demo-group3: algorithm-image
+	./test_suites/group3_full_chain/run-group.sh --mode all
+
+demo-all-groups: demo-group1 demo-group2 demo-group3
+
+demo-show-latest:
+	./test_suites/show-latest.sh
+
+test-algorithm-complete: demo-group1
+
+test-prc-complete: demo-group2
+
+test-full-chain-simulated: demo-group3
+
+test-acceptance-v2: test-algorithm-complete test-prc-complete test-full-chain-simulated
+
+test-showcase: demo-show-latest
 
 load-images:
 	./scripts/04c-load-images.sh
@@ -93,9 +114,9 @@ run:
 run-kubernetes:
 	./scripts/09-run-kubernetes-demo.sh
 
-demo: check test cluster volcano monitoring deploy monitoring-check run run-kubernetes
+demo: check cluster volcano monitoring deploy monitoring-check run run-kubernetes
 
-demo-prebuilt: check test cluster volcano monitoring deploy-prebuilt monitoring-check run run-kubernetes
+demo-prebuilt: check cluster volcano monitoring deploy-prebuilt monitoring-check run run-kubernetes
 
 clean:
 	./scripts/cleanup.sh

@@ -1,5 +1,1 @@
-"""Algorithm API Server package."""
-
-from .pipeline import AlgorithmService
-
-__all__ = ["AlgorithmService"]
+"""Algorithm Python 包：只保存由 Go 主进程管理的算法 Worker 与插件。"""

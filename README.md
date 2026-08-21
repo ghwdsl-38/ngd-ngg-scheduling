@@ -56,6 +56,8 @@ Kind 拓扑为 1 个 Control Plane 和 9 个 Worker：
 - `src/ngd_ngg_demo/`：保留的 Python legacy PRC/LLDP 对照实现和公共领域逻辑，不作为当前镜像入口；
 - `plugin/nodegroupgrant/`：Volcano NGG 插件；
 - `plugin/kubescheduler/`：kube-scheduler NGG 插件及自定义 scheduler 注册入口；
+- `ngg_consumer/formalgrant/`：正式扁平 NGG 的公共解析、时效/生命周期校验和授权合并核心；
+- `test_suites/`：3000 Node 三大统一测试组、固定 Fixture、Mock Prometheus、envtest runner 和结果格式；
 - `config/crd/`：NGD、NGG、NNT CRD；
 - `config/manager/`：PRC、Algorithm 和 LLDP Agent 部署；
 - `config/kubescheduler/`：第二个 scheduler profile 和 Deployment；
@@ -93,15 +95,23 @@ make monitoring-check # 检查 Prometheus 查询和 Algorithm 指标缓存
 ```
 
 
-只测试 Algorithm 或测试当前项目协议衔接：
+Algorithm 1000 Node 独立演示：
 
 ```bash
-make algorithm-test
-make algorithm-go-test
-make algorithm-1000-test
 make algorithm-1000-demo
-make algorithm-integration-test
 ```
+
+3000 Node 三组演示采用“计时一遍、证据一遍”：
+
+```bash
+make demo-group1       # Algorithm Cold/Warm及Go↔Python原始协议
+make demo-group2       # envtest + 真实PRC + 单一normal_create
+make demo-group3       # 真实PRC/Algorithm + NGG消费/Binding模拟
+make demo-all-groups   # 依次执行以上三组
+make demo-show-latest  # 展示最新结果
+```
+
+每组结果保存在`test_suites/<组>/runs/<时间戳>/`：`timing-run/`只保存性能结果，`evidence-run/`按原始格式保存输入、中间过程和输出。详细命令和文件含义见`test_suites/README.md`。运行数据由`.gitignore`排除。
 单独构建或部署：
 
 ```bash
@@ -133,11 +143,12 @@ PRC 和自定义 kube-scheduler 都使用 Go 1.25 构建，Kubernetes 依赖锁�
 
 ## 当前验证结果
 
-- Python 全项目 30 项测试通过，包含算法函数、单一 Worker、PRC 兼容契约和 1000 节点测试；
-- 新 Algorithm 与当前 PRC/NGG 协议衔接测试 3 项通过；
-- Go PRC 测试通过；主机没有 Go 时，测试脚本自动使用 `golang:1.25-alpine`，依赖缓存写入数据盘 `.cache/`；
-- Go Algorithm v0.4.0 镜像构建成功；`/healthz`、`/readyz`、Go 静态/Prometheus 缓存、Python Worker、新 `/api/v1/allocate` 和旧 PRC 兼容接口均完成真实容器测试；
-- Volcano 和 kube-scheduler 插件测试通过；
+- `make test-acceptance-v2` 三组统一入口通过，规模为 3000 Node、14 类 Prometheus 指标和 42000 个指标样本；
+- Algorithm Cold：PRC静态同步至最终响应约1.44秒，Algorithm内部约0.82秒；Warm正式采样30次：PRC发送至接收P95约0.58秒、Algorithm内部P95约0.57秒；两个Core各返回1000个具体Node；
+- Mock Prometheus 正确覆盖 Bearer Header 有效、缺失 401、错误 403 和查询超时；
+- envtest 中真实 PRC Watch 正式 Cluster-scoped NGD，正常生成 1000 Node 扁平 NGG；Patch、非法 Algorithm 结果、无可行组和 HTTP 503 用例通过；
+- 全链路模拟中真实 PRC、Go Algorithm、Python Worker 和公共 formal NGG consumer core 连通；20 个 cold、20 个 warm 和10个 generation 更新 Binding 均未越界；无有效 NGG 时 Binding 数为0；
+- 上述全链路是 envtest 和 Binding 子资源模拟，不是实际 Volcano/kube-scheduler、kubelet、CNI 或容器 Running 性能结论；
 - Go LLDP Agent DaemonSet `9/9 Ready`，9 个 Worker 均写入 Leaf/Border/Core、带宽、时延、来源和拓扑版本 Label；
 - Prometheus、kube-state-metrics 和 9 个 Worker 上的 node-exporter 正常运行；Algorithm 指标缓存包含 9 个 Node，`degraded=false`；
 - Volcano 路径返回 `switch-c → switch-a → switch-b`，阻塞 switch-c 后切到 switch-a，4 个 Pod 绑定并锁组；

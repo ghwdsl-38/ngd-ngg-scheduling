@@ -5,10 +5,14 @@ source "${SCRIPT_DIR}/common.sh"
 
 ensure_cluster
 kube apply -f "${ROOT_DIR}/config/crd/nodegroupdemand.yaml"
+kube apply -f "${ROOT_DIR}/docs/paas-schedbridge-master/crd-deploy/nodegroupdemand-crd.yaml"
 kube apply -f "${ROOT_DIR}/config/crd/nodegroupgrant.yaml"
+kube apply -f "${ROOT_DIR}/config/crd/nodegroupgrant-platform.yaml"
 kube apply -f "${ROOT_DIR}/config/crd/nodenetworktopology.yaml"
 kube wait --for=condition=Established crd/nodegroupdemands.scheduling.demo.ngg.io --timeout=60s
+kube wait --for=condition=Established crd/nodegroupdemands.scheduling.platform.example.io --timeout=60s
 kube wait --for=condition=Established crd/nodegroupgrants.scheduling.demo.ngg.io --timeout=60s
+kube wait --for=condition=Established crd/nodegroupgrants.scheduling.platform.example.io --timeout=60s
 kube wait --for=condition=Established crd/nodenetworktopologies.scheduling.demo.ngg.io --timeout=60s
 kube apply -f "${ROOT_DIR}/config/rbac/prc.yaml"
 kube apply -f "${ROOT_DIR}/config/rbac/volcano-plugin.yaml"

@@ -1,1 +1,1 @@
-"""Built-in configurable scheduling algorithms."""
+"""内置可配置调度算法：需求过滤、拓扑分组和负载评分。"""

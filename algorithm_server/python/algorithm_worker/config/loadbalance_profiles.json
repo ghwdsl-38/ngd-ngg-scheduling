@@ -1,12 +1,34 @@
 {
+  "balanced-v2": {
+    "resourceWeight": 0.15,
+    "metricWeight": 0.70,
+    "topologyWeight": 0.15,
+    "metrics": {
+      "cpuUsageRatio": {"weight": 0.22, "direction": "lower", "reference": 1.0},
+      "memoryUsageRatio": {"weight": 0.18, "direction": "lower", "reference": 1.0},
+      "networkUtilizationRatio": {"weight": 0.16, "direction": "lower", "reference": 1.0},
+      "networkReceiveDropRatio": {"weight": 0.08, "direction": "lower", "reference": 0.02},
+      "networkTransmitDropRatio": {"weight": 0.08, "direction": "lower", "reference": 0.02},
+      "networkReceiveErrorRatio": {"weight": 0.06, "direction": "lower", "reference": 0.01},
+      "networkTransmitErrorRatio": {"weight": 0.06, "direction": "lower", "reference": 0.01},
+      "tcpRetransmitRatio": {"weight": 0.06, "direction": "lower", "reference": 0.02},
+      "networkLinkUpRatio": {"weight": 0.04, "direction": "higher", "reference": 1.0},
+      "availableBandwidthBytesPerSecond": {"weight": 0.06, "direction": "higher", "reference": 1250000000.0}
+    }
+  },
   "balanced-v1": {
-    "resourceWeight": 0.4,
-    "loadWeight": 0.6,
-    "topologyWeight": 0.15
+    "resourceWeight": 0.15,
+    "metricWeight": 0.70,
+    "topologyWeight": 0.15,
+    "metrics": {
+      "cpuUsageRatio": {"weight": 0.55, "direction": "lower", "reference": 1.0},
+      "memoryUsageRatio": {"weight": 0.45, "direction": "lower", "reference": 1.0}
+    }
   },
   "resource-only": {
     "resourceWeight": 1.0,
-    "loadWeight": 0.0,
-    "topologyWeight": 0.15
+    "metricWeight": 0.0,
+    "topologyWeight": 0.0,
+    "metrics": {}
   }
 }

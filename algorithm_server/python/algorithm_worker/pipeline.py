@@ -1,15 +1,12 @@
+"""注册、校验并执行 FILTER→GROUP→SCORE 可配置算法流水线。"""
+
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 from .algorithms.loadbalance import LoadBalanceAlgorithm
 from .algorithms.requirement import RequirementAlgorithm
 from .algorithms.topology import TopologyAlgorithm
-from .cache.metrics import MetricsCache
-from .cache.scheduler_state import RequestSchedulerState
-from .cache.snapshot_resolver import SnapshotResolver
-from .cache.static_nodes import StaticNodeCache
 from .context import AllocationContext
 from .errors import (
     InvalidAlgorithmOrder,
@@ -18,11 +15,11 @@ from .errors import (
     UnknownAlgorithm,
 )
 from .models import AlgorithmPlugin, AlgorithmStage
-from .quantity import pod_set_minimums
-from .services.result_builder import ResultBuilder
 
 
 class PipelineRunner:
+    """按请求编排算法插件，并稳定返回不超过上限的候选组。"""
+
     DEFAULT_ALGORITHMS = [
         {"name": "requirement", "version": "v1", "parameters": {}},
         {"name": "topology", "version": "v1", "parameters": {}},
@@ -33,6 +30,7 @@ class PipelineRunner:
         self,
         plugins: list[AlgorithmPlugin] | None = None,
     ) -> None:
+        # 允许测试或以后扩展时注入插件；生产默认注册内置三阶段算法。
         registered = plugins or [
             RequirementAlgorithm(),
             TopologyAlgorithm(),
@@ -44,6 +42,8 @@ class PipelineRunner:
         }
 
     def run(self, context: AllocationContext) -> list[dict[str, Any]]:
+        """执行完整流水线，把每阶段返回字段写回同一个请求上下文。"""
+
         algorithms = (
             context.request.get("algorithms")
             or self.DEFAULT_ALGORITHMS
@@ -55,6 +55,7 @@ class PipelineRunner:
         seen_algorithms: set[tuple[str, str]] = set()
         seen_stages: set[AlgorithmStage] = set()
 
+        # 不允许重复插件、阶段倒序或缺少必需阶段。
         for raw in algorithms:
             plugin, parameters = self._resolve_plugin(
                 raw,
@@ -76,9 +77,20 @@ class PipelineRunner:
                 )
 
             plugin.validate_parameters(parameters)
+            trace = None
+            if context.request.get("debugTrace") is True:
+                trace = {
+                    "algorithm": plugin.name,
+                    "version": plugin.version,
+                    "stage": plugin.stage.name,
+                    "input": self._trace_input(plugin.stage, context, parameters),
+                }
             result = plugin.execute(context, parameters)
             for field_name, value in result.items():
                 setattr(context, field_name, value)
+            if trace is not None:
+                trace["output"] = self._trace_output(plugin.stage, context)
+                context.pipeline_trace.append(trace)
 
             previous_stage = plugin.stage
             seen_algorithms.add(key)
@@ -98,10 +110,92 @@ class PipelineRunner:
         max_groups = int(
             context.request.get("maxCandidateGroups", 3)
         )
+        # SCORE 已稳定排序；这里只截断并生成连续 rank，不重新计算分数。
         context.candidates = context.candidates[:max_groups]
         for rank, group in enumerate(context.candidates, start=1):
             group["rank"] = rank
         return context.candidates
+
+    @staticmethod
+    def _node_refs(nodes: list[dict[str, Any]]) -> list[dict[str, str]]:
+        """Trace 仅保留 Node 身份，完整资源/拓扑输入仍以静态快照文件为准。"""
+
+        return [
+            {"nodeUID": str(node.get("nodeUID", "")), "nodeName": str(node.get("nodeName", ""))}
+            for node in nodes
+        ]
+
+    def _group_refs(self, groups: list[dict[str, Any]], include_scores: bool = False) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        for group in groups:
+            if include_scores:
+                nodes = [
+                    {
+                        "nodeUID": str(node.get("nodeUID", "")),
+                        "nodeName": str(node.get("nodeName", "")),
+                        "score": node.get("score"),
+                    }
+                    for node in group.get("nodes", [])
+                ]
+            else:
+                nodes = self._node_refs(group.get("nodes", []))
+            item = {
+                "groupId": group.get("groupId"),
+                "topologyLevel": group.get("topologyLevel"),
+                "nodeCount": len(nodes),
+                "nodes": nodes,
+            }
+            if "groupScore" in group:
+                item["groupScore"] = group["groupScore"]
+            result.append(item)
+        return result
+
+    def _trace_input(
+        self,
+        stage: AlgorithmStage,
+        context: AllocationContext,
+        parameters: dict[str, Any],
+    ) -> dict[str, Any]:
+        common = {"parameters": parameters}
+        if stage == AlgorithmStage.FILTER:
+            states = context.request.get("nodeUsageStates") or []
+            common.update({
+                "staticSnapshotId": context.static_snapshot.snapshot_id,
+                "staticNodeCount": len(context.static_snapshot.nodes),
+                "nodeRequirements": context.request.get("nodeRequirements", {}),
+                "nodeUsageStateCount": len(states),
+                "nodeUsageStates": states,
+                "podMinimums": context.pod_minimums,
+            })
+        elif stage == AlgorithmStage.GROUP:
+            common.update({
+                "availableNodeCount": len(context.current_nodes),
+                "availableNodes": self._node_refs(context.current_nodes),
+                "requiredDistinctNodes": context.required_distinct_nodes,
+                "podMinimums": context.pod_minimums,
+            })
+        elif stage == AlgorithmStage.SCORE:
+            metric_nodes = context.metric_snapshot.nodes if context.metric_snapshot else {}
+            common.update({
+                "groups": self._group_refs(context.node_groups),
+                "metricSnapshotId": context.metric_snapshot.snapshot_id if context.metric_snapshot else "",
+                "metricNodeCount": len(metric_nodes),
+                "metricNames": sorted({name for values in metric_nodes.values() for name in values}),
+                "metricsDegraded": context.metrics_degraded,
+            })
+        return common
+
+    def _trace_output(self, stage: AlgorithmStage, context: AllocationContext) -> dict[str, Any]:
+        if stage == AlgorithmStage.FILTER:
+            return {
+                "availableNodeCount": len(context.current_nodes),
+                "filteredNodeCount": len(context.static_snapshot.nodes) - len(context.current_nodes),
+                "availableNodes": self._node_refs(context.current_nodes),
+                "requiredDistinctNodes": context.required_distinct_nodes,
+            }
+        if stage == AlgorithmStage.GROUP:
+            return {"groupCount": len(context.node_groups), "groups": self._group_refs(context.node_groups)}
+        return {"candidateGroupCount": len(context.candidates), "candidateNodeGroups": self._group_refs(context.candidates, include_scores=True)}
 
     def _resolve_plugin(
         self,
@@ -129,133 +223,3 @@ class PipelineRunner:
                 request_id=str(request.get("requestId", "")),
             )
         return plugin, parameters
-
-
-class AlgorithmService:
-    """Coordinates caches, request normalization, pipeline and response."""
-
-    def __init__(
-        self,
-        metrics_cache: MetricsCache | None = None,
-        static_cache: StaticNodeCache | None = None,
-        scheduler_state: RequestSchedulerState | None = None,
-        pipeline: PipelineRunner | None = None,
-        result_builder: ResultBuilder | None = None,
-    ) -> None:
-        self.boot_id = f"algorithm-{uuid.uuid4().hex[:12]}"
-        self.metrics_cache = metrics_cache or MetricsCache()
-        self.static_cache = static_cache or StaticNodeCache()
-        self.scheduler_state = (
-            scheduler_state or RequestSchedulerState()
-        )
-        self.snapshot_resolver = SnapshotResolver(
-            self.static_cache,
-            self.metrics_cache,
-        )
-        self.pipeline = pipeline or PipelineRunner()
-        self.result_builder = result_builder or ResultBuilder()
-
-    def health(self) -> dict[str, Any]:
-        return {"status": "ok", "bootId": self.boot_id}
-
-    def ready(self) -> dict[str, Any]:
-        return {"status": "ready", "bootId": self.boot_id}
-
-    def cache_status(self) -> dict[str, Any]:
-        return {
-            "bootId": self.boot_id,
-            "nodeStatic": self.static_cache.status(),
-            "schedulerState": {
-                "cached": False,
-                "mode": "request-scoped",
-            },
-            "metrics": self.metrics_cache.status(),
-        }
-
-    def put_static_snapshot(
-        self,
-        snapshot_id: str,
-        body: dict[str, Any],
-    ) -> dict[str, Any]:
-        snapshot = self.static_cache.put(snapshot_id, body)
-        return {
-            "accepted": True,
-            "snapshotId": snapshot.snapshot_id,
-            "acceptedSnapshotId": snapshot.snapshot_id,
-            "algorithmBootId": self.boot_id,
-            "bootId": self.boot_id,
-            "nodeCount": len(snapshot.nodes),
-            "checksum": snapshot.snapshot_id,
-        }
-
-    def allocate(
-        self,
-        request: dict[str, Any],
-        *,
-        legacy_contract: bool = False,
-    ) -> dict[str, Any]:
-        self._validate_request(request)
-        request_id = str(request["requestId"])
-        resolved = self.snapshot_resolver.resolve(
-            str(request["nodeStaticSnapshotId"]),
-            request_id,
-        )
-
-        normalized = dict(request)
-        normalized["nodeUsageStates"] = (
-            self.scheduler_state.normalize(
-                request,
-                resolved.static.nodes,
-            )
-        )
-        context = AllocationContext(
-            request=normalized,
-            static_snapshot=resolved.static,
-            metric_snapshot=resolved.metrics,
-            metrics_degraded=resolved.metrics_degraded,
-            warnings=resolved.metric_warnings,
-            pod_minimums=pod_set_minimums(
-                request.get("podSets", [])
-            ),
-        )
-        self.pipeline.run(context)
-        return self.result_builder.build(
-            context,
-            boot_id=self.boot_id,
-            legacy_contract=legacy_contract,
-        )
-
-    def calculate(self, request: dict[str, Any]) -> dict[str, Any]:
-        """Compatibility entry point for the current PRC."""
-        return self.allocate(request, legacy_contract=True)
-
-    @staticmethod
-    def _validate_request(request: dict[str, Any]) -> None:
-        for field_name in (
-            "requestId",
-            "taskUID",
-            "ngdUID",
-            "nodeStaticSnapshotId",
-        ):
-            if not str(request.get(field_name, "")):
-                raise InvalidRequest(
-                    f"{field_name} must not be empty"
-                )
-        try:
-            generation = int(request.get("ngdGeneration", 0))
-            max_groups = int(
-                request.get("maxCandidateGroups", 3)
-            )
-        except (TypeError, ValueError) as exc:
-            raise InvalidRequest(
-                "ngdGeneration and maxCandidateGroups must be integers"
-            ) from exc
-        if generation < 1:
-            raise InvalidRequest(
-                "ngdGeneration must be at least 1"
-            )
-        if not 1 <= max_groups <= 3:
-            raise InvalidRequest(
-                "maxCandidateGroups must be between 1 and 3",
-                request_id=str(request.get("requestId", "")),
-            )

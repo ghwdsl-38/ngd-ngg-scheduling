@@ -40,6 +40,7 @@ type staticSnapshot struct {
 }
 
 type schedulerNodeState struct {
+	NodeName           string            `json:"nodeName"`
 	NodeUID            string            `json:"nodeUID"`
 	Ready              bool              `json:"ready"`
 	Unschedulable      bool              `json:"unschedulable"`
@@ -183,7 +184,7 @@ func buildSchedulerState(nodes []corev1.Node, pods []corev1.Pod) (string, string
 			formatted[string(name)] = quantity.String()
 		}
 		state = append(state, schedulerNodeState{
-			NodeUID: string(node.UID), Ready: nodeReady(node), Unschedulable: node.Spec.Unschedulable,
+			NodeName: node.Name, NodeUID: string(node.UID), Ready: nodeReady(node), Unschedulable: node.Spec.Unschedulable,
 			RequestedResources: formatted,
 		})
 	}

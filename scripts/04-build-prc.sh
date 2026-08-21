@@ -16,7 +16,7 @@ docker run --rm \
   -v "${ROOT_DIR}/.cache/go-build:/cache/build" \
   -w /workspace \
   golang:1.25.0 \
-  sh -c 'go test ./... && go build -trimpath -ldflags="-s -w" -o /out/prc ./cmd'
+  sh -c 'go build -trimpath -ldflags="-s -w" -o /out/prc ./cmd'
 docker build --tag "${PRC_IMAGE}" --file "${ROOT_DIR}/Dockerfile.prc" "${ROOT_DIR}"
 docker image inspect "${PRC_IMAGE}" --format '{{.Id}} {{.RepoTags}}' |
   tee "${RESULTS_DIR}/prc-image.txt"

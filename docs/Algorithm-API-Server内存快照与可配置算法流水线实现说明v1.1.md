@@ -59,25 +59,15 @@ ngd-ngg-scheduling-demo/
 ├── algorithm_server/
 │   └── python/algorithm_worker/
 │       ├── __init__.py
-│       ├── app.py
+│       ├── worker.py
 │       ├── models.py
 │       ├── pipeline.py
 │       ├── context.py
 │       ├── errors.py
 │       ├── quantity.py
-│       ├── cache/
-│       │   ├── __init__.py
-│       │   ├── static_nodes.py
-│       │   ├── scheduler_state.py
-│       │   ├── metrics.py
-│       │   └── snapshot_resolver.py
-│       ├── collectors/
-│       │   ├── __init__.py
-│       │   └── prometheus_collector.py
 │       ├── services/
 │       │   ├── __init__.py
-│       │   ├── node_view_builder.py
-│       │   └── result_builder.py
+│       │   └── node_view_builder.py
 │       ├── algorithms/
 │       │   ├── __init__.py
 │       │   ├── requirement.py

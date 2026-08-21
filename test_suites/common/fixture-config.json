@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "tests-v2-fixture-v1",
+  "seed": 20260819,
+  "clusterId": "mock-3000-node-cluster",
+  "nodeCount": 3000,
+  "topology": {
+    "dataCenter": "dc-test-01",
+    "coreCount": 2,
+    "borderCount": 4,
+    "leafCount": 150,
+    "nodesPerLeaf": 20,
+    "bordersPerCore": 2
+  },
+  "dynamicState": {
+    "inUseEveryNthNode": 3,
+    "expectedAvailableNodes": 2000,
+    "expectedAvailableNodesPerCore": 1000
+  },
+  "request": {
+    "replicas": 1000,
+    "minAvailable": 1000,
+    "requiredDistinctNodes": 1000,
+    "widestAllowedLevel": "coreSwitch",
+    "maxCandidateGroups": 3
+  },
+  "prometheus": {
+    "nodeLabel": "node",
+    "bearerToken": "test-prometheus-token"
+  }
+}
+

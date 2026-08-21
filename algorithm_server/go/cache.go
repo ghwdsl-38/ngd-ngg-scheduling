@@ -1,3 +1,4 @@
+// cache.go 实现 Node 静态快照的校验、内容 Hash 和双版本内存缓存。
 package main
 
 import (
@@ -12,12 +13,14 @@ import (
 )
 
 type staticCache struct {
+	// 读写锁允许 HTTP 状态查询与调度计算并发读取快照。
 	mu       sync.RWMutex
 	current  *staticSnapshot
 	previous *staticSnapshot
 }
 
 func (c *staticCache) put(id string, body map[string]any) (staticSnapshot, error) {
+	// 路径中的 snapshotID 必须与规范化内容的 SHA-256 完全一致。
 	if !strings.HasPrefix(id, "sha256:") || len(id) != 71 {
 		return staticSnapshot{}, fmt.Errorf("snapshotId must use sha256:<hex> format")
 	}
@@ -39,6 +42,7 @@ func (c *staticCache) put(id string, body map[string]any) (staticSnapshot, error
 	}
 	nodes := make([]map[string]any, 0, len(rawNodes))
 	seen := map[string]struct{}{}
+	// Node UID 是节点身份；同名重建节点不会误用旧授权。
 	for _, raw := range rawNodes {
 		node, ok := raw.(map[string]any)
 		if !ok {
@@ -63,6 +67,7 @@ func (c *staticCache) put(id string, body map[string]any) (staticSnapshot, error
 		seen[uid] = struct{}{}
 		nodes = append(nodes, node)
 	}
+	// 固定排序保证同一份逻辑数据在后续计算中始终具有稳定顺序。
 	sort.Slice(nodes, func(i, j int) bool {
 		left, right := stringValue(nodes[i]["nodeUID"]), stringValue(nodes[j]["nodeUID"])
 		if left == right {
@@ -79,6 +84,7 @@ func (c *staticCache) put(id string, body map[string]any) (staticSnapshot, error
 	if c.current != nil && c.current.SnapshotID == id {
 		return *c.current, nil
 	}
+	// 仅保留 current 和 previous，支持 PRC 切换快照期间的短暂并发请求。
 	if c.current != nil {
 		copy := *c.current
 		c.previous = &copy
@@ -114,6 +120,7 @@ func (c *staticCache) status() map[string]any {
 }
 
 func canonicalHash(value any) (string, error) {
+	// Go JSON 编码会稳定排序 map key；关闭 HTML 转义以和协议 Hash 规则一致。
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)
 	encoder.SetEscapeHTML(false)

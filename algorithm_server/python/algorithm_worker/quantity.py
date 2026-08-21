@@ -1,6 +1,9 @@
+"""解析 Kubernetes Quantity，并验证 PodSet 能否装入一个候选节点组。"""
+
 from __future__ import annotations
 
 import copy
+import heapq
 import re
 from decimal import Decimal
 from typing import Any
@@ -18,6 +21,8 @@ _BINARY = {
 
 
 def parse_resources(resources: dict[str, Any]) -> dict[str, int]:
+    """把 CPU 转为毫核、内存转为字节、扩展资源转为整数。"""
+
     result: dict[str, int] = {}
     for name, raw in resources.items():
         value = str(raw)
@@ -46,6 +51,8 @@ def parse_resources(resources: dict[str, Any]) -> dict[str, int]:
 
 
 def fits(available: dict[str, int], request: dict[str, int]) -> bool:
+    """判断一份剩余资源是否能容纳一个 Pod 请求。"""
+
     return all(available.get(name, 0) >= value for name, value in request.items())
 
 
@@ -53,6 +60,8 @@ def subtract(
     available: dict[str, int],
     request: dict[str, int],
 ) -> dict[str, int]:
+    """返回扣除一次 Pod 请求后的新资源字典，不修改传入值。"""
+
     result = dict(available)
     for name, value in request.items():
         result[name] = max(0, result.get(name, 0) - value)
@@ -62,6 +71,8 @@ def subtract(
 def pod_set_minimums(
     pod_sets: list[dict[str, Any]],
 ) -> list[tuple[str, int, dict[str, int]]]:
+    """提取每个 PodSet 必须同时满足的 minAvailable 和单 Pod 资源。"""
+
     result: list[tuple[str, int, dict[str, int]]] = []
     for pod_set in pod_sets:
         name = str(pod_set.get("name", ""))
@@ -82,6 +93,8 @@ def can_place_minimums(
     minimums: list[tuple[str, int, dict[str, int]]],
     required_distinct_nodes: int = 0,
 ) -> bool:
+    """用确定性贪心装箱验证整个任务的最小副本是否能放入该组。"""
+
     if required_distinct_nodes and len(nodes) < required_distinct_nodes:
         return False
     remaining = {
@@ -93,23 +106,39 @@ def can_place_minimums(
         key=lambda item: sum(item[2].values()),
         reverse=True,
     )
+    # 每个 PodSet 构建一次确定性最大堆。旧实现每放一个副本都扫描
+    # 全部 Node，3000 Node/1000 副本时为 O(P*N)；堆实现降为
+    # O((N+P)logN)，并以 UID 作为同分稳定次关键字。
     for _name, count, request in ordered:
-        for _ in range(count):
-            feasible = [
-                uid for uid, capacity in remaining.items() if fits(capacity, request)
-            ]
-            if not feasible:
-                return False
-            chosen = max(
-                feasible,
-                key=lambda uid: (
-                    sum(remaining[uid].get(key, 0) for key in request),
-                    uid,
-                ),
+        heap = [
+            (
+                -sum(capacity.get(key, 0) for key in request),
+                uid,
             )
+            for uid, capacity in remaining.items()
+            if fits(capacity, request)
+        ]
+        heapq.heapify(heap)
+        for _ in range(count):
+            if not heap:
+                return False
+            _negative_capacity, chosen = heapq.heappop(heap)
             remaining[chosen] = subtract(remaining[chosen], request)
+            if fits(remaining[chosen], request):
+                heapq.heappush(
+                    heap,
+                    (
+                        -sum(
+                            remaining[chosen].get(key, 0)
+                            for key in request
+                        ),
+                        chosen,
+                    ),
+                )
     return True
 
 
 def deep_copy_resources(value: dict[str, int]) -> dict[str, int]:
+    """为调用者提供显式的资源字典深拷贝。"""
+
     return copy.deepcopy(value)
