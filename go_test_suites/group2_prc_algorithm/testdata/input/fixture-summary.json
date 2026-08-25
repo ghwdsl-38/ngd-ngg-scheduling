@@ -1,0 +1,6 @@
+{
+  "metricNamesPerNode": 14,
+  "metricSamples": 14000,
+  "nodeCount": 1000,
+  "topology": "2 core / 4 border / 50 leaf / 20 nodes per leaf"
+}

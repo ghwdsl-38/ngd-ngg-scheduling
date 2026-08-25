@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"scheduling.demo.ngg.io/prc/internal/controller"
+	"scheduling.demo.ngg.io/prc/pkg/controller"
 )
 
 func main() {

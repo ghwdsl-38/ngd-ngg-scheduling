@@ -68,27 +68,11 @@ spec:
     strategy: NarrowestFit
     widestAllowedLevel: coreSwitch
 
-  algorithms:
-    - name: requirement
-      version: v1
-      parameters:
-        requiredDistinctNodes: 1000
-    - name: topology
-      version: v1
-      parameters:
-        profile: leaf-border-core-v1
-        strategy: NarrowestFit
-        widestAllowedLevel: coreSwitch
-        requiredDistinctNodes: 1000
-    - name: loadbalance
-      version: v1
-      parameters:
-        profile: balanced-v2
-        requireMetrics: true
-        requireNetworkMetrics: true
-
   maxCandidateGroups: 3
   maxNodes: 1000
+  quota:
+    cpu: "1200"
+    memory: 4800Gi
   minResources:
     cpu: "1000"
     memory: 1000Gi
@@ -97,11 +81,9 @@ spec:
 关键语义：
 
 - `widestAllowedLevel: coreSwitch`：NarrowestFit从Leaf开始，允许逐层扩大到Core，Core是本需求允许的最大拓扑范围；
-- `algorithms`数组顺序：`requirement(FILTER) -> topology(GROUP) -> loadbalance(SCORE)`；
-- PRC读取该数组并保持顺序发送，Python Worker也会校验阶段不能倒序；
-- `requiredDistinctNodes: 1000`：单个候选组必须有1000个不同可用Node；
+- Algorithm Server固定执行`requirement(FILTER) -> topology(GROUP) -> loadbalance(SCORE)`，PRC不发送编排数组；
 - `maxCandidateGroups: 3`：最多返回3组；
-- `maxNodes: 1000`：正式NGG只授权最终第一候选组中的1000个Node。
+- `maxNodes: 1000`：只规定正式NGG节点数上限；实际数量由`minResources`和`quota`共同决定。
 
 ## 4. 完整架构和数据流
 
@@ -118,7 +100,7 @@ flowchart TD
     T -->|创建正式NGD| K
     K -->|NGD Watch| R
     R -->|PUT静态Node/拓扑快照| A
-    R -->|POST动态Node + 拓扑边界 + 算法顺序| A
+    R -->|POST动态Node + 完整原始NGD| A
     A -->|静态 + 动态 + Prometheus快照<br/>JSONL stdin| W
     W --> F[Requirement<br/>3000过滤为2000]
     F --> G[Topology<br/>Leaf/Border失败，形成2个Core组]
@@ -126,7 +108,7 @@ flowchart TD
     S -->|最多3个候选组| A
     A -->|Algorithm HTTP结果| R
     R -->|选择rank 1并写正式NGG| K
-    C[NGG Consumer] -->|读取授权1000 Node| K
+    C[NGG Consumer] -->|读取实际授权Node| K
     C -->|Binding 20 Pod| K
     K --> O[最终NGD/NGG/Pod Evidence]
 ```
@@ -140,9 +122,9 @@ envtest中创建：
 ```text
 3000 Node
 ├── Core-01：1500 Node
-│   └── 动态过滤后1000 Node可用
+│   └── 动态过滤后约1000 Node可用
 └── Core-02：1500 Node
-    └── 动态过滤后1000 Node可用
+    └── 动态过滤后约1000 Node可用
 
 4 Border、150 Leaf，每个Leaf连接20 Node
 100个预置已绑定Pod，用于PRC计算requestedResources
@@ -178,16 +160,16 @@ Mock Prometheus为3000个Node提供14项指标并校验Bearer Token和PromQL。G
 4. PRC收到该NGD的Watch事件并开始处理，此时记录Cold T0。
 5. PRC List 3000 Node、已有Pod和NNT，生成静态快照Hash及动态状态Hash。
 6. PRC将静态Node和拓扑快照PUT到Go Algorithm。
-7. PRC发送Allocate请求，包含动态Node、资源池需求、`coreSwitch`拓扑边界和三段算法顺序。
+7. PRC发送Allocate请求，包含动态Node和完整原始NGD，不包含算法编排数组。
 8. Go解析静态缓存和Prometheus缓存，将完整上下文写入Python Worker stdin。
 9. Python执行：
    - Requirement：排除1000个不可调度Node，保留2000个；
-   - Topology：Leaf和Border组不足1000 Node，Core-01/Core-02各形成一个1000 Node候选组；
+   - Topology：按Leaf、Border、Core生成候选，资源下限不足时才扩大到更宽层级；
    - LoadBalance：使用指标和拓扑质量对Node及两个Core组评分排序。
 10. Go将最多3个候选组返回PRC。
-11. PRC保持Algorithm顺序，选择rank 1；正式平台NGG契约只写入该组的1000个授权Node。
+11. PRC保持Algorithm顺序，选择rank 1；本次实际写入该组的32个授权Node。
 12. PRC更新NGG为Active、NGD为Fulfilled。
-13. Runner读取NGG，NGG Consumer解析出1000个授权Node。
+13. Runner读取NGG，NGG Consumer解析出32个授权Node。
 14. Runner通过Kubernetes `pods/binding` 子资源，把20个Pending Pod轮询绑定到授权节点。
 15. 检查20个Pod全部具有 `spec.nodeName`，且没有Pod绑定到NGG范围外。
 
@@ -212,7 +194,7 @@ Warm Case不重启envtest、PRC、Algorithm、Python Worker或Prometheus，复�
   -> 剩余2000个Node
   -> Leaf组每组约13~14个：不足1000
   -> Border组每组约493~507个：不足1000
-  -> Core-01和Core-02各1000个：满足
+  -> Border层可选32个高分Node满足1000 CPU/1000Gi下限且不突破quota
   -> LoadBalance计算Node score和groupScore
   -> groupScore降序返回候选组
   -> PRC选择rank 1并写入正式NGG
@@ -286,27 +268,27 @@ evidence-run/logs/algorithm-server.log
 
 | 文件 | 说明 |
 | --- | --- |
-| `ngd-input.yaml` | 正式输入NGD，包含拓扑边界和算法顺序 |
+| `ngd-input.yaml` | 正式输入NGD，包含拓扑边界和资源上下限 |
 | `pending-pods.yaml` | Binding前的20个Pod |
 | `prc-static-snapshot-request.json` | PRC实际发送的3000 Node静态资源和拓扑 |
-| `prc-allocation-request.json` | PRC实际发送的动态状态、拓扑约束和算法顺序 |
+| `prc-allocation-request.json` | PRC实际发送的动态状态和完整原始NGD |
 | `algorithm-result.json` | 真实Go/Python Algorithm返回的候选组、分数和节点 |
 | `prc-algorithm-http.jsonl` | PRC与Algorithm的HTTP接口、状态码和耗时摘要 |
 | `01-input-formal-ngg.json` | Consumer实际读取的正式NGG |
-| `02-output-authorized-nodes.json` | Consumer解析出的1000个授权Node |
+| `02-output-authorized-nodes.json` | Consumer解析出的32个授权Node |
 | `03-input-output-bindings.json` | 20个Pod到目标Node的绑定明细 |
 | `04-output-consumer-status.json` | Consumer回写NGG的接受状态 |
 | `ngd-final.yaml` | 最终Fulfilled NGD |
-| `ngg-generated.yaml` | 最终Active NGG及1000个Node |
+| `ngg-generated.yaml` | 最终Active NGG及Algorithm实际选出的Node |
 | `pods-after-binding.yaml` | 20个已经具有 `spec.nodeName` 的Pod |
 | `prometheus-requests.jsonl` | Bearer认证及14条PromQL查询审计 |
 
 推荐展示顺序：
 
-1. `input/ngd-input.yaml`：讲清需求、最低允许拓扑层级和算法顺序；
+1. `input/ngd-input.yaml`：讲清需求、最宽允许拓扑层级和资源上下限；
 2. `process/prc-allocation-request.json`：证明PRC真实读取并转发了这些配置；
 3. `process/algorithm-result.json`：展示两个候选Core组、分数和具体Node；
-4. `output/ngg-generated.yaml`：展示PRC最终发布rank 1的1000个Node；
+4. `output/ngg-generated.yaml`：展示PRC最终发布rank 1候选组中的具体Node；
 5. `process/ngg-consumer/02-output-authorized-nodes.json`：展示调度侧解析结果；
 6. `process/ngg-consumer/03-input-output-bindings.json`：展示20个Binding；
 7. `output/pods-after-binding.yaml`：确认最终Pod全部位于授权范围。

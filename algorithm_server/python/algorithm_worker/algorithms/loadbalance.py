@@ -9,6 +9,7 @@ from typing import Any
 from ..context import AllocationContext
 from ..errors import InvalidAlgorithmParameters, RequiredMetricsNotReady
 from ..models import AlgorithmStage
+from ..quantity import parse_resources
 
 
 class LoadBalanceAlgorithm:
@@ -71,11 +72,17 @@ class LoadBalanceAlgorithm:
         metrics_by_name = (
             context.metric_snapshot.nodes if context.metric_snapshot else {}
         )
+
+        # 一个Node可能同时出现在Leaf、Border、Core组中。先按UID去重，既用于
+        # 指标完整性检查，也用于后续只计算一次Node分数。
+        source_by_uid: dict[str, dict[str, Any]] = {}
+        for group in context.node_groups:
+            for node in group["nodes"]:
+                source_by_uid.setdefault(str(node["nodeUID"]), node)
         if bool(parameters.get("requireNetworkMetrics", False)):
             missing = [
                 str(node["nodeName"])
-                for group in context.node_groups
-                for node in group["nodes"]
+                for node in source_by_uid.values()
                 if not self.NETWORK_METRICS.intersection(
                     metrics_by_name.get(str(node["nodeName"]), {})
                 )
@@ -87,39 +94,70 @@ class LoadBalanceAlgorithm:
                     request_id=str(context.request.get("requestId", "")),
                 )
 
-        candidates: list[dict[str, Any]] = []
+        # 资源和Prometheus分数只与Node本身有关，因此每次请求只计算一次，
+        # 后续各层级直接复用。
+        score_by_uid = {
+            uid: self._score_node(
+                node,
+                metrics_by_name.get(str(node["nodeName"])),
+                profile,
+            )
+            for uid, node in source_by_uid.items()
+        }
+
+        resource_pool = context.request.get("requestMode") == "resourcePool"
+        grouped_by_order: dict[int, list[dict[str, Any]]] = {}
         for group in context.node_groups:
-            nodes = [
-                self._score_node(
-                    node,
-                    metrics_by_name.get(str(node["nodeName"])),
-                    profile,
+            grouped_by_order.setdefault(
+                int(group.get("topologyOrder", 99)), []
+            ).append(group)
+
+        candidates: list[dict[str, Any]] = []
+        for topology_order in sorted(grouped_by_order):
+            level_candidates: list[dict[str, Any]] = []
+            for group in grouped_by_order[topology_order]:
+                # selection会删除内部资源字段，所以每个组使用浅拷贝；缓存本身
+                # 保持不变，可安全复用于更宽拓扑层级。
+                nodes = [
+                    dict(score_by_uid[str(node["nodeUID"])])
+                    for node in group["nodes"]
+                ]
+                # 正式 NGG 要求 nodes 按 score 降序；同分时按名称和 UID 稳定排序。
+                nodes.sort(
+                    key=lambda item: (
+                        -item["score"], item["nodeName"], item["nodeUID"]
+                    )
                 )
-                for node in group["nodes"]
-            ]
-            # 正式 NGG 要求 nodes 按 score 降序；同分时按名称和 UID 稳定排序。
-            nodes.sort(
-                key=lambda item: (
-                    -item["score"], item["nodeName"], item["nodeUID"]
+                if resource_pool:
+                    nodes = self._select_resource_pool_nodes(context, nodes)
+                    if not nodes:
+                        continue
+                average = sum(node["score"] for node in nodes) / len(nodes)
+                selected_ids = {str(node["nodeUID"]) for node in nodes}
+                selected_sources = [
+                    node for node in group["nodes"]
+                    if str(node["nodeUID"]) in selected_ids
+                ]
+                topology_quality = self._topology_quality(selected_sources)
+                topology_weight = float(profile["topologyWeight"])
+                score = round(
+                    (1.0 - topology_weight) * average
+                    + topology_weight * topology_quality,
+                    2,
                 )
-            )
-            average = sum(node["score"] for node in nodes) / len(nodes)
-            topology_quality = self._topology_quality(group["nodes"])
-            topology_weight = float(profile["topologyWeight"])
-            score = round(
-                (1.0 - topology_weight) * average
-                + topology_weight * topology_quality,
-                2,
-            )
-            candidates.append(
-                {
-                    "groupId": group["groupId"],
-                    "topologyLevel": group["topologyLevel"],
-                    "groupScore": score,
-                    "topologyOrder": int(group.get("topologyOrder", 99)),
-                    "nodes": nodes,
-                }
-            )
+                level_candidates.append(
+                    {
+                        "groupId": group["groupId"],
+                        "topologyLevel": group["topologyLevel"],
+                        "groupScore": score,
+                        "topologyOrder": topology_order,
+                        "nodes": nodes,
+                    }
+                )
+            candidates.extend(level_candidates)
+            # NarrowestFit在当前层有任一可行组后即停止，不再处理更宽层级。
+            if resource_pool and level_candidates:
+                break
 
         candidates.sort(
             key=lambda item: (
@@ -128,8 +166,6 @@ class LoadBalanceAlgorithm:
                 item["groupId"],
             )
         )
-        for item in candidates:
-            item.pop("topologyOrder", None)
         return {"candidates": candidates}
 
     @staticmethod
@@ -138,7 +174,19 @@ class LoadBalanceAlgorithm:
         metrics: dict[str, float] | None,
         profile: dict[str, Any],
     ) -> dict[str, Any]:
-        resource_score = 100.0 if node.get("allocatable") else 0.0
+        allocatable = node.get("_allocatableResources")
+        if not isinstance(allocatable, dict):
+            allocatable = parse_resources(node.get("allocatable", {}))
+        available = node.get("availableResources", allocatable)
+        resource_ratios = [
+            min(1.0, max(0.0, available.get(name, 0) / capacity))
+            for name, capacity in allocatable.items()
+            if capacity > 0 and name in {"cpu", "memory"}
+        ]
+        resource_score = (
+            sum(resource_ratios) / len(resource_ratios) * 100.0
+            if resource_ratios else 0.0
+        )
         weighted_score = 0.0
         available_weight = 0.0
         for name, rule in profile.get("metrics", {}).items():
@@ -158,11 +206,72 @@ class LoadBalanceAlgorithm:
         score = (
             resource_weight * resource_score + metric_weight * metric_score
         ) / total_weight if total_weight else 100.0
-        return {
+        result = {
             "nodeUID": str(node["nodeUID"]),
             "nodeName": str(node["nodeName"]),
             "score": max(0, min(100, round(score))),
+            "_availableResources": dict(available),
         }
+        if "cpu" in available or "memory" in available:
+            result["resources"] = {
+                "cpuAvailable": LoadBalanceAlgorithm._format_resource(
+                    "cpu", available.get("cpu", 0)
+                ),
+                "memoryAvailable": LoadBalanceAlgorithm._format_resource(
+                    "memory", available.get("memory", 0)
+                ),
+            }
+        return result
+
+    @staticmethod
+    def _select_resource_pool_nodes(
+        context: AllocationContext,
+        ranked_nodes: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """按得分选 Node，满足资源下限且不突破 maxNodes/quota 上限。"""
+
+        ngd = context.request.get("ngd", {})
+        minimum = parse_resources(ngd.get("minResources", {}))
+        quota = parse_resources(ngd.get("quota", {}))
+        max_nodes = int(ngd.get("maxNodes", len(ranked_nodes)))
+        if max_nodes < 1:
+            return []
+        if any(minimum.get(name, 0) > limit for name, limit in quota.items()):
+            return []
+
+        selected: list[dict[str, Any]] = []
+        totals: dict[str, int] = {}
+        for node in ranked_nodes:
+            if len(selected) >= max_nodes:
+                break
+            available = node.get("_availableResources", {})
+            proposed = {
+                name: totals.get(name, 0) + int(value)
+                for name, value in available.items()
+            }
+            if any(proposed.get(name, 0) > limit for name, limit in quota.items()):
+                continue
+            selected.append(node)
+            totals = proposed
+            if minimum and all(
+                totals.get(name, 0) >= value
+                for name, value in minimum.items()
+            ):
+                break
+
+        if minimum and not all(
+            totals.get(name, 0) >= value for name, value in minimum.items()
+        ):
+            return []
+        for node in selected:
+            node.pop("_availableResources", None)
+        return selected
+
+    @staticmethod
+    def _format_resource(name: str, value: int) -> str:
+        if name == "cpu":
+            return str(value // 1000) if value % 1000 == 0 else f"{value}m"
+        return str(value)
 
     @staticmethod
     def _topology_quality(nodes: list[dict[str, Any]]) -> float:

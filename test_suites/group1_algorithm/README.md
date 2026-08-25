@@ -68,14 +68,14 @@ flowchart TD
 
 详细步骤如下：
 
-1. `run_group.py` 调用 `fixture.generate()`，在内存生成3000个Node的静态数据、动态状态、Prometheus指标和一次任务请求。
+1. `run_group.py` 调用 `fixture.generate()`，在内存生成3000个Node的静态数据、动态状态、Prometheus指标和一次正式资源池请求。
 2. `start_prometheus()` 创建 `ThreadingHTTPServer`，绑定宿主机随机端口，并在后台线程运行Mock Prometheus。
 3. 测试驱动把测试Token写入临时文件 `.prometheus-token`。
 4. `start_algorithm()` 启动Algorithm Docker容器，将Token只读挂载到 `/run/secrets/prometheus-token`，同时设置Mock Prometheus地址。
 5. Go Algorithm进程启动一个常驻Python Worker，并启动Prometheus刷新协程。
 6. Go携带Bearer Token向Mock Prometheus的 `/api/v1/query` 发起14个instant query，把返回数据构造成内存指标快照。
 7. 模拟PRC通过 `PUT /internal/v1/node-static-snapshots/{snapshotID}` 上传Node静态快照。
-8. 模拟PRC通过 `POST /api/v1/allocate` 发送任务需求、算法编排顺序和本次请求的Node动态状态。
+8. 模拟PRC通过 `POST /api/v1/allocate` 发送完整联通NGD `spec`和本次请求的Node动态状态；请求中不包含算法编排数组。
 9. Go根据 `nodeStaticSnapshotId` 解析静态缓存，将静态快照、动态状态和指标快照通过JSONL传给Python Worker。
 10. Python依次执行Requirement、Topology和LoadBalance，返回已排序的候选组。
 11. Go保持Python给出的分数和顺序，生成最终HTTP响应；测试驱动检查节点数量、候选组层级、排序及忙节点是否被排除。
@@ -193,21 +193,20 @@ worker-0003、worker-0006、worker-0009、...、worker-3000
 
 动态状态只随本次Allocate请求传递，不进入Algorithm跨请求缓存。
 
-### 5.3 任务需求
+### 5.3 资源池需求
 
-任务请求1000个Pod，要求：
+本组要求一个候选拓扑组提供：
 
 ```text
-replicas              = 1000
-minAvailable          = 1000
-requiredDistinctNodes = 1000
-resourcesPerPod       = 1 CPU + 1Gi memory
+minResources          = 32000 CPU + 128000Gi memory
+quota                 = 32000 CPU + 128000Gi memory
+maxNodes              = 1000（上限，不是必须节点数）
 nodeSelector          = tests.ngg.io/worker=true
 widestAllowedLevel    = coreSwitch
 maxCandidateGroups    = 3
 ```
 
-这表示一个候选拓扑组至少要包含1000个不同的可用Node。
+每个可用Node为32 CPU、128Gi，因此该Fixture恰好需要1000个Node；这是资源下限计算的结果，不是把`maxNodes`误当成最低节点数。
 
 ### 5.4 Prometheus指标
 
@@ -261,13 +260,13 @@ Requirement输出会记录：
 Leaf -> Border -> Core
 ```
 
-每一层都会按交换机ID分组，只保留能够同时提供1000个不同可用Node的组：
+每一层都会按交换机ID分组。Topology阶段输出允许范围内的全部156个拓扑组；LoadBalance阶段按Leaf、Border、Core逐层检查资源可行性：
 
-| 层级 | 单组规模 | 是否满足1000个不同Node |
-| --- | ---: | --- |
-| Leaf | 每组约13～14个可用Node | 不满足，继续扩大范围 |
-| Border | 每组约493～507个可用Node | 不满足，继续扩大范围 |
-| Core | 每组1000个可用Node | 满足，停止扩大范围 |
+| 层级 | 组数 | 单组可用规模 | 是否满足资源下限 |
+| --- | ---: | ---: | --- |
+| Leaf | 150 | 约13～14个Node | 不满足，继续扩大范围 |
+| Border | 4 | 约493～507个Node | 不满足，继续扩大范围 |
+| Core | 2 | 1000个Node | 满足，停止扩大范围 |
 
 最终形成两个可行组：
 
@@ -276,7 +275,7 @@ core:core-01：1000个可用Node
 core:core-02：1000个可用Node
 ```
 
-这里不是在两个Core组中立即只选一个，而是把两个组都交给LoadBalance评分。
+两个Core组都满足要求，因此继续计算组分并排序；Core层已经可行，不再处理更宽层级。
 
 ### 6.3 第三阶段：LoadBalance评分排序
 
@@ -286,12 +285,12 @@ core:core-02：1000个可用Node
 
 1. 检查Prometheus快照是否可用；
 2. 检查每个候选Node是否具有网络指标；
-3. 根据CPU、内存和网络指标计算每个Node的 `score`；
+3. 根据CPU、内存和网络指标计算每个Node的 `score`；同一Node跨拓扑层级只计算一次；
 4. 组内Node按 `score` 降序排列，同分时按名称和UID稳定排序；
 5. 计算组内Node平均分；
 6. 根据静态带宽和时延计算拓扑质量分；
 7. 计算 `groupScore`；
-8. 所有组按 `groupScore` 降序排列，同分时按拓扑层级顺序和 `groupId` 稳定排序；
+8. 按Leaf→Border→Core逐层验证，当前层存在可行组后停止，并按 `groupScore` 降序、`groupId` 稳定排序；
 9. 最多保留 `maxCandidateGroups=3` 个组，并生成连续的 `rank`。
 
 核心计算关系为：
@@ -330,6 +329,12 @@ Warm在静态快照和Prometheus指标都已经位于Go内存后，只执行Allo
 - `algorithmProcessingMs`：Go HTTP Handler接收Allocate请求到候选结果完成。
 
 Timing不启用Trace，不保存中间协议，文件写入不进入业务计时。
+
+当前3000 Node优化验证结果见：
+
+- `runs/20260824-114122/timing-run/timing-result.json`；
+- Warm 30次：Algorithm处理均值 `444.296 ms`，PRC发送到接收均值 `455.798 ms`；
+- 候选结果与优化前逐字段一致：`core:core-01`、`core:core-02`，每组1000个Node。
 
 ### 7.2 Evidence Run
 
@@ -390,7 +395,7 @@ evidence-run/<case>/
 推荐演示顺序：
 
 1. `infrastructure/prometheus-requests.jsonl`：证明Algorithm携带正确Token读取了14项指标；
-2. `01-prc-go-http/prc-to-go-request.json`：展示任务需求、动态Node状态和算法顺序；
+2. `01-prc-go-http/prc-to-go-request.json`：展示完整NGD和动态Node状态；
 3. `02-go-cache/node-static-snapshot.json`：展示Node静态资源和三层拓扑；
 4. `02-go-cache/prometheus-metric-snapshot.json`：展示Go实际缓存的指标；
 5. `03-go-python-worker/go-to-python-request.jsonl`：展示Go实际传给Python的完整输入；

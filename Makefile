@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: check algorithm-1000-demo demo-group1-timing demo-group1-evidence demo-group1 demo-group2-timing demo-group2-evidence demo-group2 demo-group3-timing demo-group3-evidence demo-group3 demo-all-groups demo-show-latest test-algorithm-complete test-prc-complete test-full-chain-simulated test-acceptance-v2 test-showcase load-images cluster volcano monitoring monitoring-check crds algorithm-image algorithm lldp-agent-image lldp-agent prc-image prc plugin-image plugin kube-scheduler-image kube-scheduler deploy deploy-prebuilt run run-kubernetes demo demo-prebuilt clean
+.PHONY: check algorithm-1000-demo go-test-group1 go-test-group2 go-test-group3 go-test-group4 go-test-all benchmark-3000-group1 benchmark-3000-group2 benchmark-3000-group3 benchmark-3000-group4 benchmark-3000-all benchmark-3000-report demo-group1-timing demo-group1-evidence demo-group1 demo-group2-timing demo-group2-evidence demo-group2 demo-group3-timing demo-group3-evidence demo-group3 demo-all-groups demo-show-latest test-algorithm-complete test-prc-complete test-full-chain-simulated test-acceptance-v2 test-showcase load-images cluster volcano monitoring monitoring-check crds algorithm-image algorithm lldp-agent-image lldp-agent prc-image prc plugin-image plugin kube-scheduler-image kube-scheduler deploy deploy-prebuilt run run-kubernetes demo demo-prebuilt clean
 
 check:
 	./scripts/00-check-env.sh
@@ -8,6 +8,38 @@ check:
 algorithm-1000-demo:
 	docker build --tag "$${ALGORITHM_IMAGE:-ngd-ngg-algorithm:v0.4.0}" --file Dockerfile.algorithm .
 	PYTHONPATH=algorithm_server/python python3 algorithm_server/demo_1000_nodes/run_demo.py
+
+go-test-group1:
+	. ./scripts/go-test-env.sh; go test -p=1 ./go_test_suites/group1_algorithm_worker -run '^TestGroup1_' -v -count=1
+
+go-test-group2:
+	. ./scripts/go-test-env.sh; go test -p=1 ./go_test_suites/group2_prc_algorithm -run '^TestGroup2_' -v -count=1
+
+go-test-group3:
+	. ./scripts/go-test-env.sh; go test -p=1 ./go_test_suites/group3_prc_ngd_ngg -run '^TestGroup3_' -v -count=1
+
+go-test-group4:
+	. ./scripts/go-test-env.sh; go test -p=1 ./go_test_suites/group4_full_real_algorithm -run '^TestGroup4_' -v -count=1
+
+go-test-all: go-test-group1 go-test-group2 go-test-group3 go-test-group4
+
+benchmark-3000-group1:
+	. ./scripts/go-test-env.sh; go test -p=1 ./go_test_suites/scale_benchmark_3000/group1_algorithm_worker -run '^TestGroup1Scale3000$$' -v -count=1 -timeout=30m
+
+benchmark-3000-group2:
+	. ./scripts/go-test-env.sh; go test -p=1 ./go_test_suites/scale_benchmark_3000/group2_prc_algorithm -run '^TestGroup2Scale3000$$' -v -count=1 -timeout=30m
+
+benchmark-3000-group3:
+	. ./scripts/go-test-env.sh; go test -p=1 ./go_test_suites/scale_benchmark_3000/group3_prc_ngd_ngg -run '^TestGroup3Scale3000$$' -v -count=1 -timeout=30m
+
+benchmark-3000-group4:
+	. ./scripts/go-test-env.sh; go test -p=1 ./go_test_suites/scale_benchmark_3000/group4_full_real_algorithm -run '^TestGroup4Scale3000$$' -v -count=1 -timeout=30m
+
+benchmark-3000-all:
+	./scripts/run-3000-scale-benchmark.sh
+
+benchmark-3000-report:
+	. ./scripts/go-test-env.sh; go run ./go_test_suites/scale_benchmark_3000/cmd/report
 
 demo-group1-timing: algorithm-image
 	./test_suites/group1_algorithm/run-group.sh --mode timing

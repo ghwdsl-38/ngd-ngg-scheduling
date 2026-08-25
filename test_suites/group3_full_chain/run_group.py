@@ -80,7 +80,8 @@ def build_runner(group_run: Path) -> Path:
         "--volume", f"{PROJECT_ROOT / '.cache/go-mod'}:/go/pkg/mod",
         "--volume", f"{PROJECT_ROOT / '.cache/go-build'}:/root/.cache/go-build",
         "--workdir", "/src/test_suites/group2_prc/runner", "--env", "CGO_ENABLED=0",
-        "golang:1.25-alpine", "go", "build", "-o", "/src/build/test-group2-prc", ".",
+        "--env", "GOMAXPROCS=2", "golang:1.25-alpine", "go", "build", "-p=1",
+        "-o", "/src/build/test-group2-prc", ".",
     ], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     (group_run / "logs").mkdir(parents=True, exist_ok=True)
     (group_run / "logs" / "runner-build.log").write_text(process.stdout, encoding="utf-8")

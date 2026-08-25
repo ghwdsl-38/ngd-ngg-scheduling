@@ -43,20 +43,8 @@ class InvalidRequest(AlgorithmError):
     status_code = 400
 
 
-class UnknownAlgorithm(AlgorithmError):
-    """请求引用了当前 Worker 未注册的算法名称或版本。"""
-    code = "UNKNOWN_ALGORITHM"
-    status_code = 422
-
-
-class InvalidAlgorithmOrder(AlgorithmError):
-    """算法重复、缺阶段或没有遵循 FILTER→GROUP→SCORE。"""
-    code = "INVALID_ALGORITHM_ORDER"
-    status_code = 422
-
-
 class InvalidAlgorithmParameters(AlgorithmError):
-    """插件参数名称或取值不受当前算法版本支持。"""
+    """服务端固定算法参数名称或取值不受当前版本支持。"""
     code = "INVALID_ALGORITHM_PARAMETERS"
     status_code = 422
 

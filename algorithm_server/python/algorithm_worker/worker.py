@@ -53,11 +53,12 @@ class AlgorithmWorker:
                 nodes=metric_nodes,
             )
 
-        # 正式资源池 NGD 没有 PodSet。它以 maxNodes 表达所需节点规模，
-        # Topology 的 requiredDistinctNodes 负责组容量约束；这里使用一个
-        # 空资源探针，避免把资源池需求伪造成业务 Pod。
+        # 正式资源池 NGD 没有 PodSet。maxNodes 是候选节点数量上限，不是
+        # 必须节点数；minResources/quota 由固定流水线直接读取 NGD 处理。
         if request.get("requestMode") == "resourcePool":
-            minimums = [("resource-pool", 1, {})]
+            if not isinstance(request.get("ngd"), dict):
+                raise InvalidRequest("resourcePool request requires the original ngd spec")
+            minimums = []
         else:
             minimums = pod_set_minimums(request.get("podSets", []))
 

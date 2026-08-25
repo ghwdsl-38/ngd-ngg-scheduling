@@ -12,28 +12,22 @@ spec:
     profile: leaf-border-core-v1
     strategy: NarrowestFit
     widestAllowedLevel: coreSwitch
-  # 数组顺序就是Algorithm Worker的执行顺序，PRC只转发、不重新排序。
-  algorithms:
-    - name: requirement
-      version: v1
-      parameters:
-        requiredDistinctNodes: 1000
-    - name: topology
-      version: v1
-      parameters:
-        profile: leaf-border-core-v1
-        strategy: NarrowestFit
-        widestAllowedLevel: coreSwitch
-        requiredDistinctNodes: 1000
-    - name: loadbalance
-      version: v1
-      parameters:
-        profile: balanced-v2
-        requireMetrics: true
-        requireNetworkMetrics: true
   maxCandidateGroups: 3
   maxNodes: 1000
+  quota:
+    cpu: "1200"
+    memory: 4800Gi
   minResources:
     cpu: "1000"
     memory: 1000Gi
+  # 以下正式字段需要后续算法能力；当前测试确认PRC原样透传、Algorithm明确告警，
+  # 但它们不参与本阶段候选组计算。
+  minThroughput: 5Gbps
+  crossClusterAffinity:
+    ipList: [10.0.2.15]
+    enforce: true
+  intraClusterAffinity:
+    ipList: [10.0.1.20]
+  networkReachability:
+    targets: [ozone, shuffle]
   preferredSubnet: subnet-test-a

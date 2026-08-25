@@ -1,4 +1,4 @@
-"""FILTER 阶段：根据任务硬约束生成当前可用 Node 集合。"""
+"""固定流水线 FILTER 阶段：根据 NGD/任务硬约束生成可用 Node 集合。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from ..services.node_view_builder import NodeViewBuilder
 
 
 class RequirementAlgorithm:
-    """需求过滤插件，同时传递任务要求的最少不同节点数。"""
+    """固定执行的需求过滤算法，不接受 NGD 自定义编排参数。"""
 
     name = "requirement"
     version = "v1"
@@ -21,18 +21,11 @@ class RequirementAlgorithm:
         self.node_view_builder = node_view_builder or NodeViewBuilder()
 
     def validate_parameters(self, parameters: dict[str, Any]) -> None:
-        """只接受非负的 requiredDistinctNodes 参数。"""
+        """固定算法当前没有外部参数。"""
 
-        allowed = {"requiredDistinctNodes"}
-        unknown = sorted(set(parameters) - allowed)
-        if unknown:
+        if parameters:
             raise InvalidAlgorithmParameters(
-                f"requirement/v1 unknown parameters: {', '.join(unknown)}"
-            )
-        value = int(parameters.get("requiredDistinctNodes", 0))
-        if value < 0:
-            raise InvalidAlgorithmParameters(
-                "requiredDistinctNodes must be zero or greater"
+                "fixed requirement algorithm does not accept parameters"
             )
 
     def execute(
@@ -44,7 +37,4 @@ class RequirementAlgorithm:
 
         return {
             "current_nodes": self.node_view_builder.build(context),
-            "required_distinct_nodes": int(
-                parameters.get("requiredDistinctNodes", 0)
-            ),
         }

@@ -58,6 +58,7 @@ Kind 拓扑为 1 个 Control Plane 和 9 个 Worker：
 - `plugin/kubescheduler/`：kube-scheduler NGG 插件及自定义 scheduler 注册入口；
 - `ngg_consumer/formalgrant/`：正式扁平 NGG 的公共解析、时效/生命周期校验和授权合并核心；
 - `test_suites/`：3000 Node 三大统一测试组、固定 Fixture、Mock Prometheus、envtest runner 和结果格式；
+- `go_test_suites/`：1000 Node 四组标准`go test`，支持独立Expected/Actual/Results和VS Code/Delve本地Debug；
 - `config/crd/`：NGD、NGG、NNT CRD；
 - `config/manager/`：PRC、Algorithm 和 LLDP Agent 部署；
 - `config/kubescheduler/`：第二个 scheduler profile 和 Deployment；
@@ -112,6 +113,26 @@ make demo-show-latest  # 展示最新结果
 ```
 
 每组结果保存在`test_suites/<组>/runs/<时间戳>/`：`timing-run/`只保存性能结果，`evidence-run/`按原始格式保存输入、中间过程和输出。详细命令和文件含义见`test_suites/README.md`。运行数据由`.gitignore`排除。
+
+新的四组标准Go Test：
+
+```bash
+make go-test-group1  # Go调用真实Python Worker
+make go-test-group2  # PRC调用真实Algorithm和Mock Prometheus
+make go-test-group3  # envtest + PRC Watch + Mock Algorithm
+make go-test-group4  # envtest + PRC + 真实Algorithm完整组件链路
+make go-test-all     # 串行运行四组
+```
+
+每组结果分别保存在`go_test_suites/<组>/results/<run-id>/`，详细输入、输出和计时边界见[`go_test_suites/README.md`](go_test_suites/README.md)。
+
+3000 Node规模性能矩阵（选择1000/800/500/300/100/10个Node，每个规模30次）：
+
+```bash
+make benchmark-3000-all
+```
+
+详细设计、运行方法、原始样本和正式P50/P95结果见[`go_test_suites/scale_benchmark_3000/README.md`](go_test_suites/scale_benchmark_3000/README.md)。
 单独构建或部署：
 
 ```bash
@@ -169,7 +190,7 @@ PRC 和自定义 kube-scheduler 都使用 Go 1.25 构建，Kubernetes 依赖锁�
 
 ## Prometheus 和 LLDP 边界
 
-Kind 集群已部署 Prometheus、kube-state-metrics 和 node-exporter。node-exporter 只运行在 9 个 Worker 上；Prometheus 同时采集这 9 个 Worker 的主机指标、10 个 Kubernetes Node 的对象状态以及 kubelet/cAdvisor 指标。Go Algorithm 主进程通过集群内地址 `http://prometheus.monitoring.svc.cluster.local:9090` 每 30 秒查询 CPU、内存利用率并保存当前/上一份内存快照，不使用 Redis、Kafka或跨 Pod 共享内存。调度时 Go 将选定的指标快照连同静态节点和当次动态状态发给 Python Worker；Prometheus 暂时不可用时保留最后一次有效快照并标记 degraded。
+Kind 集群已部署 Prometheus、kube-state-metrics 和 node-exporter。node-exporter 只运行在 9 个 Worker 上；Prometheus 同时采集这 9 个 Worker 的主机指标、10 个 Kubernetes Node 的对象状态以及 kubelet/cAdvisor 指标。Go Algorithm 主进程通过集群内地址 `http://prometheus.monitoring.svc.cluster.local:9090` 每 15 秒查询 CPU、内存利用率并保存当前/上一份内存快照，与PRC Reconcile周期一致；不使用 Redis、Kafka或跨 Pod 共享内存。调度时 Go 将选定的指标快照连同静态节点和当次动态状态发给 Python Worker；Prometheus 暂时不可用时保留最后一次有效快照并标记 degraded。
 
 `make demo` 和 `make demo-prebuilt` 已包含监控安装与端到端检查。也可执行 `make monitoring` 重新部署，再执行 `make monitoring-check` 验证 PromQL 返回值以及 Algorithm 缓存的 `enabled=true`、`ready=true`、`degraded=false` 和 `nodeCount=9`。最新 Volcano 实跑生成了非空的 `sha256:...` 指标快照身份，具体值见 `results/algorithm-calculation-result.txt`。
 

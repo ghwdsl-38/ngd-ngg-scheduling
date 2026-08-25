@@ -1,4 +1,4 @@
-"""注册、校验并执行 FILTER→GROUP→SCORE 可配置算法流水线。"""
+"""以固定顺序执行 requirement→topology→loadbalance 算法流水线。"""
 
 from __future__ import annotations
 
@@ -8,74 +8,23 @@ from .algorithms.loadbalance import LoadBalanceAlgorithm
 from .algorithms.requirement import RequirementAlgorithm
 from .algorithms.topology import TopologyAlgorithm
 from .context import AllocationContext
-from .errors import (
-    InvalidAlgorithmOrder,
-    InvalidAlgorithmParameters,
-    InvalidRequest,
-    UnknownAlgorithm,
-)
-from .models import AlgorithmPlugin, AlgorithmStage
+from .errors import InvalidRequest
+from .models import AlgorithmStage
 
 
 class PipelineRunner:
-    """按请求编排算法插件，并稳定返回不超过上限的候选组。"""
+    """固定执行三步算法，并稳定返回不超过 NGD 上限的候选组。"""
 
-    DEFAULT_ALGORITHMS = [
-        {"name": "requirement", "version": "v1", "parameters": {}},
-        {"name": "topology", "version": "v1", "parameters": {}},
-        {"name": "loadbalance", "version": "v1", "parameters": {}},
-    ]
-
-    def __init__(
-        self,
-        plugins: list[AlgorithmPlugin] | None = None,
-    ) -> None:
-        # 允许测试或以后扩展时注入插件；生产默认注册内置三阶段算法。
-        registered = plugins or [
-            RequirementAlgorithm(),
-            TopologyAlgorithm(),
-            LoadBalanceAlgorithm(),
-        ]
-        self.registry = {
-            (plugin.name, plugin.version): plugin
-            for plugin in registered
-        }
+    def __init__(self) -> None:
+        self.requirement = RequirementAlgorithm()
+        self.topology = TopologyAlgorithm()
+        self.loadbalance = LoadBalanceAlgorithm()
 
     def run(self, context: AllocationContext) -> list[dict[str, Any]]:
         """执行完整流水线，把每阶段返回字段写回同一个请求上下文。"""
 
-        algorithms = (
-            context.request.get("algorithms")
-            or self.DEFAULT_ALGORITHMS
-        )
-        if not isinstance(algorithms, list):
-            raise InvalidRequest("algorithms must be an array")
-
-        previous_stage: AlgorithmStage | None = None
-        seen_algorithms: set[tuple[str, str]] = set()
-        seen_stages: set[AlgorithmStage] = set()
-
-        # 不允许重复插件、阶段倒序或缺少必需阶段。
-        for raw in algorithms:
-            plugin, parameters = self._resolve_plugin(
-                raw,
-                context.request,
-            )
-            key = (plugin.name, plugin.version)
-            if key in seen_algorithms:
-                raise InvalidAlgorithmOrder(
-                    f"algorithm {plugin.name}/{plugin.version} is duplicated",
-                    request_id=str(context.request.get("requestId", "")),
-                )
-            if (
-                previous_stage is not None
-                and plugin.stage < previous_stage
-            ):
-                raise InvalidAlgorithmOrder(
-                    "algorithm stages must follow FILTER -> GROUP -> SCORE",
-                    request_id=str(context.request.get("requestId", "")),
-                )
-
+        plan = self._fixed_plan(context.request)
+        for plugin, parameters in plan:
             plugin.validate_parameters(parameters)
             trace = None
             if context.request.get("debugTrace") is True:
@@ -92,29 +41,65 @@ class PipelineRunner:
                 trace["output"] = self._trace_output(plugin.stage, context)
                 context.pipeline_trace.append(trace)
 
-            previous_stage = plugin.stage
-            seen_algorithms.add(key)
-            seen_stages.add(plugin.stage)
+        if context.request.get("requestMode") == "resourcePool" and context.candidates:
+            narrowest = min(int(group.get("topologyOrder", 0)) for group in context.candidates)
+            context.candidates = [
+                group for group in context.candidates
+                if int(group.get("topologyOrder", 0)) == narrowest
+            ]
+            context.candidates.sort(key=lambda item: (-item["groupScore"], item["groupId"]))
 
-        required_stages = {
-            AlgorithmStage.FILTER,
-            AlgorithmStage.GROUP,
-            AlgorithmStage.SCORE,
-        }
-        if seen_stages != required_stages:
-            raise InvalidAlgorithmOrder(
-                "pipeline must contain FILTER, GROUP and SCORE stages",
-                request_id=str(context.request.get("requestId", "")),
-            )
-
+        ngd = context.request.get("ngd", {})
         max_groups = int(
-            context.request.get("maxCandidateGroups", 3)
+            ngd.get("maxCandidateGroups", 3)
+            if context.request.get("requestMode") == "resourcePool"
+            else context.request.get("maxCandidateGroups", 3)
         )
-        # SCORE 已稳定排序；这里只截断并生成连续 rank，不重新计算分数。
+        max_groups = max(1, min(3, max_groups))
+        # SCORE 已稳定排序；这里只截断、清理内部字段并生成连续 rank。
         context.candidates = context.candidates[:max_groups]
         for rank, group in enumerate(context.candidates, start=1):
+            group.pop("topologyOrder", None)
+            for node in group.get("nodes", []):
+                node.pop("_availableResources", None)
             group["rank"] = rank
         return context.candidates
+
+    def _fixed_plan(self, request: dict[str, Any]) -> list[tuple[Any, dict[str, Any]]]:
+        """从固定服务配置和 NGD 约束构造参数，不读取 spec.algorithms。"""
+
+        topology = request.get("topologyRequirement", {})
+        if request.get("requestMode") == "resourcePool":
+            ngd = request.get("ngd")
+            if not isinstance(ngd, dict):
+                raise InvalidRequest("resourcePool request requires ngd")
+            topology = ngd.get("topologyRequirement", {})
+        if not isinstance(topology, dict):
+            raise InvalidRequest("topologyRequirement must be an object")
+
+        if topology.get("profile"):
+            topology_parameters = {
+                "profile": topology.get("profile"),
+                "strategy": topology.get("strategy"),
+                "widestAllowedLevel": topology.get("widestAllowedLevel"),
+            }
+        else:
+            # 旧任务模式只声明同一 Leaf；正式资源池缺省拓扑则由 Topology
+            # 算法直接形成 cluster 组，不会使用这里的兼容默认值。
+            topology_parameters = {
+                "profile": "leaf-border-core-v1",
+                "strategy": "NarrowestFit",
+                "widestAllowedLevel": "leafSwitch",
+            }
+        return [
+            (self.requirement, {}),
+            (self.topology, topology_parameters),
+            (self.loadbalance, {
+                "profile": "balanced-v2",
+                "requireMetrics": False,
+                "requireNetworkMetrics": False,
+            }),
+        ]
 
     @staticmethod
     def _node_refs(nodes: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -171,7 +156,6 @@ class PipelineRunner:
             common.update({
                 "availableNodeCount": len(context.current_nodes),
                 "availableNodes": self._node_refs(context.current_nodes),
-                "requiredDistinctNodes": context.required_distinct_nodes,
                 "podMinimums": context.pod_minimums,
             })
         elif stage == AlgorithmStage.SCORE:
@@ -191,35 +175,7 @@ class PipelineRunner:
                 "availableNodeCount": len(context.current_nodes),
                 "filteredNodeCount": len(context.static_snapshot.nodes) - len(context.current_nodes),
                 "availableNodes": self._node_refs(context.current_nodes),
-                "requiredDistinctNodes": context.required_distinct_nodes,
             }
         if stage == AlgorithmStage.GROUP:
             return {"groupCount": len(context.node_groups), "groups": self._group_refs(context.node_groups)}
         return {"candidateGroupCount": len(context.candidates), "candidateNodeGroups": self._group_refs(context.candidates, include_scores=True)}
-
-    def _resolve_plugin(
-        self,
-        raw: Any,
-        request: dict[str, Any],
-    ) -> tuple[AlgorithmPlugin, dict[str, Any]]:
-        if not isinstance(raw, dict):
-            raise InvalidRequest(
-                "every algorithm entry must be an object"
-            )
-        key = (
-            str(raw.get("name", "")),
-            str(raw.get("version", "")),
-        )
-        plugin = self.registry.get(key)
-        if plugin is None:
-            raise UnknownAlgorithm(
-                f"algorithm {key[0]}/{key[1]} is not registered",
-                request_id=str(request.get("requestId", "")),
-            )
-        parameters = raw.get("parameters") or {}
-        if not isinstance(parameters, dict):
-            raise InvalidAlgorithmParameters(
-                f"parameters for {key[0]}/{key[1]} must be an object",
-                request_id=str(request.get("requestId", "")),
-            )
-        return plugin, parameters

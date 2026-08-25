@@ -8,9 +8,9 @@
 - 使用真实controller-runtime Manager、Watch、Cache和PRC Reconciler；
 - 在envtest中创建3000个Node对象和100个已绑定Pod对象；
 - 创建一份字段完整的正式NodeGroupDemand（NGD）；
-- 验证PRC从NGD读取拓扑边界和算法执行顺序；
+- 验证PRC原样读取并传输正式NGD字段，不生成算法执行顺序；
 - 验证PRC生成Node静态快照、Node动态状态并调用Algorithm协议；
-- Algorithm使用可控Mock，只返回一个确定的1000 Node候选组；
+- Algorithm使用可控Mock，只返回一个确定的32 Node候选组；
 - 验证PRC最终写入正式NodeGroupGrant（NGG）并更新NGD/NGG Status。
 
 本组不会执行：
@@ -77,27 +77,11 @@ spec:
     strategy: NarrowestFit
     widestAllowedLevel: coreSwitch
 
-  algorithms:
-    - name: requirement
-      version: v1
-      parameters:
-        requiredDistinctNodes: 1000
-    - name: topology
-      version: v1
-      parameters:
-        profile: leaf-border-core-v1
-        strategy: NarrowestFit
-        widestAllowedLevel: coreSwitch
-        requiredDistinctNodes: 1000
-    - name: loadbalance
-      version: v1
-      parameters:
-        profile: balanced-v2
-        requireMetrics: true
-        requireNetworkMetrics: true
-
   maxCandidateGroups: 3
   maxNodes: 1000
+  quota:
+    cpu: "1200"
+    memory: 4800Gi
   minResources:
     cpu: "1000"
     memory: 1000Gi
@@ -111,13 +95,12 @@ spec:
 | `nodeSelector` | 只有带测试Worker标签的Node可以进入候选集 |
 | `strategy: NarrowestFit` | 从最窄的Leaf层开始，放不下才扩大到Border、Core |
 | `widestAllowedLevel: coreSwitch` | 最多允许放宽到Core层；不会跨越Core形成更大范围 |
-| `algorithms` | 数组顺序就是Algorithm执行顺序，PRC不重新排序 |
-| `requiredDistinctNodes: 1000` | 一个可行拓扑组至少要提供1000个不同Node |
 | `maxCandidateGroups: 3` | Algorithm最多返回3个候选组 |
-| `maxNodes: 1000` | 最终正式NGG最多授权1000个Node |
-| `minResources` | PRC在生成NGG前校验选中节点组的CPU、内存总量 |
+| `maxNodes: 1000` | 最终正式NGG最多授权1000个Node，不代表必须返回1000个 |
+| `minResources` | Algorithm按可分配资源选择满足下限的Node |
+| `quota` | Algorithm选择的Node总资源不能突破该上限 |
 
-这里所说的“最低允许拓扑层级”，在协议中使用 `widestAllowedLevel` 表达：搜索顺序为 `Leaf -> Border -> Core`，`coreSwitch` 表示当Leaf和Border都无法满足1000 Node时，允许继续放宽到Core层。
+这里所说的“最低允许拓扑层级”，在协议中使用 `widestAllowedLevel` 表达：搜索顺序为 `Leaf -> Border -> Core`，`coreSwitch` 表示最宽允许放宽到Core。Algorithm内部固定执行`requirement -> topology -> loadbalance`，NGD不再提供编排字段。
 
 ## 4. 测试环境和模拟数据
 
@@ -149,8 +132,8 @@ flowchart TD
     C -->|NGD Watch事件| E
     E -->|List Node/Pod/NNT| C
     E -->|PUT静态快照| F[Mock Algorithm]
-    E -->|POST动态状态、拓扑约束、算法顺序| F
-    F -->|校验配置并返回core-01的1000 Node| E
+    E -->|POST动态状态和完整NGD| F
+    F -->|校验完整NGD并返回border-01的32 Node| E
     E -->|创建正式NGG并更新Status| C
     C --> G[Evidence导出NGD/NGG和HTTP协议]
 ```
@@ -173,11 +156,11 @@ flowchart TD
     - `requirement -> topology -> loadbalance`顺序；
     - 每个算法的参数；
     - `maxCandidateGroups=3`。
-13. Mock Algorithm先校验上述拓扑边界和算法顺序；字段缺失或顺序错误时返回HTTP 400，使测试失败。
-14. Mock根据PRC发送的静态、动态数据，选择Core-01中Ready且可调度的1000个Node，返回一个确定候选组。
+13. Mock Algorithm校验完整NGD字段均被保留，且请求中不存在PRC生成的算法编排；不符合即返回HTTP 400。
+14. Mock确认PRC原样传输了正式NGD、没有下发算法编排，并从Border-01返回32个确定Node。
 15. PRC验证响应身份、快照Hash、Node UID和候选组，然后选择rank 1。
 16. PRC校验1000个节点的总CPU和内存满足 `minResources`。
-17. PRC创建 `ngg-demand-3000-normal`，写入1000个Node及分数、拓扑信息。
+17. PRC创建 `ngg-demand-3000-normal`，写入32个Node及分数、拓扑信息。
 18. PRC更新NGG Status为 `Active`，更新NGD Status为 `Fulfilled`。
 19. Runner确认NGG节点数、Resolved Capacity和NGD Status全部就绪，记录结束时间。
 20. Evidence模式在业务处理完成后才把内存中的对象和HTTP交换写入文件。
@@ -187,8 +170,8 @@ flowchart TD
 第二组使用Mock是为了把变量限制在PRC：
 
 - 输入仍然是PRC真实生成的3000 Node静态快照和动态状态；
-- Mock会真实接收并校验拓扑要求、算法顺序和候选组上限；
-- Mock不运行Python评分，只固定返回Core-01的1000个节点和90分；
+- Mock会真实接收并校验完整NGD、拓扑要求和候选组上限；
+- Mock不运行Python评分，只固定返回Border-01的32个节点和90分；
 - 因此本组耗时表示PRC和envtest链路，不代表真实Algorithm耗时。
 
 真实算法执行由第三组覆盖。
@@ -248,18 +231,18 @@ evidence-run/normal_create/
 
 | 文件 | 说明 |
 | --- | --- |
-| `ngd-input.yaml` | API Server实际接收的正式NGD，包含拓扑边界和算法顺序 |
+| `ngd-input.yaml` | API Server实际接收的正式NGD，包含拓扑和资源边界 |
 | `prc-static-snapshot-request.json` | PRC发送的3000 Node静态资源、Label和三层拓扑 |
 | `prc-static-snapshot-response.json` | Mock Algorithm对静态Hash的确认 |
-| `prc-allocation-request.json` | PRC发送的动态状态、拓扑要求、算法顺序和资源池需求 |
-| `algorithm-result.json` | Mock返回的Core-01候选组和1000个具体Node |
+| `prc-allocation-request.json` | PRC发送的动态状态和完整原始资源池NGD |
+| `algorithm-result.json` | Mock返回的Border-01候选组和32个具体Node |
 | `prc-algorithm-http.jsonl` | PUT/POST接口、状态码和HTTP耗时摘要 |
 | `ngd-final.yaml` | 带 `Fulfilled`、grantRef和resolvedNodeCount的NGD |
-| `ngg-generated.yaml` | PRC写入Kubernetes的正式NGG及1000个授权Node |
+| `ngg-generated.yaml` | PRC写入Kubernetes的正式NGG及32个授权Node |
 
 推荐展示顺序：
 
-1. `input/ngd-input.yaml`：说明资源池需求、拓扑边界和算法顺序；
+1. `input/ngd-input.yaml`：说明资源池需求、拓扑边界和资源上下限；
 2. `process/prc-static-snapshot-request.json`：说明PRC从集群看到的静态资源和拓扑；
 3. `process/prc-allocation-request.json`：证明NGD配置被PRC实际转发；
 4. `process/algorithm-result.json`：说明Mock Algorithm返回了什么；

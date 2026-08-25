@@ -1,4 +1,4 @@
-"""GROUP 阶段：按照可配置的 Leaf→Border→Core 三层网络拓扑形成候选组。"""
+"""固定流水线 GROUP 阶段：按联通 NGD 的 Leaf→Border→Core 约束分组。"""
 
 from __future__ import annotations
 
@@ -33,7 +33,6 @@ class TopologyAlgorithm:
             "profile",
             "strategy",
             "widestAllowedLevel",
-            "requiredDistinctNodes",
         }
         unknown = sorted(set(parameters) - allowed)
         if unknown:
@@ -56,29 +55,33 @@ class TopologyAlgorithm:
             raise InvalidAlgorithmParameters(
                 f"widestAllowedLevel {widest!r} is not in topology profile"
             )
-        if int(parameters.get("requiredDistinctNodes", 0)) < 0:
-            raise InvalidAlgorithmParameters(
-                "requiredDistinctNodes must be zero or greater"
-            )
 
     def execute(
         self,
         context: AllocationContext,
         parameters: dict[str, Any],
     ) -> dict[str, Any]:
-        profile = self.profiles[
-            str(parameters.get("profile", "leaf-border-core-v1"))
-        ]
+        resource_pool = context.request.get("requestMode") == "resourcePool"
+        ngd = context.request.get("ngd", {}) if resource_pool else {}
+        if resource_pool and not ngd.get("topologyRequirement"):
+            nodes = sorted(
+                context.current_nodes,
+                key=lambda item: (str(item["nodeName"]), str(item["nodeUID"])),
+            )
+            return {"node_groups": ([{
+                "groupId": "cluster:" + context.static_snapshot.cluster_id,
+                "topologyLevel": "cluster",
+                "topologyOrder": 0,
+                "nodes": nodes,
+            }] if nodes else [])}
+
+        profile = self.profiles[str(parameters.get("profile", "leaf-border-core-v1"))]
         levels = profile["levels"]
         widest = str(parameters.get("widestAllowedLevel", "coreSwitch"))
-        required_distinct = int(
-            parameters.get(
-                "requiredDistinctNodes",
-                context.required_distinct_nodes,
-            )
-        )
 
-        # 依次尝试 Leaf、Border、Core；可选层级没有任何数据时自然跳过。
+        # 资源池模式先生成允许范围内全部层级；评分后再剔除不满足资源需求的
+        # 组，并只保留仍可行的最窄层级。这样不会因 Leaf 资源不足而错过 Border。
+        all_groups: list[dict[str, Any]] = []
         for order, level in enumerate(levels):
             groups = self._group(
                 context.current_nodes,
@@ -87,13 +90,14 @@ class TopologyAlgorithm:
                 str(level["groupPrefix"]),
                 order,
                 context.pod_minimums,
-                required_distinct,
             )
-            if groups:
+            if resource_pool:
+                all_groups.extend(groups)
+            elif groups:
                 return {"node_groups": groups}
             if str(level["name"]) == widest:
                 break
-        return {"node_groups": []}
+        return {"node_groups": all_groups if resource_pool else []}
 
     @staticmethod
     def _group(
@@ -103,7 +107,6 @@ class TopologyAlgorithm:
         prefix: str,
         topology_order: int,
         minimums: list[tuple[str, int, dict[str, int]]],
-        required_distinct: int,
     ) -> list[dict[str, Any]]:
         grouped: dict[str, list[dict[str, Any]]] = {}
         for node in nodes:
@@ -117,7 +120,7 @@ class TopologyAlgorithm:
                 grouped[raw_id],
                 key=lambda item: (str(item["nodeName"]), str(item["nodeUID"])),
             )
-            if can_place_minimums(group_nodes, minimums, required_distinct):
+            if not minimums or can_place_minimums(group_nodes, minimums):
                 result.append(
                     {
                         "groupId": f"{prefix}:{raw_id}",

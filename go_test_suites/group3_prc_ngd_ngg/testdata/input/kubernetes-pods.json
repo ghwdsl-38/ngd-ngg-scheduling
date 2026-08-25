@@ -1,0 +1,264 @@
+{
+  "items": [
+    {
+      "kind": "Pod",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "bound-load-0001",
+        "namespace": "ngd-ngg-test"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "load",
+            "image": "fixture.invalid/load:never-run",
+            "resources": {
+              "requests": {
+                "cpu": "1",
+                "memory": "1Gi"
+              }
+            }
+          }
+        ],
+        "nodeName": "worker-0001"
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "kind": "Pod",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "bound-load-0101",
+        "namespace": "ngd-ngg-test"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "load",
+            "image": "fixture.invalid/load:never-run",
+            "resources": {
+              "requests": {
+                "cpu": "1",
+                "memory": "1Gi"
+              }
+            }
+          }
+        ],
+        "nodeName": "worker-0101"
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "kind": "Pod",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "bound-load-0201",
+        "namespace": "ngd-ngg-test"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "load",
+            "image": "fixture.invalid/load:never-run",
+            "resources": {
+              "requests": {
+                "cpu": "1",
+                "memory": "1Gi"
+              }
+            }
+          }
+        ],
+        "nodeName": "worker-0201"
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "kind": "Pod",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "bound-load-0301",
+        "namespace": "ngd-ngg-test"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "load",
+            "image": "fixture.invalid/load:never-run",
+            "resources": {
+              "requests": {
+                "cpu": "1",
+                "memory": "1Gi"
+              }
+            }
+          }
+        ],
+        "nodeName": "worker-0301"
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "kind": "Pod",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "bound-load-0401",
+        "namespace": "ngd-ngg-test"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "load",
+            "image": "fixture.invalid/load:never-run",
+            "resources": {
+              "requests": {
+                "cpu": "1",
+                "memory": "1Gi"
+              }
+            }
+          }
+        ],
+        "nodeName": "worker-0401"
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "kind": "Pod",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "bound-load-0501",
+        "namespace": "ngd-ngg-test"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "load",
+            "image": "fixture.invalid/load:never-run",
+            "resources": {
+              "requests": {
+                "cpu": "1",
+                "memory": "1Gi"
+              }
+            }
+          }
+        ],
+        "nodeName": "worker-0501"
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "kind": "Pod",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "bound-load-0601",
+        "namespace": "ngd-ngg-test"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "load",
+            "image": "fixture.invalid/load:never-run",
+            "resources": {
+              "requests": {
+                "cpu": "1",
+                "memory": "1Gi"
+              }
+            }
+          }
+        ],
+        "nodeName": "worker-0601"
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "kind": "Pod",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "bound-load-0701",
+        "namespace": "ngd-ngg-test"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "load",
+            "image": "fixture.invalid/load:never-run",
+            "resources": {
+              "requests": {
+                "cpu": "1",
+                "memory": "1Gi"
+              }
+            }
+          }
+        ],
+        "nodeName": "worker-0701"
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "kind": "Pod",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "bound-load-0801",
+        "namespace": "ngd-ngg-test"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "load",
+            "image": "fixture.invalid/load:never-run",
+            "resources": {
+              "requests": {
+                "cpu": "1",
+                "memory": "1Gi"
+              }
+            }
+          }
+        ],
+        "nodeName": "worker-0801"
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "kind": "Pod",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "bound-load-0901",
+        "namespace": "ngd-ngg-test"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "load",
+            "image": "fixture.invalid/load:never-run",
+            "resources": {
+              "requests": {
+                "cpu": "1",
+                "memory": "1Gi"
+              }
+            }
+          }
+        ],
+        "nodeName": "worker-0901"
+      },
+      "status": {
+        "phase": "Running"
+      }
+    }
+  ]
+}

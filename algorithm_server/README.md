@@ -34,15 +34,17 @@ algorithm_server/
 ├── demo_1000_nodes/
 │   └── run_demo.py
 ├── go/
-│   ├── main.go
-│   ├── cache.go
-│   ├── metrics.go
-│   ├── metrics_config.go
-│   ├── prometheus_metrics.json
-│   ├── service.go
-│   ├── worker.go
-│   ├── types.go
-│   └── cache_test.go
+│   ├── algorithm/
+│   │   ├── application.go
+│   │   ├── cache.go
+│   │   ├── metrics.go
+│   │   ├── metrics_config.go
+│   │   ├── prometheus_metrics.json
+│   │   ├── service.go
+│   │   ├── worker.go
+│   │   └── types.go
+│   └── cmd/algorithm-server/
+│       └── main.go
 └── python/
     └── algorithm_worker/
         ├── worker.py
@@ -66,26 +68,28 @@ algorithm_server/
 
 | 文件                                                         | 实现方式和功能                                                                                                                                                                |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `go/main.go`                                               | 正式 Server 入口。读取环境变量，启动 Python Worker、Prometheus 刷新协程和 Go`net/http` 服务，注册 health、ready、cache、snapshot 和 calculate 路由，处理 SIGTERM 优雅退出。 |
-| `go/cache.go`                                              | Node 静态快照缓存。校验`sha256:` 内容 Hash、Node UID 唯一性和三层拓扑字段，内存中仅保留 current/previous 两份快照。                                                         |
-| `go/metrics.go`                                            | Prometheus 采集与缓存。周期调用 instant query，按 Node 名合并 CPU、内存、吞吐、丢包、错误、重传、链路和带宽指标，记录覆盖率并维护 current/previous。                           |
-| `go/metrics_config.go`                                     | 加载指标目录，配置 Bearer Token/Token 文件、CA、TLS Server Name 和超时，构造正式 Prometheus HTTP Client。                                                                    |
-| `go/prometheus_metrics.json`                               | Mock 与真实 Prometheus 共用的指标契约，保存内部字段名、完整 PromQL、单位、归一化方式和 required 标志。                                                                        |
-| `go/service.go`                                            | 一次调度请求的编排层。校验协议、解析静态快照、将 PRC`schedulerState` 适配为 `nodeUsageStates`、调用 Worker，并组装新/兼容 API 响应。                                      |
-| `go/worker.go`                                             | Go 管理 Python 子进程。通过 stdin/stdout JSON Lines 发送完整请求上下文，用消息 ID 匹配结果，传递超时和业务错误；单 Worker 串行保证协议不串包。                                |
-| `go/types.go`                                              | Go 内部协议类型：静态/指标快照、Worker 请求包、候选组结果、API 错误和 Prometheus 响应。                                                                                       |
-| `../test_suites/group1_algorithm/`                         | 统一Algorithm测试组，将Cold和Warm作为两个独立Case展示；两者都统计PRC发送到接收和Algorithm内部处理时间。Mock Prometheus仅作为指标基础设施。                                                       |
+| `go/cmd/algorithm-server/main.go`                          | 正式 Server 入口。读取环境变量，创建`Application`，监听HTTP端口并处理SIGTERM优雅退出。                                                                                     |
+| `go/algorithm/application.go`                              | 生产和Go Test共用的组装层，创建缓存、Prometheus、Python Worker和HTTP Handler，并提供`NewApplication/Handler/RefreshMetrics/Close`。                                      |
+| `go/algorithm/cache.go`                                    | Node 静态快照缓存。校验`sha256:` 内容 Hash、Node UID 唯一性和三层拓扑字段，内存中仅保留 current/previous 两份快照。                                                         |
+| `go/algorithm/metrics.go`                                  | Prometheus 采集与缓存。周期调用 instant query，按 Node 名合并 CPU、内存、吞吐、丢包、错误、重传、链路和带宽指标。                                                           |
+| `go/algorithm/metrics_config.go`                           | 加载指标目录，配置 Bearer Token/Token 文件、CA、TLS Server Name 和超时。                                                                                                    |
+| `go/algorithm/prometheus_metrics.json`                     | Mock 与真实 Prometheus 共用的14项指标契约。                                                                                                                                |
+| `go/algorithm/service.go`                                  | 校验协议、解析静态快照、适配Node动态状态、调用Worker并组装响应。                                                                                                            |
+| `go/algorithm/worker.go`                                   | 管理Python子进程和JSON Lines协议；同时提供第一组测试直接使用的正式Worker接口。                                                                                               |
+| `go/algorithm/types.go`                                    | Go内部协议类型。                                                                                                                                                              |
+| `../go_test_suites/group1_algorithm_worker/`               | 标准`go test`第一组，直接验证Go调用真实Python Worker。                                                                                                                       |
+| `../go_test_suites/group2_prc_algorithm/`                  | 标准`go test`第二组，验证PRC调用真实Algorithm和带认证的Mock Prometheus。                                                                                                     |
 | `go/go.mod`                                                | Go 模块定义；当前主服务只使用 Go 标准库。                                                                                                                                     |
 | `python/algorithm_worker/worker.py`                        | Python 进程入口。从 stdin 读 JSON Lines，构造单次`AllocationContext`，执行 Pipeline，向 stdout 返回 Top-3 或结构化错误。                                                    |
-| `python/algorithm_worker/pipeline.py`                      | 注册 requirement/topology/loadbalance，校验算法名、版本及 FILTER→GROUP→SCORE 顺序，执行后稳定截取 Top-3。                                                                   |
+| `python/algorithm_worker/pipeline.py`                      | 按固定顺序执行 requirement/topology/loadbalance，不读取NGD中的算法编排字段，最后稳定截取 Top-3。                                                                            |
 | `python/algorithm_worker/context.py`                       | 定义静态快照、指标快照和单次计算上下文；不保存跨请求状态。                                                                                                                    |
 | `python/algorithm_worker/models.py`                        | 定义三个算法阶段枚举及 Python 算法插件`Protocol`。                                                                                                                          |
-| `python/algorithm_worker/errors.py`                        | 定义输入、算法顺序/参数、未知算法和强制指标未就绪错误。                                                                                                                       |
+| `python/algorithm_worker/errors.py`                        | 定义输入、服务端算法参数和指标未就绪等结构化错误。                                                                                                                           |
 | `python/algorithm_worker/quantity.py`                      | 解析 Kubernetes CPU、内存和扩展资源 Quantity，计算 PodSet 最小资源需求并进行节点装箱检查。                                                                                    |
-| `python/algorithm_worker/services/node_view_builder.py`    | 合并 Node 静态属性、请求级占用状态和`nodeSelector`，生成本次算法使用的 Node 视图。                                                                                          |
-| `python/algorithm_worker/algorithms/requirement.py`        | FILTER 插件：排除已占用、标签不符或无法满足单 Pod 资源的 Node。                                                                                                               |
-| `python/algorithm_worker/algorithms/topology.py`           | GROUP 插件：按 profile 依次尝试 Leaf、Border、Core，选择能容纳整个 PodSet 的最窄层级。                                                                                         |
-| `python/algorithm_worker/algorithms/loadbalance.py`        | SCORE 插件：综合资源、CPU/内存、网络利用率、丢包、错误、TCP 重传、链路状态、可用带宽和静态拓扑质量；组内 Node 也稳定按 score 降序。                                            |
+| `python/algorithm_worker/services/node_view_builder.py`    | 合并 Node 静态属性、请求级占用状态和`nodeSelector`，生成本次算法使用的 Node 视图；复用只读静态子对象和已解析资源容量。                                                       |
+| `python/algorithm_worker/algorithms/requirement.py`        | 固定FILTER步骤：排除不可用或标签不匹配的Node，并形成扣减已请求资源后的可用视图。                                                                                              |
+| `python/algorithm_worker/algorithms/topology.py`           | 固定GROUP步骤：按正式NGD的NarrowestFit要求生成Leaf、Border、Core候选；无拓扑要求时生成cluster组。                                                                             |
+| `python/algorithm_worker/algorithms/loadbalance.py`        | 固定SCORE步骤：综合资源和Prometheus指标评分，逐层验证资源可行性，再按`minResources/maxNodes/quota`选具体Node并稳定排序。                                                       |
 | `python/algorithm_worker/config/topology_profiles.json`    | 三层拓扑字段与层级顺序配置；默认 profile 为 `leaf-border-core-v1`。                                                                                                          |
 | `python/algorithm_worker/config/loadbalance_profiles.json` | 评分 profile 及资源、负载、拓扑权重，新增 profile 无需修改 Go 主服务。                                                                                                        |
 | `demo_1000_nodes/run_demo.py`                              | 独立验证驱动：在内存中生成 1000 Node/拓扑/动态/指标数据，启动模拟 Prometheus 和真实 Algorithm 容器，走 HTTP 协议并导出证据。                                                  |
@@ -105,7 +109,7 @@ loadbalance/v1 (SCORE)
 按 groupScore 降序稳定排序，最多返回 3 组
 ```
 
-请求可以通过 `algorithms[]` 指定参数，但阶段顺序必须是 FILTER → GROUP → SCORE，并且三类阶段都必须存在。
+该顺序由 Algorithm Server 固定，既不读取也不执行 NGD 中可选的 `algorithms` 字段。算法参数来自联通 NGD 的正式字段和服务端配置，避免请求方改变生产执行链。
 
 ### FILTER
 
@@ -113,16 +117,20 @@ loadbalance/v1 (SCORE)
 
 - 静态快照中的标签和 `allocatable`；
 - `nodeUsageStates[].inUse`；
-- `nodeRequirements.nodeSelector`；
-- `podSets[].resourcesPerPod`。
+- 正式资源池请求中的 `ngd.nodeSelector`；
+- Node 动态状态中的 `requestedResources`。
+
+资源池可用量按 `allocatable - requestedResources` 计算；`inUse=true` 的 Node 整体排除。
 
 ### GROUP
 
-默认先按 `leafSwitchId` 分组。叶交换机无法容纳任务且 `widestAllowedLevel=coreSwitch` 时，扩大为 `coreSwitchId` 分组。每组必须满足资源装箱和 `requiredDistinctNodes`。
+存在 `topologyRequirement` 时先按 `Leaf → Border → Core` 形成允许范围内的拓扑组；SCORE阶段再按该顺序验证资源可行性。某一层出现可行组后立即停止，不再计算更宽层级。未声明拓扑约束时形成一个集群级候选组，不擅自默认到 Core。
 
 ### SCORE
 
-节点分数综合资源基础分与 Prometheus CPU、内存和网络质量；组分数再结合静态带宽、时延形成的拓扑质量。Node 按 `score desc → nodeName → nodeUID` 排序，组按 `groupScore desc → topologyOrder → groupId` 排序。
+节点分数综合剩余资源比例与 Prometheus CPU、内存和网络质量；组分数再结合静态带宽、时延形成的拓扑质量。资源池从高分 Node 开始选择：满足 `minResources` 后停止，且始终不突破 `maxNodes` 和 `quota`。Node 按 `score desc → nodeName → nodeUID` 排序，同一最窄可行层级的组按 `groupScore desc → groupId` 排序。
+
+同一Node可能同时属于Leaf、Border和Core组。实现中每个请求只解析一次Node容量、只计算一次Node资源/Prometheus分数，各拓扑层复用结果；Node视图只浅拷贝顶层字典，静态标签和拓扑保持只读共享。这样不改变排序与返回协议，同时避免对3000 Node静态对象反复深拷贝和跨层重复评分。
 
 ## 4. HTTP 接口
 
@@ -175,7 +183,7 @@ intermediate/algorithm-pipeline/
 
 ### 5.1 最终进程入口
 
-正式 Server 从 [`go/main.go`](go/main.go) 的 `main()` 启动。容器中的完整进程关系是：
+正式 Server 从 [`go/cmd/algorithm-server/main.go`](go/cmd/algorithm-server/main.go) 的 `main()` 启动；业务实例由[`go/algorithm/application.go`](go/algorithm/application.go)创建。容器中的完整进程关系是：
 
 ```text
 Docker ENTRYPOINT /app/algorithm-server
@@ -201,7 +209,7 @@ ALGORITHM_WORKER_EVIDENCE_DIR=/evidence
 - `go-to-python-request.jsonl`：Go发送给Python的完整`workerEnvelope`，包含请求级动态状态、Go静态缓存和Prometheus指标缓存；
 - `python-to-go-response.jsonl`：Python返回给Go的候选组、Pipeline Trace或结构化错误。
 
-`timing-run`不设置该环境变量，因此不会打开证据文件，也不会让协议写盘污染性能耗时。完整运行命令和结果目录见`test_suites/README.md`。
+四组Go Test会把证据目录显式注入`Application`，并在业务计时结束后完成其他文件写入。完整运行命令和结果目录见`go_test_suites/README.md`。
 
 ### 5.2 整个 Kind Demo 中如何启动
 
@@ -266,7 +274,7 @@ curl http://127.0.0.1:18080/readyz
 curl http://127.0.0.1:18080/internal/v1/cache/status
 ```
 
-关闭 Prometheus 时 Server 仍可启动，指标状态为 degraded；请求中的 `loadbalance.parameters.requireMetrics` 必须为 `false`。如需测试完整 PUT+POST 协议，直接执行：
+关闭 Prometheus 时 Server 仍可启动，指标状态为 degraded。固定流水线当前允许指标降级继续使用硬约束。如需测试完整 PUT+POST 协议，直接执行：
 
 ```bash
 make algorithm-1000-demo
@@ -281,7 +289,7 @@ cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/algorithm_server/go
 PYTHONPATH=../python \
   ALGORITHM_LISTEN_ADDRESS=:18080 \
   PROMETHEUS_URL= \
-  go run .
+  /mnt/data0/tools/go/bin/go run ./cmd/algorithm-server
 ```
 
 ## 6. Prometheus 配置
@@ -289,7 +297,7 @@ PYTHONPATH=../python \
 | 环境变量                               |      默认值 | 说明                        |
 | -------------------------------------- | ----------: | --------------------------- |
 | `PROMETHEUS_URL`                     |          空 | 空值表示关闭指标采集        |
-| `PROMETHEUS_REFRESH_SECONDS`         |          30 | 后台刷新周期                |
+| `PROMETHEUS_REFRESH_SECONDS`         |          15 | 后台刷新周期，与PRC Reconcile周期一致 |
 | `PROMETHEUS_STALE_SECONDS`           |         120 | 指标过期阈值                |
 | `PROMETHEUS_REQUEST_TIMEOUT_SECONDS` |           5 | 单次查询超时                |
 | `PROMETHEUS_NODE_LABEL`              | 指标目录中的 `node` | Prometheus 结果中的节点标签 |
@@ -543,52 +551,49 @@ Algorithm 启动后执行两次查询：
 - 每个 Leaf 有 10 个 Node，其中第 5、10 个被占用；
 - 每个 Leaf 初始剩余 8 个可用 Node。
 
-这里的 `inUse` 是二值状态，不表达“已经用了几核 CPU”。第一版协议中，节点一旦是 `true` 就整体排除；更细的 Pod 已请求资源、Taint、Volume、HostPort 等约束仍由 PRC/第二层调度器负责。
+`inUse=true` 表示该 Node 整体不可参与当前资源池；`requestedResources` 则表达已请求 CPU/内存，Algorithm 用它从静态 `allocatable` 中扣减。Taint、Volume、HostPort 等细粒度约束仍由第二层调度器负责。
 
 `node-dynamic-state.json` 是初始动态状态的单独展示文件。真实接口没有“上传动态状态”这一步，1000 条状态会完整嵌入每次 `allocation-request-*.json` 的 `nodeUsageStates` 中。Algorithm 只在该请求中使用它们，不给动态状态生成版本，也不跨请求缓存。
 
-### 7.6 模拟的任务是什么
+### 7.6 模拟的需求是什么
 
-第一次请求模拟一个分布式 GPU 任务：
+第一次请求模拟一个联通正式 NGD 资源池需求：
 
-| 参数                      |    值 | 含义                             |
-| ------------------------- | ----: | -------------------------------- |
-| `replicas`              |    32 | 期望副本数                       |
-| `minAvailable`          |    32 | 本次节点组必须至少容纳 32 个副本 |
-| 每 Pod CPU                |  4 核 | 32 个 Pod 共需 128 核            |
-| 每 Pod 内存               | 8 GiB | 32 个 Pod 共需 256 GiB           |
-| 每 Pod GPU                |  1 张 | 32 个 Pod 共需 32 张 GPU         |
-| `requiredDistinctNodes` |     6 | 候选组至少包含 6 个可用 Node     |
-| `maxCandidateGroups`    |     3 | 最多返回 3 个候选组              |
+| 参数 | 值 | 含义 |
+| --- | ---: | --- |
+| `minResources.cpu` | 192 核 | 候选节点组至少提供的可用 CPU |
+| `minResources.memory` | 768 GiB | 候选节点组至少提供的可用内存 |
+| `maxNodes` | 10 | 一个候选组最多返回的 Node 数 |
+| `quota` | 320 核、1280 GiB | 候选节点组资源上限 |
+| `maxCandidateGroups` | 3 | 最多返回 3 个候选组 |
 
 一个 Leaf 初始有 8 个可用 Node：
 
 ```text
-CPU：8 × 32 = 256核      ≥ 任务需要128核
-内存：8 × 128Gi = 1024Gi ≥ 任务需要256Gi
-GPU：8 × 4 = 32张         = 任务需要32张
-可用Node：8个             ≥ requiredDistinctNodes 6
+CPU：6 × 32 = 192核       = minResources.cpu
+内存：6 × 128Gi = 768Gi   = minResources.memory
+Node：选择6个高分Node     ≤ maxNodes 10
 ```
 
-所以每个正常 Leaf 都能独立容纳任务，算法优先返回 `leafSwitch` 级候选组，不需要扩大到 Core。GPU 是这个模拟任务的紧约束。
+所以每个正常 Leaf 都能满足资源下限，算法优先返回 `leafSwitch` 级候选组，不需要扩大到 Core。
 
-算法编排为：
+服务端固定执行为：
 
 ```text
 requirement/v1
-  → 排除inUse节点，检查标签和单Pod资源
+  → 排除inUse节点，检查NGD标签并计算可用资源
 
 topology/v1
-  → 按Leaf分组，验证整个组能否容纳minAvailable
+  → 按Leaf/Border/Core生成拓扑组
 
 loadbalance/v1
-  → 使用Prometheus负载和拓扑质量评分
+  → 评分后按minResources、maxNodes和quota选具体Node
 
 Top-3
   → groupScore降序；同分时按稳定规则排序
 ```
 
-`balanced-v1` 的权重为：
+服务端固定使用 `balanced-v2` profile，其权重为：
 
 - Node 资源基础分权重 0.4；
 - Node 实时负载分权重 0.6；
@@ -674,7 +679,7 @@ results/algorithm-1000-nodes/
 | `topology.json`              | 可读拓扑证据     | 按 Core→Leaf→Node 展开的树形总览；不单独发送给 Algorithm                    |
 | `prometheus-metrics.json`    | 模拟指标源证据   | 1000 个 Node 的 CPU/内存利用率；模拟 HTTP Server 根据它构造 Prometheus vector |
 | `node-dynamic-state.json`    | 初始动态状态证据 | 1000 条`nodeUID + inUse`，其中 200 条为 true                                |
-| `allocation-request-1.json`  | 真实接口请求     | 静态 Hash、任务需求、初始 1000 条动态状态、算法顺序和参数                     |
+| `allocation-request-1.json`  | 真实接口请求     | 静态 Hash、完整NGD和初始1000条动态状态                                        |
 | `allocation-response-1.json` | 真实接口响应     | 第一次请求的状态、快照身份、Top-3 组、组分和候选 Node                         |
 | `allocation-request-2.json`  | 真实接口请求     | 第一候选组的 8 个 Node 改为占用后的完整第二次请求                             |
 | `allocation-response-2.json` | 真实接口响应     | 第二次 Top-3，用于证明动态状态改变已经生效                                    |
@@ -747,11 +752,10 @@ Algorithm 内部通过 Node 名称把 Prometheus 指标与静态 Node 对齐。N
 | `taskUID`              | 被分配节点组的任务身份                  |
 | `ngdUID/ngdGeneration` | 对应 NGD 及其 generation                |
 | `nodeStaticSnapshotId` | 本次计算必须使用的静态 Hash             |
-| `podSets`              | 副本数、Gang 最小数和每 Pod 资源        |
-| `nodeRequirements`     | Node 标签选择条件                       |
+| `requestMode`         | 正式资源池请求固定为 `resourcePool`    |
+| `ngd`                 | PRC 原样传入的联通 NGD `spec`          |
 | `nodeUsageStates`      | 本次请求完整的 1000 条动态状态          |
-| `algorithms`           | FILTER、GROUP、SCORE 的顺序、版本和参数 |
-| `maxCandidateGroups`   | 返回候选组上限 3                        |
+| `ngd.maxCandidateGroups` | 返回候选组上限 3                     |
 
 #### allocation-response-1.json
 

@@ -17,15 +17,14 @@
     "expectedAvailableNodesPerCore": 1000
   },
   "request": {
-    "replicas": 1000,
-    "minAvailable": 1000,
-    "requiredDistinctNodes": 1000,
     "widestAllowedLevel": "coreSwitch",
-    "maxCandidateGroups": 3
+    "maxCandidateGroups": 3,
+    "maxNodes": 1000,
+    "quota": {"cpu": "32000", "memory": "128000Gi"},
+    "minResources": {"cpu": "32000", "memory": "128000Gi"}
   },
   "prometheus": {
     "nodeLabel": "node",
     "bearerToken": "test-prometheus-token"
   }
 }
-

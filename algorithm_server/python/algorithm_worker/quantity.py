@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import heapq
 import re
 from decimal import Decimal
@@ -91,12 +90,9 @@ def pod_set_minimums(
 def can_place_minimums(
     nodes: list[dict[str, Any]],
     minimums: list[tuple[str, int, dict[str, int]]],
-    required_distinct_nodes: int = 0,
 ) -> bool:
     """用确定性贪心装箱验证整个任务的最小副本是否能放入该组。"""
 
-    if required_distinct_nodes and len(nodes) < required_distinct_nodes:
-        return False
     remaining = {
         str(node["nodeUID"]): parse_resources(node.get("allocatable", {}))
         for node in nodes
@@ -136,9 +132,3 @@ def can_place_minimums(
                     ),
                 )
     return True
-
-
-def deep_copy_resources(value: dict[str, int]) -> dict[str, int]:
-    """为调用者提供显式的资源字典深拷贝。"""
-
-    return copy.deepcopy(value)

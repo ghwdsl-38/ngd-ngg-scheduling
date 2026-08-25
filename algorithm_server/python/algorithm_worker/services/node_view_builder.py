@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import copy
 from typing import Any
 
 from ..context import AllocationContext
 from ..errors import InvalidRequest
-from ..quantity import fits, parse_resources
+from ..quantity import fits, parse_resources, subtract
 
 
 class NodeViewBuilder:
@@ -19,25 +18,35 @@ class NodeViewBuilder:
     ) -> list[dict[str, Any]]:
         """依次排除占用节点、标签不匹配节点和单 Pod 资源不足节点。"""
 
+        resource_pool = context.request.get("requestMode") == "resourcePool"
+        ngd = context.request.get("ngd", {}) if resource_pool else {}
+        if resource_pool and not isinstance(ngd, dict):
+            raise InvalidRequest("ngd must be an object in resourcePool mode")
         requirements = context.request.get("nodeRequirements", {})
         selector = requirements.get("nodeSelector", {})
         if not isinstance(selector, dict):
             raise InvalidRequest("nodeRequirements.nodeSelector must be an object")
-        label_selector = requirements.get("labelSelector", {})
+        label_selector = (
+            ngd.get("nodeSelector", {})
+            if resource_pool
+            else requirements.get("labelSelector", {})
+        )
         if not isinstance(label_selector, dict):
             raise InvalidRequest("nodeRequirements.labelSelector must be an object")
         match_labels = label_selector.get("matchLabels", {})
         expressions = label_selector.get("matchExpressions", [])
         if not isinstance(match_labels, dict) or not isinstance(expressions, list):
             raise InvalidRequest("labelSelector matchLabels/matchExpressions are malformed")
-        usage = {
-            str(item.get("nodeUID", "")): bool(item.get("inUse", False))
-            for item in context.request.get("nodeUsageStates", [])
-        }
+        usage = {}
+        for item in context.request.get("nodeUsageStates", []):
+            if not isinstance(item, dict):
+                raise InvalidRequest("nodeUsageStates contains a malformed entry")
+            usage[str(item.get("nodeUID", ""))] = item
         result: list[dict[str, Any]] = []
         for node in context.static_snapshot.nodes:
             uid = str(node["nodeUID"])
-            if usage.get(uid, False):
+            state = usage.get(uid, {})
+            if bool(state.get("inUse", False)):
                 continue
             labels = node.get("labels", {})
             if not all(labels.get(key) == value for key, value in selector.items()):
@@ -47,12 +56,24 @@ class NodeViewBuilder:
             if not self._matches_expressions(labels, expressions):
                 continue
             capacity = parse_resources(node.get("allocatable", {}))
-            if not any(
-                fits(capacity, request)
+            requested_raw = state.get("requestedResources", {})
+            if not isinstance(requested_raw, dict):
+                raise InvalidRequest(
+                    f"nodeUsageStates[{uid}].requestedResources must be an object"
+                )
+            available = subtract(capacity, parse_resources(requested_raw))
+            if context.pod_minimums and not any(
+                fits(available, request)
                 for _, _, request in context.pod_minimums
             ):
                 continue
-            result.append(copy.deepcopy(node))
+            # 静态快照在一次计算中只读；这里只增加动态可用资源字段，浅拷贝
+            # 顶层字典即可，避免为每次请求深拷贝所有标签和拓扑子对象。
+            view = dict(node)
+            view["availableResources"] = available
+            # 后续评分直接复用已解析容量，避免同一Node重复解析Quantity。
+            view["_allocatableResources"] = capacity
+            result.append(view)
         # 固定排序使相同输入始终产生相同候选组和同分顺序。
         result.sort(
             key=lambda item: (str(item["nodeName"]), str(item["nodeUID"]))

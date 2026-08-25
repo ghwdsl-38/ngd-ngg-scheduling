@@ -1,0 +1,104 @@
+{
+  "version": "node-exporter-network-v1",
+  "nodeLabel": "node",
+  "metrics": [
+    {
+      "name": "cpuUsageRatio",
+      "unit": "ratio",
+      "normalization": "ratio",
+      "required": true,
+      "query": "1 - avg by (node) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))"
+    },
+    {
+      "name": "memoryUsageRatio",
+      "unit": "ratio",
+      "normalization": "ratio",
+      "required": true,
+      "query": "1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)"
+    },
+    {
+      "name": "networkReceiveBytesPerSecond",
+      "unit": "bytes_per_second",
+      "normalization": "non_negative",
+      "required": false,
+      "query": "sum by (node) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m]))"
+    },
+    {
+      "name": "networkTransmitBytesPerSecond",
+      "unit": "bytes_per_second",
+      "normalization": "non_negative",
+      "required": false,
+      "query": "sum by (node) (rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m]))"
+    },
+    {
+      "name": "networkReceivePacketsPerSecond",
+      "unit": "packets_per_second",
+      "normalization": "non_negative",
+      "required": false,
+      "query": "sum by (node) (rate(node_network_receive_packets_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m]))"
+    },
+    {
+      "name": "networkTransmitPacketsPerSecond",
+      "unit": "packets_per_second",
+      "normalization": "non_negative",
+      "required": false,
+      "query": "sum by (node) (rate(node_network_transmit_packets_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m]))"
+    },
+    {
+      "name": "networkReceiveDropRatio",
+      "unit": "ratio",
+      "normalization": "ratio",
+      "required": false,
+      "query": "clamp_max(sum by (node) (rate(node_network_receive_drop_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])) / clamp_min(sum by (node) (rate(node_network_receive_packets_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])), 1), 1)"
+    },
+    {
+      "name": "networkTransmitDropRatio",
+      "unit": "ratio",
+      "normalization": "ratio",
+      "required": false,
+      "query": "clamp_max(sum by (node) (rate(node_network_transmit_drop_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])) / clamp_min(sum by (node) (rate(node_network_transmit_packets_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])), 1), 1)"
+    },
+    {
+      "name": "networkReceiveErrorRatio",
+      "unit": "ratio",
+      "normalization": "ratio",
+      "required": false,
+      "query": "clamp_max(sum by (node) (rate(node_network_receive_errs_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])) / clamp_min(sum by (node) (rate(node_network_receive_packets_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])), 1), 1)"
+    },
+    {
+      "name": "networkTransmitErrorRatio",
+      "unit": "ratio",
+      "normalization": "ratio",
+      "required": false,
+      "query": "clamp_max(sum by (node) (rate(node_network_transmit_errs_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])) / clamp_min(sum by (node) (rate(node_network_transmit_packets_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])), 1), 1)"
+    },
+    {
+      "name": "tcpRetransmitRatio",
+      "unit": "ratio",
+      "normalization": "ratio",
+      "required": false,
+      "query": "clamp_max(sum by (node) (rate(node_netstat_Tcp_RetransSegs[5m])) / clamp_min(sum by (node) (rate(node_netstat_Tcp_OutSegs[5m])), 1), 1)"
+    },
+    {
+      "name": "networkLinkUpRatio",
+      "unit": "ratio",
+      "normalization": "ratio",
+      "required": false,
+      "query": "avg by (node) (node_network_up{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"})"
+    },
+    {
+      "name": "networkUtilizationRatio",
+      "unit": "ratio",
+      "normalization": "ratio",
+      "required": false,
+      "query": "clamp_max(sum by (node) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m]) + rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])) / clamp_min(sum by (node) (node_network_speed_bytes{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}), 1), 1)"
+    },
+    {
+      "name": "availableBandwidthBytesPerSecond",
+      "unit": "bytes_per_second",
+      "normalization": "non_negative",
+      "required": false,
+      "query": "clamp_min(sum by (node) (node_network_speed_bytes{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}) - sum by (node) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m]) + rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])), 0)"
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Group1 - Go calls Python",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/go_test_suites/group1_algorithm_worker",
+      "args": ["-test.run", "^TestGroup1_", "-test.v", "-test.count=1"],
+      "env": {
+        "GOMODCACHE": "${workspaceFolder}/.cache/go-mod",
+        "GOCACHE": "${workspaceFolder}/.cache/go-build",
+        "GOMAXPROCS": "2"
+      }
+    },
+    {
+      "name": "Debug Group2 - PRC calls Algorithm",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/go_test_suites/group2_prc_algorithm",
+      "args": ["-test.run", "^TestGroup2_", "-test.v", "-test.count=1"],
+      "env": {
+        "GOMODCACHE": "${workspaceFolder}/.cache/go-mod",
+        "GOCACHE": "${workspaceFolder}/.cache/go-build",
+        "GOMAXPROCS": "2"
+      }
+    },
+    {
+      "name": "Debug Group3 - PRC watches NGD with Mock Algorithm",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/go_test_suites/group3_prc_ngd_ngg",
+      "args": ["-test.run", "^TestGroup3_", "-test.v", "-test.count=1"],
+      "env": {
+        "GOMODCACHE": "${workspaceFolder}/.cache/go-mod",
+        "GOCACHE": "${workspaceFolder}/.cache/go-build",
+        "KUBEBUILDER_ASSETS": "${workspaceFolder}/.cache/envtest/1.35.5",
+        "GOMAXPROCS": "2"
+      }
+    },
+    {
+      "name": "Debug Group4 - Full component chain",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/go_test_suites/group4_full_real_algorithm",
+      "args": ["-test.run", "^TestGroup4_", "-test.v", "-test.count=1"],
+      "env": {
+        "GOMODCACHE": "${workspaceFolder}/.cache/go-mod",
+        "GOCACHE": "${workspaceFolder}/.cache/go-build",
+        "KUBEBUILDER_ASSETS": "${workspaceFolder}/.cache/envtest/1.35.5",
+        "GOMAXPROCS": "2"
+      }
+    }
+  ]
+}

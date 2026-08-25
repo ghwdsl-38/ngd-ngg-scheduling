@@ -2,8 +2,10 @@
 FROM golang:1.25-alpine AS go-builder
 WORKDIR /src/algorithm_server/go
 COPY algorithm_server/go/go.mod ./go.mod
-COPY algorithm_server/go/*.go algorithm_server/go/*.json ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/algorithm-server .
+COPY algorithm_server/go/algorithm ./algorithm
+COPY algorithm_server/go/cmd ./cmd
+# 限制构建并发，避免在共享演示服务器上因 Go 编译瞬时并行度过高触发 OOM。
+RUN GOMAXPROCS=2 CGO_ENABLED=0 go build -p=1 -trimpath -ldflags='-s -w' -o /out/algorithm-server ./cmd/algorithm-server
 
 # 第二阶段提供 Python 运行时，并只复制算法 Worker 与 Go 二进制。
 FROM python:3.13-alpine

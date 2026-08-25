@@ -1,0 +1,82 @@
+{
+  "ngdStatus": {
+    "grantRef": "ngg-go-test-demand",
+    "message": "selectedGroup=leaf:leaf-001 nodes=3",
+    "phase": "Fulfilled",
+    "resolvedNodeCount": 3
+  },
+  "ngg": {
+    "apiVersion": "scheduling.platform.example.io/v1alpha1",
+    "kind": "NodeGroupGrant",
+    "metadata": {
+      "annotations": {
+        "scheduling.platform.example.io/demand-ref": "go-test-demand"
+      },
+      "generation": 1,
+      "labels": {
+        "scheduling.platform.example.io/demand-uid": "\u003cdemand-uid-hash\u003e",
+        "scheduling.platform.example.io/scheduler": "volcano"
+      },
+      "name": "ngg-go-test-demand",
+      "uid": "\u003cuid\u003e"
+    },
+    "spec": {
+      "demandRef": "go-test-demand",
+      "nodes": [
+        {
+          "name": "worker-0001",
+          "resources": {
+            "cpuAvailable": "32",
+            "memoryAvailable": "128Gi"
+          },
+          "score": 90,
+          "topology": {
+            "accessSwitch": "leaf-001",
+            "convergenceSwitch": "border-01",
+            "dataCenter": "dc-test-01",
+            "rack": "rack-001"
+          }
+        },
+        {
+          "name": "worker-0002",
+          "resources": {
+            "cpuAvailable": "32",
+            "memoryAvailable": "128Gi"
+          },
+          "score": 85,
+          "topology": {
+            "accessSwitch": "leaf-001",
+            "convergenceSwitch": "border-01",
+            "dataCenter": "dc-test-01",
+            "rack": "rack-001"
+          }
+        },
+        {
+          "name": "worker-0004",
+          "resources": {
+            "cpuAvailable": "32",
+            "memoryAvailable": "128Gi"
+          },
+          "score": 80,
+          "topology": {
+            "accessSwitch": "leaf-001",
+            "convergenceSwitch": "border-01",
+            "dataCenter": "dc-test-01",
+            "rack": "rack-001"
+          }
+        }
+      ],
+      "schedulerName": "volcano",
+      "source": "normal",
+      "version": "v1"
+    },
+    "status": {
+      "phase": "Active",
+      "resolvedCapacity": {
+        "cpu": "96",
+        "memory": "384Gi",
+        "nodes": 3
+      }
+    }
+  }
+}

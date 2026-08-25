@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"scheduling.demo.ngg.io/ngg-consumer/formalgrant"
-	"scheduling.demo.ngg.io/prc/internal/controller"
+	"scheduling.demo.ngg.io/prc/pkg/controller"
 )
 
 var (
@@ -217,7 +217,7 @@ func (m *mockAlgorithm) handlePost(w http.ResponseWriter, request *http.Request)
 		"degraded": false, "warnings": []any{}, "status": "SUCCESS",
 	}
 	state, _ := body["schedulerState"].([]any)
-	eligible := make([]map[string]any, 0, 1000)
+	eligible := make([]map[string]any, 0, 32)
 	for _, raw := range state {
 		item, _ := raw.(map[string]any)
 		if item == nil || item["ready"] != true || item["unschedulable"] == true {
@@ -226,48 +226,46 @@ func (m *mockAlgorithm) handlePost(w http.ResponseWriter, request *http.Request)
 		uid := text(item["nodeUID"])
 		node := static[uid]
 		topology, _ := node["topology"].(map[string]any)
-		if topology == nil || text(topology["coreSwitchId"]) != "core-01" {
+		if topology == nil || text(topology["borderSwitchId"]) != "border-01" {
 			continue
 		}
 		eligible = append(eligible, map[string]any{"nodeUID": uid, "nodeName": text(item["nodeName"]), "score": int64(90)})
 	}
 	sort.Slice(eligible, func(i, j int) bool { return text(eligible[i]["nodeName"]) < text(eligible[j]["nodeName"]) })
-	if len(eligible) > 1000 {
-		eligible = eligible[:1000]
+	if len(eligible) > 32 {
+		eligible = eligible[:32]
 	}
 	response["candidateNodeGroups"] = []any{map[string]any{
-		"rank": int64(1), "groupId": "core:core-01", "topologyLevel": "coreSwitch",
+		"rank": int64(1), "groupId": "border:border-01", "topologyLevel": "borderSwitch",
 		"groupScore": 90.0, "nodes": eligible,
 	}}
 	writeJSON(w, http.StatusOK, response)
 }
 
-// 第二组不执行真实Python算法，因此Mock必须显式检查PRC是否把正式NGD中的
-// 拓扑边界和插件顺序原样转换成了Algorithm请求，避免只验证“能生成NGG”。
+// 第二组不执行真实Python算法，因此Mock必须显式检查PRC是否把完整正式NGD
+// 原样发送给Algorithm，并确认不再下发可编排algorithms字段。
 func validateRequestedAlgorithmPlan(body map[string]any) error {
-	topology, _ := body["topologyRequirement"].(map[string]any)
+	ngd, _ := body["ngd"].(map[string]any)
+	if ngd == nil {
+		return fmt.Errorf("original ngd spec is required")
+	}
+	topology, _ := ngd["topologyRequirement"].(map[string]any)
 	if topology == nil || text(topology["widestAllowedLevel"]) != "coreSwitch" {
-		return fmt.Errorf("topologyRequirement.widestAllowedLevel must be coreSwitch")
+		return fmt.Errorf("ngd.topologyRequirement.widestAllowedLevel must be coreSwitch")
 	}
-	algorithms, _ := body["algorithms"].([]any)
-	expected := []string{"requirement", "topology", "loadbalance"}
-	if len(algorithms) != len(expected) {
-		return fmt.Errorf("algorithms must contain %d entries", len(expected))
+	if _, exists := body["algorithms"]; exists {
+		return fmt.Errorf("PRC must not send a top-level algorithms plan")
 	}
-	for index, name := range expected {
-		item, _ := algorithms[index].(map[string]any)
-		if item == nil || text(item["name"]) != name || text(item["version"]) != "v1" {
-			return fmt.Errorf("algorithms[%d] must be %s/v1", index, name)
-		}
-		if name == "topology" {
-			parameters, _ := item["parameters"].(map[string]any)
-			if parameters == nil || text(parameters["widestAllowedLevel"]) != "coreSwitch" {
-				return fmt.Errorf("topology algorithm must receive widestAllowedLevel=coreSwitch")
-			}
+	if _, exists := ngd["algorithms"]; exists {
+		return fmt.Errorf("test NGD must omit optional spec.algorithms")
+	}
+	for _, field := range []string{"schedulerName", "nodeSelector", "topologyRequirement", "maxCandidateGroups", "maxNodes", "quota", "minResources", "minThroughput", "crossClusterAffinity", "intraClusterAffinity", "networkReachability", "preferredSubnet"} {
+		if _, exists := ngd[field]; !exists {
+			return fmt.Errorf("ngd.%s was not preserved", field)
 		}
 	}
-	if intValue(body, "maxCandidateGroups") != 3 {
-		return fmt.Errorf("maxCandidateGroups must be 3")
+	if intValue(ngd, "maxCandidateGroups") != 3 {
+		return fmt.Errorf("ngd.maxCandidateGroups must be 3")
 	}
 	return nil
 }
@@ -384,7 +382,7 @@ func main() {
 	must(apiClient.Create(ctx, normal))
 	exchanges.registerIdentity(string(normal.GetUID()), "normal_create")
 	t0 := watches.wait(string(normal.GetUID()), normal.GetGeneration(), 30*time.Second)
-	grant, createdAt, readyAt := waitGrant(ctx, apiClient, normal.GetName(), 1000, 90*time.Second)
+	grant, createdAt, readyAt := waitGrant(ctx, apiClient, normal.GetName(), 32, 90*time.Second)
 	duration := readyAt.Sub(t0).Seconds() * 1000
 	caseOutput := map[string]any{"grantGeneration": grant.GetGeneration(), "nodeCount": nestedInt(grant.Object, "status", "resolvedCapacity", "nodes")}
 	result := caseResult{ID: "normal_create", Status: "PASS", Timed: *mode == "timing", Output: caseOutput}
@@ -421,7 +419,7 @@ func runGroup3(ctx context.Context, c client.Client, baseDemand map[string]any, 
 	must(c.Create(ctx, coldDemand))
 	exchanges.registerIdentity(string(coldDemand.GetUID()), "cold_cache")
 	coldWatch := watches.wait(string(coldDemand.GetUID()), coldDemand.GetGeneration(), 30*time.Second)
-	coldGrant, _, _ := waitGrant(ctx, c, coldDemand.GetName(), 1000, 120*time.Second)
+	coldGrant, _, _ := waitGrant(ctx, c, coldDemand.GetName(), 0, 120*time.Second)
 	coldNGGDuration := time.Since(coldWatch)
 	coldDemandFinal := currentDemand(ctx, c, coldDemand.GetName())
 	// 删除NGD仅用于阻止测试中的Pod Watch刷新，不计入业务耗时。
@@ -454,7 +452,7 @@ func runGroup3(ctx context.Context, c client.Client, baseDemand map[string]any, 
 	must(c.Create(ctx, warmDemand))
 	exchanges.registerIdentity(string(warmDemand.GetUID()), "warm_cache")
 	warmWatch := watches.wait(string(warmDemand.GetUID()), warmDemand.GetGeneration(), 30*time.Second)
-	warmGrant, _, _ := waitGrant(ctx, c, warmDemand.GetName(), 1000, 90*time.Second)
+	warmGrant, _, _ := waitGrant(ctx, c, warmDemand.GetName(), 0, 90*time.Second)
 	warmNGGDuration := time.Since(warmWatch)
 	warmDemandFinal := currentDemand(ctx, c, warmDemand.GetName())
 	must(c.Delete(ctx, warmDemand))
@@ -672,7 +670,8 @@ func waitGrant(ctx context.Context, c client.Client, demandName string, expected
 			nodes, _, _ := unstructured.NestedSlice(grant.Object, "spec", "nodes")
 			phase := nestedString(grant.Object, "status", "phase")
 			resolved := nestedInt(grant.Object, "status", "resolvedCapacity", "nodes")
-			if int64(len(nodes)) == expectedNodes && phase == "Active" && resolved == expectedNodes {
+			countMatches := (expectedNodes == 0 && len(nodes) > 0) || int64(len(nodes)) == expectedNodes
+			if countMatches && phase == "Active" && resolved == int64(len(nodes)) {
 				demand := waitDemandPhase(ctx, c, demandName, "Fulfilled", 5*time.Second)
 				if nestedString(demand.Object, "status", "grantRef") == name {
 					return grant, createdAt, time.Now()

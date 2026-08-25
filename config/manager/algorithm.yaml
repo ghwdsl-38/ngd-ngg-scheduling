@@ -25,7 +25,7 @@ spec:
         - name: PROMETHEUS_URL
           value: http://prometheus.monitoring.svc.cluster.local:9090
         - name: PROMETHEUS_REFRESH_SECONDS
-          value: "30"
+          value: "15"
         - name: PROMETHEUS_STALE_SECONDS
           value: "120"
         - name: PROMETHEUS_REQUEST_TIMEOUT_SECONDS

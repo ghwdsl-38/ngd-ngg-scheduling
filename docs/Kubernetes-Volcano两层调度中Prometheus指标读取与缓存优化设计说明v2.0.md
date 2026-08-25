@@ -34,7 +34,7 @@ flowchart TB
     KAPI -->|1. Watch Node、Pod、NGD、NNT| PRC
     NGD -->|2. 触发任务级计算| PRC
     PRC -->|3. PUT内容Hash静态快照| STATIC
-    PROM -->|4. 后台每30秒批量查询| METRIC
+    PROM -->|4. 后台每15秒批量查询| METRIC
     PRC -->|5. 任务需求 + 当次动态状态| ALG
     STATIC -->|6. 提供指定Hash版本| ALG
     METRIC -->|7. 提供最新可用软指标| ALG
@@ -91,7 +91,7 @@ algorithm_server/go/metrics.go
 | 变量 | 默认值 | 含义 |
 |---|---|---|
 | `PROMETHEUS_URL` | 空 | 空表示关闭指标采集 |
-| `PROMETHEUS_REFRESH_SECONDS` | `30` | 后台刷新周期 |
+| `PROMETHEUS_REFRESH_SECONDS` | `15` | 后台刷新周期，与PRC Reconcile周期一致 |
 | `PROMETHEUS_STALE_SECONDS` | `90` | 超过该时间视为陈旧 |
 | `PROMETHEUS_NODE_LABEL` | `node` | Prometheus 结果中的节点名 Label |
 | `PROMETHEUS_METRICS_CONFIG_FILE` | 内嵌 `prometheus_metrics.json` | 覆盖指标目录 |

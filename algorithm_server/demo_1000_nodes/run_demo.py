@@ -208,7 +208,11 @@ class MockPrometheusHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
-        self.wfile.write(payload)
+        try:
+            self.wfile.write(payload)
+        except (BrokenPipeError, ConnectionResetError):
+            # Algorithm停止或刷新超时后可能主动关闭连接，不影响Mock数据正确性。
+            pass
 
     def log_message(self, _format: str, *args: Any) -> None:
         del args
@@ -386,55 +390,31 @@ def build_request(
     snapshot_id: str,
     usage_states: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """构造 32 个 GPU Pod、至少 6 个不同节点的任务级算法请求。"""
+    """构造严格使用联通 NGD 字段的资源池算法请求。"""
 
     return {
         "requestId": "algorithm-1000-request-1",
         "taskUID": "task-algorithm-1000",
         "ngdUID": "ngd-algorithm-1000",
         "ngdGeneration": 1,
+        "requestMode": "resourcePool",
         "nodeStaticSnapshotId": snapshot_id,
-        "podSets": [
-            {
-                "name": "distributed-workers",
-                "replicas": 32,
-                "minAvailable": 32,
-                "resourcesPerPod": {
-                    "cpu": "4",
-                    "memory": "8Gi",
-                    "nvidia.com/gpu": "1",
-                },
-            }
-        ],
-        "nodeRequirements": {
-            "nodeSelector": {"demo.ngg/worker": "true"}
-        },
         "nodeUsageStates": usage_states,
-        "algorithms": [
-            {
-                "name": "requirement",
-                "version": "v1",
-                "parameters": {"requiredDistinctNodes": 6},
+        "ngd": {
+            "schedulerName": "volcano",
+            "nodeSelector": {
+                "matchLabels": {"demo.ngg/worker": "true"}
             },
-            {
-                "name": "topology",
-                "version": "v1",
-                "parameters": {
-                    "strategy": "NarrowestFit",
-                    "widestAllowedLevel": "coreSwitch",
-                    "requiredDistinctNodes": 6,
-                },
+            "topologyRequirement": {
+                "profile": "leaf-border-core-v1",
+                "strategy": "NarrowestFit",
+                "widestAllowedLevel": "coreSwitch",
             },
-            {
-                "name": "loadbalance",
-                "version": "v1",
-                "parameters": {
-                    "profile": "balanced-v1",
-                    "requireMetrics": True,
-                },
-            },
-        ],
-        "maxCandidateGroups": 3,
+            "maxCandidateGroups": 3,
+            "maxNodes": 10,
+            "quota": {"cpu": "320", "memory": "1280Gi"},
+            "minResources": {"cpu": "192", "memory": "768Gi"},
+        },
     }
 
 

@@ -1,0 +1,23 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  labels:
+    scheduling.platform.example.io/scheduler: volcano
+  name: benchmark-select-10
+spec:
+  maxCandidateGroups: 3
+  maxNodes: 10
+  minResources:
+    cpu: "320"
+    memory: 1280Gi
+  nodeSelector:
+    matchLabels:
+      tests.ngg.io/worker: "true"
+  quota:
+    cpu: "320"
+    memory: 1280Gi
+  schedulerName: volcano
+  topologyRequirement:
+    profile: leaf-border-core-v1
+    strategy: NarrowestFit
+    widestAllowedLevel: coreSwitch

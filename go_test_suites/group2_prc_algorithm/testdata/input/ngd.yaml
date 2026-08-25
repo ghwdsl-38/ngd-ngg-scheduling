@@ -1,0 +1,23 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  labels:
+    scheduling.platform.example.io/scheduler: volcano
+  name: go-test-demand
+spec:
+  maxCandidateGroups: 3
+  maxNodes: 6
+  minResources:
+    cpu: "96"
+    memory: 384Gi
+  nodeSelector:
+    matchLabels:
+      tests.ngg.io/worker: "true"
+  quota:
+    cpu: "192"
+    memory: 768Gi
+  schedulerName: volcano
+  topologyRequirement:
+    profile: leaf-border-core-v1
+    strategy: NarrowestFit
+    widestAllowedLevel: coreSwitch

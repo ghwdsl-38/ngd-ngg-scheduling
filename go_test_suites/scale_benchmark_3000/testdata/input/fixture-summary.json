@@ -1,0 +1,9 @@
+{
+  "borderCount": 4,
+  "coreCount": 2,
+  "leafCount": 150,
+  "metricNamesPerNode": 14,
+  "metricSamples": 42000,
+  "nodeCount": 3000,
+  "nodesPerLeaf": 20
+}

@@ -143,21 +143,22 @@ def generate(config: dict[str, Any]) -> dict[str, Any]:
         "taskUID": "task-group1-3000",
         "ngdUID": "ngd-group1-3000",
         "ngdGeneration": 1,
+        "requestMode": "resourcePool",
         "nodeStaticSnapshotId": snapshot_id,
-        "podSets": [{
-            "name": "distributed-workers",
-            "replicas": request_config["replicas"],
-            "minAvailable": request_config["minAvailable"],
-            "resourcesPerPod": {"cpu": "1", "memory": "1Gi"},
-        }],
-        "nodeRequirements": {"nodeSelector": {"tests.ngg.io/worker": "true"}},
         "nodeUsageStates": states,
-        "algorithms": [
-            {"name": "requirement", "version": "v1", "parameters": {"requiredDistinctNodes": request_config["requiredDistinctNodes"]}},
-            {"name": "topology", "version": "v1", "parameters": {"profile": "leaf-border-core-v1", "strategy": "NarrowestFit", "widestAllowedLevel": request_config["widestAllowedLevel"], "requiredDistinctNodes": request_config["requiredDistinctNodes"]}},
-            {"name": "loadbalance", "version": "v1", "parameters": {"profile": "balanced-v2", "requireMetrics": True, "requireNetworkMetrics": True}},
-        ],
-        "maxCandidateGroups": request_config["maxCandidateGroups"],
+        "ngd": {
+            "schedulerName": "volcano",
+            "nodeSelector": {"matchLabels": {"tests.ngg.io/worker": "true"}},
+            "topologyRequirement": {
+                "profile": "leaf-border-core-v1",
+                "strategy": "NarrowestFit",
+                "widestAllowedLevel": request_config["widestAllowedLevel"],
+            },
+            "maxCandidateGroups": request_config["maxCandidateGroups"],
+            "maxNodes": request_config["maxNodes"],
+            "quota": request_config["quota"],
+            "minResources": request_config["minResources"],
+        },
     }
     return {
         "staticSnapshot": static,
