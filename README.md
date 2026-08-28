@@ -2,7 +2,7 @@
 
 本工程验证“任务级节点组划分 + Pod 级调度”的完整闭环，并同时支持 VolcanoJob 和 Kubernetes Job。
 
-- 第一层：Go PRC 读取 NGD、Node、Pod 和三层拓扑 Label，调用 Go Algorithm API Server；Go 负责 HTTP、静态/Prometheus 缓存和编排，单一 Python Worker 只执行算法函数，生成最多 3 个有序候选组的 NGG；
+- 第一层：Go PRC用独立Controller提前同步Node静态/拓扑快照；NGD到达后，任务Reconciler只发送需求和Node动态状态。Go Algorithm负责HTTP、静态/Prometheus缓存，单一Python Worker执行算法函数；
 - 第二层：Volcano 插件或自定义 kube-scheduler 插件只允许当前 `activeGroupRef` 中的 Node；
 - 当前组超时且零 Pod 绑定时，PRC 按 Algorithm 原顺序切到下一组；
 - 任意任务 Pod 首次绑定后立即锁组，同一 NGD generation 不再跨组；
@@ -16,10 +16,11 @@ flowchart TB
     NODE[9个Kind Worker] -->|模拟种子或真实LLDP帧<br/>取得Node到Leaf| LLDP
     LLDP -->|持久化Leaf/Border/Core| LABEL[Node Labels]
     LABEL --> KAPI[Kubernetes API Server]
-    KAPI -->|Watch NGD / Node / Pod| PRC[Go PRC<br/>Kubebuilder + controller-runtime]
+    KAPI -->|Watch Node / 拓扑| STATIC_SYNC[PRC Node静态快照Controller]
+    KAPI -->|Watch NGD / Node / Pod| PRC[PRC NGD Reconciler]
     NGD[NodeGroupDemand] --> KAPI
-    PRC -->|内容Hash标识的静态快照| ALG[Go Algorithm API Server<br/>HTTP + 缓存 + 编排]
-    PRC -->|每任务Node使用状态，不在Algorithm缓存| ALG
+    STATIC_SYNC -->|独立PUT内容Hash静态快照| ALG[Go Algorithm API Server<br/>HTTP + 缓存]
+    PRC -->|NGD + 每任务Node动态状态<br/>+ 已确认snapshotId| ALG
     PROM[Prometheus] -->|Go后台周期查询| CACHE[Go进程内指标缓存]
     CACHE --> ALG
     ALG -->|完整计算上下文/本地JSON-RPC| PY[单一Python算法Worker]
@@ -50,7 +51,7 @@ Kind 拓扑为 1 个 Control Plane 和 9 个 Worker：
 
 ## 关键目录
 
-- `prc/`：正式 Go PRC，包含 controller-runtime Manager、Watch、Snapshot、Algorithm Client 和 NGG 状态机；
+- `prc/`：正式Go PRC；`static_snapshot_controller.go`独立维护静态快照，`prc_controller.go`处理任务动态状态、Algorithm调用和NGG生命周期；
 - `algorithm_server/`：Algorithm 完整实现目录；`go/` 负责 HTTP、缓存、Prometheus 与进程管理，`python/algorithm_worker/` 负责 Python 算法；
 - `topology_agent/`：Go LLDP 采集、静态三层拓扑解析、Node Watch 和 Label 持久化；
 - `src/ngd_ngg_demo/`：保留的 Python legacy PRC/LLDP 对照实现和公共领域逻辑，不作为当前镜像入口；

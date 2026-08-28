@@ -27,19 +27,19 @@
 
 ## 2. 整体测试矩阵
 
-| 项目 | 配置 |
-| --- | --- |
-| 静态Node总数 | 3000 |
-| 目标选择数量 | 1000、800、500、300、100、10 |
-| 测试组 | 4组 |
-| 每个规模预热 | 3次，不统计 |
-| 每个规模正式样本 | 30次，串行 |
-| 正式样本总数 | 720 |
-| 最大候选组数量 | 3 |
-| 并发方式 | 单请求串行，不是30个NGD并发 |
-| P50/P95算法 | Nearest Rank |
-| 时间单位 | 毫秒，保留3位小数 |
-| Go并发 | `GOMAXPROCS=2`、`go test -p=1` |
+| 项目             | 配置                               |
+| ---------------- | ---------------------------------- |
+| 静态Node总数     | 3000                               |
+| 目标选择数量     | 1000、800、500、300、100、10       |
+| 测试组           | 4组                                |
+| 每个规模预热     | 3次，不统计                        |
+| 每个规模正式样本 | 30次，串行                         |
+| 正式样本总数     | 720                                |
+| 最大候选组数量   | 3                                  |
+| 并发方式         | 单请求串行，不是30个NGD并发        |
+| P50/P95算法      | Nearest Rank                       |
+| 时间单位         | 毫秒，保留3位小数                  |
+| Go并发           | `GOMAXPROCS=2`、`go test -p=1` |
 
 四组关系：
 
@@ -149,13 +149,13 @@ topologyRequirement:
 `NarrowestFit`优先选择能容纳全部目标Node的最窄层级：
 
 | 选择Node | Leaf容量20 | Border容量740/760 | Core容量1500 | 最终层级 |
-| ---: | ---: | ---: | ---: | --- |
-| 10 | 满足 | — | — | Leaf |
-| 100 | 不满足 | 满足 | — | Border |
-| 300 | 不满足 | 满足 | — | Border |
-| 500 | 不满足 | 满足 | — | Border |
-| 800 | 不满足 | 不满足 | 满足 | Core |
-| 1000 | 不满足 | 不满足 | 满足 | Core |
+| -------: | ---------: | ----------------: | -----------: | -------- |
+|       10 |       满足 |                — |           — | Leaf     |
+|      100 |     不满足 |              满足 |           — | Border   |
+|      300 |     不满足 |              满足 |           — | Border   |
+|      500 |     不满足 |              满足 |           — | Border   |
+|      800 |     不满足 |            不满足 |         满足 | Core     |
+|     1000 |     不满足 |            不满足 |         满足 | Core     |
 
 真实Algorithm中：
 
@@ -168,14 +168,14 @@ topologyRequirement:
 
 每个Node提供32 CPU和128Gi内存。测试根据目标数量计算`minResources`、`quota`和`maxNodes`：
 
-| 选择Node | minResources CPU | minResources内存 | quota | maxNodes |
-| ---: | ---: | ---: | --- | ---: |
-| 1000 | 32000 | 128000Gi | 与minResources相同 | 1000 |
-| 800 | 25600 | 102400Gi | 与minResources相同 | 800 |
-| 500 | 16000 | 64000Gi | 与minResources相同 | 500 |
-| 300 | 9600 | 38400Gi | 与minResources相同 | 300 |
-| 100 | 3200 | 12800Gi | 与minResources相同 | 100 |
-| 10 | 320 | 1280Gi | 与minResources相同 | 10 |
+| 选择Node | minResources CPU | minResources内存 | quota              | maxNodes |
+| -------: | ---------------: | ---------------: | ------------------ | -------: |
+|     1000 |            32000 |         128000Gi | 与minResources相同 |     1000 |
+|      800 |            25600 |         102400Gi | 与minResources相同 |      800 |
+|      500 |            16000 |          64000Gi | 与minResources相同 |      500 |
+|      300 |             9600 |          38400Gi | 与minResources相同 |      300 |
+|      100 |             3200 |          12800Gi | 与minResources相同 |      100 |
+|       10 |              320 |           1280Gi | 与minResources相同 |       10 |
 
 例如500 Node输入见[testdata/input/demands/select-500.yaml](testdata/input/demands/select-500.yaml)。Algorithm按分数从高到低加入Node，资源达到下限时停止，因此在本测试的同构Node资源条件下精确返回目标数量。
 
@@ -211,6 +211,8 @@ topologyRequirement:
 
 这组采用Warm Cache口径，静态快照上传和Prometheus拉取不进入30次样本。计时包含真实HTTP、Go Algorithm从内存取快照、Go调用Python、三段算法和PRC响应解析。
 
+Group2是Group4内部的Algorithm HTTP子区间。聚合报告会按相同选择规模比较两组30次Mean，要求`Group4 Mean > Group2 Mean`；单次样本受系统抖动影响，不用于这个包含关系判定。
+
 ### 6.3 Group3：PRC Watch、Mock Algorithm与NGG
 
 代码：[group3 benchmark_test.go](group3_prc_ngd_ngg/benchmark_test.go)
@@ -220,13 +222,14 @@ topologyRequirement:
 计时前：安装联通NGD/NGG CRD
 计时前：创建3000个Node API对象并完成PRC Cache Sync
 计时前：启动Mock Algorithm
+计时前：独立静态Controller构造并PUT 3000 Node快照，等待确认Ready
 开始：PRC通过Watch观察到NGD并进入Reconcile
-业务：读取3000 Node缓存、构造快照、调用Mock Algorithm
+业务：读取已确认snapshotId、构造Node动态状态、调用Mock Algorithm
 业务：PRC处理N个Node结果并写入正式NGG
 结束：NGG status.phase=Active
 ```
 
-Mock Algorithm按目标规模返回一个合法拓扑组和N个稳定排序的具体Node。本组不测真实算法公式，重点测PRC在3000 Node输入及10~1000 Node输出下的控制器、协议和Kubernetes写入成本。
+Mock Algorithm按目标规模返回一个合法拓扑组和N个稳定排序的具体Node。本组不测真实算法公式，重点测PRC在3000 Node动态输入及10~1000 Node输出下的控制器、协议和Kubernetes写入成本。静态快照同步独立发生在NGD创建前，不进入30次任务样本。
 
 ### 6.4 Group4：完整真实Algorithm链路
 
@@ -236,6 +239,7 @@ Mock Algorithm按目标规模返回一个合法拓扑组和N个稳定排序的�
 计时前：envtest、CRD、3000 Node、PRC Cache全部Ready
 计时前：Mock Prometheus指标已进入真实Algorithm内存
 计时前：真实Go Algorithm和Python Worker已经启动
+计时前：独立静态Controller已把3000 Node快照同步到Algorithm并确认Ready
 开始：PRC通过Watch观察到NGD并进入Reconcile
 业务：PRC → HTTP → Go Algorithm → Python Worker
 业务：requirement → topology → loadbalance → 候选组
@@ -243,7 +247,7 @@ Mock Algorithm按目标规模返回一个合法拓扑组和N个稳定排序的�
 结束：NGG status.phase=Active
 ```
 
-这是当前最接近正式组件链路的结果，但没有启动Volcano或kube-scheduler，终点是正式NGG生成，不包含Pod Bind。
+这是当前最接近正式组件链路的结果。任务计时期间只传NGD与Node动态状态，Algorithm读取预先就绪的静态和Prometheus缓存；没有启动Volcano或kube-scheduler，终点是正式NGG生成，不包含Pod Bind。
 
 ## 7. 30次样本和统计规则
 
@@ -307,6 +311,7 @@ scale_benchmark_3000/
 │   └── results/<run-id>/
 └── reports/<run-id>/
     ├── summary.md
+    ├── group2-vs-group4.md
     ├── summary.csv
     ├── statistics.json
     └── environment.json
@@ -324,12 +329,12 @@ evidence/select-N/                          # 该规模完整请求与输出
 
 证据内容：
 
-| 组 | evidence主要文件 |
-| --- | --- |
+| 组     | evidence主要文件                                              |
+| ------ | ------------------------------------------------------------- |
 | Group1 | `go-to-python-request.json`、`python-to-go-response.json` |
-| Group2 | `prc-allocation-request.json`、`algorithm-response.json` |
-| Group3 | `ngd.yaml`、PRC请求、Mock响应、`ngg.yaml` |
-| Group4 | `ngd.yaml`、PRC请求、真实Algorithm响应、`ngg.yaml` |
+| Group2 | `prc-allocation-request.json`、`algorithm-response.json`  |
+| Group3 | `ngd.yaml`、PRC请求、Mock响应、`ngg.yaml`                 |
+| Group4 | `ngd.yaml`、PRC请求、真实Algorithm响应、`ngg.yaml`        |
 
 ## 9. 如何运行
 
@@ -347,7 +352,7 @@ make benchmark-3000-all
 3. 串行运行Group1到Group4；
 4. 每组执行6种规模、每种3次预热和30次正式样本；
 5. 生成四组独立结果；
-6. 合并生成24行总表。
+6. 合并生成24行总表，并校验Group4完整链路Mean大于Group2 Algorithm子区间Mean。
 
 本次服务器上完整运行约10分钟。第三、四组需要本机回环端口权限，以启动envtest和Mock HTTP服务，不需要Kind、Docker、外部Prometheus或真实Kubernetes集群。
 
@@ -406,34 +411,34 @@ BENCHMARK_RUN_ID=20260825-formal-3000 make benchmark-3000-report
 
 ## 10. 正式测试结果
 
-正式运行日期：2026年8月25日。环境为Linux amd64、Go 1.25.13、`GOMAXPROCS=2`；服务器CPU为Intel Xeon Gold 6148，主机共有80个逻辑CPU，但测试主动限制为2个Go执行线程。
+正式汇总运行ID：`20260825-formal-3000`。Group1/2结果生成于2026年8月25日；Group3/4在独立静态快照Controller完成后于2026年8月26日重新运行。环境为Linux amd64、Go 1.25.13、`GOMAXPROCS=2`；服务器CPU为Intel Xeon Gold 6148，主机共有80个逻辑CPU，但测试主动限制为2个Go执行线程。
 
-| 测试组 | 静态Node | 选择Node | 次数 | 成功率 | Mean(ms) | P50(ms) | P95(ms) | Min(ms) | Max(ms) | StdDev(ms) |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Group1-Go-Python | 3000 | 1000 | 30 | 100.0% | 396.887 | 394.931 | 418.050 | 373.513 | 424.497 | 13.480 |
-| Group1-Go-Python | 3000 | 800 | 30 | 100.0% | 391.920 | 392.238 | 434.362 | 369.530 | 445.729 | 16.210 |
-| Group1-Go-Python | 3000 | 500 | 30 | 100.0% | 377.791 | 376.755 | 408.772 | 352.754 | 422.809 | 13.701 |
-| Group1-Go-Python | 3000 | 300 | 30 | 100.0% | 352.930 | 351.580 | 373.563 | 333.712 | 378.610 | 11.514 |
-| Group1-Go-Python | 3000 | 100 | 30 | 100.0% | 352.186 | 353.987 | 364.803 | 324.823 | 380.804 | 10.994 |
-| Group1-Go-Python | 3000 | 10 | 30 | 100.0% | 338.134 | 333.436 | 374.470 | 303.952 | 388.206 | 18.401 |
-| Group2-PRC-Algorithm | 3000 | 1000 | 30 | 100.0% | 459.026 | 461.181 | 493.190 | 428.857 | 497.603 | 19.250 |
-| Group2-PRC-Algorithm | 3000 | 800 | 30 | 100.0% | 441.354 | 434.640 | 476.811 | 411.988 | 477.274 | 18.277 |
-| Group2-PRC-Algorithm | 3000 | 500 | 30 | 100.0% | 410.269 | 410.534 | 426.916 | 389.104 | 437.468 | 9.294 |
-| Group2-PRC-Algorithm | 3000 | 300 | 30 | 100.0% | 400.930 | 401.663 | 435.738 | 371.893 | 441.061 | 17.398 |
-| Group2-PRC-Algorithm | 3000 | 100 | 30 | 100.0% | 382.910 | 382.071 | 422.710 | 350.590 | 436.397 | 20.055 |
-| Group2-PRC-Algorithm | 3000 | 10 | 30 | 100.0% | 361.810 | 358.471 | 396.573 | 330.435 | 398.558 | 18.425 |
-| Group3-PRC-MockAlgorithm-NGG | 3000 | 1000 | 30 | 100.0% | 953.272 | 945.958 | 1053.221 | 791.405 | 1070.497 | 59.286 |
-| Group3-PRC-MockAlgorithm-NGG | 3000 | 800 | 30 | 100.0% | 815.949 | 738.154 | 1002.014 | 682.240 | 1057.874 | 121.799 |
-| Group3-PRC-MockAlgorithm-NGG | 3000 | 500 | 30 | 100.0% | 636.692 | 599.032 | 753.320 | 573.504 | 773.595 | 63.890 |
-| Group3-PRC-MockAlgorithm-NGG | 3000 | 300 | 30 | 100.0% | 525.435 | 507.452 | 631.681 | 470.631 | 665.902 | 50.002 |
-| Group3-PRC-MockAlgorithm-NGG | 3000 | 100 | 30 | 100.0% | 413.416 | 408.755 | 440.491 | 391.442 | 480.706 | 18.259 |
-| Group3-PRC-MockAlgorithm-NGG | 3000 | 10 | 30 | 100.0% | 366.428 | 362.753 | 393.654 | 338.218 | 399.762 | 15.140 |
-| Group4-Full-RealAlgorithm | 3000 | 1000 | 30 | 100.0% | 1465.948 | 1471.743 | 1587.650 | 1299.036 | 1632.440 | 73.582 |
-| Group4-Full-RealAlgorithm | 3000 | 800 | 30 | 100.0% | 1304.245 | 1242.448 | 1573.904 | 1152.770 | 1632.225 | 141.958 |
-| Group4-Full-RealAlgorithm | 3000 | 500 | 30 | 100.0% | 1062.462 | 1049.449 | 1126.970 | 988.387 | 1328.436 | 59.771 |
-| Group4-Full-RealAlgorithm | 3000 | 300 | 30 | 100.0% | 972.699 | 955.783 | 1074.763 | 888.002 | 1075.954 | 49.220 |
-| Group4-Full-RealAlgorithm | 3000 | 100 | 30 | 100.0% | 852.902 | 849.811 | 910.799 | 802.678 | 925.019 | 33.401 |
-| Group4-Full-RealAlgorithm | 3000 | 10 | 30 | 100.0% | 788.989 | 788.663 | 843.708 | 723.482 | 853.321 | 30.631 |
+| 测试组                       | 静态Node | 选择Node | 次数 | 成功率 | Mean(ms) |  P50(ms) |  P95(ms) | Min(ms) |  Max(ms) | StdDev(ms) |
+| ---------------------------- | -------: | -------: | ---: | -----: | -------: | -------: | -------: | ------: | -------: | ---------: |
+| Group1-Go-Python             |     3000 |     1000 |   30 | 100.0% |  396.887 |  394.931 |  418.050 | 373.513 |  424.497 |     13.480 |
+| Group1-Go-Python             |     3000 |      800 |   30 | 100.0% |  391.920 |  392.238 |  434.362 | 369.530 |  445.729 |     16.210 |
+| Group1-Go-Python             |     3000 |      500 |   30 | 100.0% |  377.791 |  376.755 |  408.772 | 352.754 |  422.809 |     13.701 |
+| Group1-Go-Python             |     3000 |      300 |   30 | 100.0% |  352.930 |  351.580 |  373.563 | 333.712 |  378.610 |     11.514 |
+| Group1-Go-Python             |     3000 |      100 |   30 | 100.0% |  352.186 |  353.987 |  364.803 | 324.823 |  380.804 |     10.994 |
+| Group1-Go-Python             |     3000 |       10 |   30 | 100.0% |  338.134 |  333.436 |  374.470 | 303.952 |  388.206 |     18.401 |
+| Group2-PRC-Algorithm         |     3000 |     1000 |   30 | 100.0% |  459.026 |  461.181 |  493.190 | 428.857 |  497.603 |     19.250 |
+| Group2-PRC-Algorithm         |     3000 |      800 |   30 | 100.0% |  441.354 |  434.640 |  476.811 | 411.988 |  477.274 |     18.277 |
+| Group2-PRC-Algorithm         |     3000 |      500 |   30 | 100.0% |  410.269 |  410.534 |  426.916 | 389.104 |  437.468 |      9.294 |
+| Group2-PRC-Algorithm         |     3000 |      300 |   30 | 100.0% |  400.930 |  401.663 |  435.738 | 371.893 |  441.061 |     17.398 |
+| Group2-PRC-Algorithm         |     3000 |      100 |   30 | 100.0% |  382.910 |  382.071 |  422.710 | 350.590 |  436.397 |     20.055 |
+| Group2-PRC-Algorithm         |     3000 |       10 |   30 | 100.0% |  361.810 |  358.471 |  396.573 | 330.435 |  398.558 |     18.425 |
+| Group3-PRC-MockAlgorithm-NGG |     3000 |     1000 |   30 | 100.0% |  630.081 |  642.379 |  734.512 | 484.761 |  757.701 |     70.267 |
+| Group3-PRC-MockAlgorithm-NGG |     3000 |      800 |   30 | 100.0% |  527.308 |  446.971 |  722.277 | 392.983 |  731.498 |    116.159 |
+| Group3-PRC-MockAlgorithm-NGG |     3000 |      500 |   30 | 100.0% |  343.503 |  309.211 |  496.190 | 272.747 |  511.110 |     68.616 |
+| Group3-PRC-MockAlgorithm-NGG |     3000 |      300 |   30 | 100.0% |  241.564 |  227.788 |  339.384 | 190.935 |  349.565 |     42.931 |
+| Group3-PRC-MockAlgorithm-NGG |     3000 |      100 |   30 | 100.0% |  143.607 |  146.775 |  194.404 | 115.491 |  202.081 |     22.024 |
+| Group3-PRC-MockAlgorithm-NGG |     3000 |       10 |   30 | 100.0% |   88.458 |   84.358 |  109.167 |  73.950 |  112.645 |     11.635 |
+| Group4-Full-RealAlgorithm    |     3000 |     1000 |   30 | 100.0% | 1068.278 | 1073.947 | 1152.996 | 945.873 | 1155.834 |     52.841 |
+| Group4-Full-RealAlgorithm    |     3000 |      800 |   30 | 100.0% |  962.966 |  899.418 | 1215.848 | 773.344 | 1277.481 |    131.781 |
+| Group4-Full-RealAlgorithm    |     3000 |      500 |   30 | 100.0% |  752.516 |  723.021 |  873.410 | 674.537 |  922.594 |     64.135 |
+| Group4-Full-RealAlgorithm    |     3000 |      300 |   30 | 100.0% |  619.108 |  597.439 |  726.286 | 547.335 |  770.132 |     55.488 |
+| Group4-Full-RealAlgorithm    |     3000 |      100 |   30 | 100.0% |  502.839 |  501.921 |  544.589 | 447.480 |  582.142 |     27.346 |
+| Group4-Full-RealAlgorithm    |     3000 |       10 |   30 | 100.0% |  420.305 |  422.295 |  444.162 | 393.054 |  453.791 |     15.115 |
 
 ## 11. 结果解读
 
@@ -458,24 +463,39 @@ Group1即使只选10个Node，Mean仍为338.134 ms。原因是每次Go→Python�
 
 ### 11.4 Group3能反映大型NGG写入成本
 
-Group3从10 Node的Mean 366.428 ms上升到1000 Node的953.272 ms。由于Algorithm是轻量Mock，增长主要来自PRC处理更大的候选Node列表、构造NGG、API序列化以及etcd写入。
+Group3从10 Node的Mean 88.458 ms上升到1000 Node的630.081 ms。由于Algorithm是轻量Mock且静态同步已经移出计时，增长主要来自PRC处理更大的候选Node列表、构造NGG、API序列化以及etcd写入。
 
-### 11.5 Group4完整链路为0.79~1.47秒Mean
+### 11.5 Group4完整链路为0.42~1.07秒Mean
 
 Group4是最重要的结果：
 
-| 选择Node | Mean | P50 | P95 |
-| ---: | ---: | ---: | ---: |
-| 1000 | 1.466 s | 1.472 s | 1.588 s |
-| 800 | 1.304 s | 1.242 s | 1.574 s |
-| 500 | 1.062 s | 1.049 s | 1.127 s |
-| 300 | 0.973 s | 0.956 s | 1.075 s |
-| 100 | 0.853 s | 0.850 s | 0.911 s |
-| 10 | 0.789 s | 0.789 s | 0.844 s |
+| 选择Node |    Mean |     P50 |     P95 |
+| -------: | ------: | ------: | ------: |
+|     1000 | 1.068 s | 1.074 s | 1.153 s |
+|      800 | 0.963 s | 0.899 s | 1.216 s |
+|      500 | 0.753 s | 0.723 s | 0.873 s |
+|      300 | 0.619 s | 0.597 s | 0.726 s |
+|      100 | 0.503 s | 0.502 s | 0.545 s |
+|       10 | 0.420 s | 0.422 s | 0.444 s |
 
-完整链路的P95在选择1000个Node时仍低于1.6秒。该结果说明当前实现能够在本地组件环境下处理3000 Node静态候选和1000 Node授权结果。
+完整链路的P95在选择1000个Node时为1.153秒。该结果说明当前实现能够在本地组件环境下预先维护3000 Node静态缓存，并在任务到达后处理3000 Node动态状态和1000 Node授权结果。
 
-### 11.6 结果适用范围
+### 11.6 Group2与Group4包含关系正确
+
+聚合报告新增自动校验，六档30次Mean全部满足`Group4完整链路 > Group2 Algorithm HTTP子区间`：
+
+| 选择Node | Group2 Mean | Group4 Mean | 完整链路增量 | 结论 |
+| -------: | ----------: | ----------: | -----------: | ---- |
+|     1000 |  459.026 ms | 1068.278 ms |   609.252 ms | PASS |
+|      800 |  441.354 ms |  962.966 ms |   521.612 ms | PASS |
+|      500 |  410.269 ms |  752.516 ms |   342.247 ms | PASS |
+|      300 |  400.930 ms |  619.108 ms |   218.179 ms | PASS |
+|      100 |  382.910 ms |  502.839 ms |   119.929 ms | PASS |
+|       10 |  361.810 ms |  420.305 ms |    58.495 ms | PASS |
+
+生成文件为`reports/<run-id>/group2-vs-group4.md`；任一规模的Group4 Mean不大于Group2 Mean时，聚合报告命令直接失败。
+
+### 11.7 结果适用范围
 
 这些数据适用于当前服务器、本地进程通信和envtest环境，不直接等于联通生产集群时间。生产环境还会受到以下因素影响：
 

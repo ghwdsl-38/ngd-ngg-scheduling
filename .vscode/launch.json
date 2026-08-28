@@ -47,11 +47,13 @@
       "request": "launch",
       "mode": "test",
       "program": "${workspaceFolder}/go_test_suites/group4_full_real_algorithm",
-      "args": ["-test.run", "^TestGroup4_", "-test.v", "-test.count=1"],
+      "args": ["-test.run", "^TestGroup4_", "-test.v", "-test.count=1", "-test.timeout", "30m"],
       "env": {
         "GOMODCACHE": "${workspaceFolder}/.cache/go-mod",
         "GOCACHE": "${workspaceFolder}/.cache/go-build",
         "KUBEBUILDER_ASSETS": "${workspaceFolder}/.cache/envtest/1.35.5",
+        "NGG_TEST_DEBUG": "true",
+        "NGG_TEST_DEBUG_TIMEOUT": "10m",
         "GOMAXPROCS": "2"
       }
     }

@@ -322,6 +322,9 @@ func TestGroup2_PRCClientCallsCompleteAlgorithm(t *testing.T)
   -> PRC生成Node静态快照
   -> PRC生成Node动态调度状态
   -> PRC PUT静态快照
+  -> Algorithm确认静态snapshotId Ready
+  -> Prometheus指标缓存Ready
+  -> 开始计时
   -> PRC POST Allocate
   -> Go Algorithm读取已准备好的Prometheus缓存
   -> Go Algorithm调用真实Python Worker
@@ -350,7 +353,7 @@ Mock Prometheus在业务计时前启动并完成Bearer Token配置。Algorithm A
 - 固定三段流水线顺序正确；
 - PRC收到的候选组与Expected一致。
 
-本组业务耗时从PRC开始发送静态快照PUT前计时，到PRC完成Allocate响应解析时结束。Prometheus预热、Fixture读取和结果落盘不计时。
+本组业务耗时从PRC发送`POST /api/v1/allocate`前计时，到PRC完成Allocate响应解析时结束。静态快照PUT/Ready确认、Prometheus预热、Fixture读取和结果落盘均不计时，与3000 Node整组Group2保持相同口径。
 
 ## 7. Mock Prometheus
 
@@ -389,10 +392,12 @@ func TestGroup3_PRCWatchesNGDAndCreatesNGG(t *testing.T)
 envtest启动API Server和etcd
   -> 安装联通NGD、NGG CRD
   -> 创建1000个Node和Pod对象
-  -> 启动PRC Manager并等待Cache Sync
+  -> 启动PRC Manager、静态快照Controller和NGD Reconciler
+  -> 静态Controller独立构造并PUT快照，等待Algorithm确认Ready
+  -> 修改Node静态Label，验证无NGD时也能生成新Hash
   -> 开始计时并创建正式NGD
   -> PRC收到Watch事件并读取NGD、Node、Pod
-  -> PRC构造静态快照和动态状态
+  -> PRC读取已确认snapshotId并构造动态状态
   -> PRC调用Mock Algorithm
   -> PRC把第一候选组写入正式NGG
   -> 等待NGG与NGD Status达到目标状态
@@ -405,6 +410,8 @@ Mock Algorithm只返回固定响应并记录PRC真实请求，不复制PRC协议
 ### 8.3 断言
 
 - PRC由真实Watch触发，而不是直接调用`Reconcile()`；
+- 静态快照同步不依赖NGD，Node静态变化能独立触发新Hash和PUT；
+- NGD任务Reconcile期间静态PUT次数不增加；
 - PRC发送完整NGD `spec`、静态Hash和Node动态状态；
 - 主Fixture不含算法编排字段；若CRD中存在该可选字段，Mock只验证其被保留，不把它作为算法顺序；
 - PRC只选择Mock响应的rank 1；
@@ -412,7 +419,7 @@ Mock Algorithm只返回固定响应并记录PRC真实请求，不复制PRC协议
 - NGG `spec.nodes`来自第一候选组；
 - NGG为`Active`，NGD为`Fulfilled`。
 
-本组业务耗时从测试通过Kubernetes API创建NGD前开始，到NGG以及NGD/NGG业务Status均达到目标状态时结束。envtest启动、CRD安装、Node/Pod预置和结果落盘不计时。
+本组业务耗时从PRC通过Watch观察到NGD并进入Reconcile开始，到NGG进入`Active`结束。NGD `Fulfilled`作为正确性断言但不计时；envtest启动、CRD安装、Node/Pod预置、静态快照同步和结果落盘均不计时。
 
 ## 9. envtest如何模拟Kubernetes
 
@@ -462,10 +469,12 @@ flowchart TD
     A -->|Bearer Token+PromQL| M
     T -->|启动| K[envtest API Server+etcd]
     T -->|预置1000 Node和Pod| K
-    T -->|启动并同步Cache| R[真实PRC Manager/Reconciler]
+    T -->|启动并同步Cache| R[真实PRC Manager/双Controller]
+    R -->|计时前独立PUT静态快照| A
+    A -->|确认snapshotId Ready| R
     T -->|开始计时并创建NGD| K
     K -->|NGD Watch| R
-    R -->|PUT静态快照+POST Allocate| A
+    R -->|读取snapshotId+POST动态状态/NGD| A
     A -->|完整上下文JSONL| P
     P -->|候选组和Trace| A
     A -->|Algorithm响应| R
@@ -477,6 +486,7 @@ flowchart TD
 ### 10.3 断言
 
 - PRC由真实NGD Watch触发；
+- 独立静态Controller在NGD前完成快照同步，任务Reconcile期间不再次PUT；
 - Algorithm使用真实Go缓存、HTTP Handler和Python Worker；
 - Mock Prometheus收到带正确认证的正式PromQL请求；
 - Algorithm固定执行requirement、topology、loadbalance；
@@ -485,7 +495,7 @@ flowchart TD
 - 正式NGG及NGD Status符合联通CRD；
 - 所有进程和Server在测试结束后正确关闭。
 
-本组业务耗时从创建正式NGD前开始，到正式NGG以及NGD/NGG Status全部达到目标状态时结束。Prometheus预热、envtest初始化、数据预置和结果落盘不计时。
+本组业务耗时从PRC通过Watch观察到NGD并进入Reconcile开始，到正式NGG进入`Active`结束。NGD `Fulfilled`作为正确性断言但不计时；Prometheus预热、静态快照同步、envtest初始化、数据预置和结果落盘均不计时。
 
 第四组不启动Volcano或kube-scheduler，因此不验证Pod最终绑定。
 
@@ -682,16 +692,31 @@ IDE规划四个入口：
 
 ### 15.1 首次正式串行回归
 
-2026年8月24日使用`make go-test-all`、1000 Node Fixture且未设置`UPDATE_GOLDEN`，四组全部通过：
+2026年8月24日使用`make go-test-all`、1000 Node Fixture且未设置`UPDATE_GOLDEN`，四组全部通过。下表是改造前历史口径，只保留作追溯，不再用于当前性能比较：
 
 | 测试组 | 业务计时边界                                             |    本次耗时 |
 | ------ | -------------------------------------------------------- | ----------: |
 | 第一组 | Go写Worker请求 → Go解析Worker响应                       |  228.191 ms |
-| 第二组 | PRC PUT静态快照 → PRC解析Allocate响应                   |  230.758 ms |
+| 第二组 | 历史旧口径：PRC PUT静态快照 → PRC解析Allocate响应       |  230.758 ms |
 | 第三组 | Create NGD → NGG Active且NGD Fulfilled                  | 2818.448 ms |
 | 第四组 | Create NGD → 真实Algorithm → NGG Active且NGD Fulfilled | 3142.858 ms |
 
 每组完整输入、Expected、Actual、Diff和`timing.txt`分别保存在各自目录，不共用结果目录。
+
+### 15.2 统一计时边界后的当前复测
+
+2026年8月27日统一四组计时口径：Group1的通用对象转换移到JSONL计时前；Group2的静态PUT/Ready确认和Prometheus预热移到Allocate计时前；Group3/4的独立静态同步同样位于NGD业务计时前。1000 Node功能Fixture复测结果如下；这里的目标授权结果只有3个Node，不等同于3000 Node性能矩阵中的“选择1000个Node”：
+
+| 测试组 | 当前业务计时边界 | 本次耗时 |
+| --- | --- | ---: |
+| 第一组 | Go发送已准备JSONL → Go解析Python JSONL响应 | 122.212 ms |
+| 第二组 | PRC POST Allocate（静态/指标已Ready）→ PRC解析响应 | 165.340 ms |
+| 第三组 | PRC观察到NGD → Mock Algorithm → NGG Active | 56.067 ms |
+| 第四组 | PRC观察到NGD → 真实Algorithm → NGG Active | 212.325 ms |
+
+包含关系符合设计：`Group1 < Group2 < Group4`。Group3使用Mock Algorithm，主要测PRC控制器和NGG小结果写入，不参与这个真实Algorithm包含关系排序。
+
+3000个静态Node、6种选择规模、每种30次的正式结果见`go_test_suites/scale_benchmark_3000/README.md`。
 
 ## 16. 验收标准
 

@@ -44,11 +44,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	algorithmURL := env("ALGORITHM_URL", "http://ngd-ngg-algorithm.ngd-ngg-system.svc:8080")
+	clusterID := env("CLUSTER_ID", "volcano-ngd-ngg-v2-demo")
+	staticSnapshots := controller.NewStaticSnapshotState()
+	staticReconciler := &controller.NodeStaticSnapshotReconciler{
+		Client: mgr.GetClient(), AlgorithmURL: algorithmURL, ClusterID: clusterID, State: staticSnapshots,
+	}
+	if err := staticReconciler.SetupWithManager(mgr); err != nil {
+		ctrl.Log.Error(err, "setup Node static snapshot controller")
+		os.Exit(1)
+	}
+
 	reconciler := &controller.NodeGroupDemandReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		AlgorithmURL: env("ALGORITHM_URL", "http://ngd-ngg-algorithm.ngd-ngg-system.svc:8080"),
-		ClusterID:    env("CLUSTER_ID", "volcano-ngd-ngg-v2-demo"),
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		AlgorithmURL:    algorithmURL,
+		ClusterID:       clusterID,
+		StaticSnapshots: staticSnapshots,
 	}
 	if err := reconciler.SetupWithManager(mgr); err != nil {
 		ctrl.Log.Error(err, "setup NodeGroupDemand controller")

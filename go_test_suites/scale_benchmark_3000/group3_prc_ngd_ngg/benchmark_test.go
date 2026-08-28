@@ -65,9 +65,17 @@ func TestGroup3Scale3000(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	staticSnapshots := controller.NewStaticSnapshotState()
+	staticReconciler := &controller.NodeStaticSnapshotReconciler{
+		Client: manager.GetClient(), AlgorithmURL: mock.server.URL, ClusterID: scale.ClusterID,
+		HTTPClient: mock.server.Client(), State: staticSnapshots,
+	}
+	if err := staticReconciler.SetupWithManager(manager); err != nil {
+		t.Fatal(err)
+	}
 	reconciler := &controller.NodeGroupDemandReconciler{
 		Client: manager.GetClient(), Scheme: manager.GetScheme(), AlgorithmURL: mock.server.URL,
-		ClusterID: scale.ClusterID, HTTPClient: mock.server.Client(), DebugAlgorithmTrace: false,
+		ClusterID: scale.ClusterID, HTTPClient: mock.server.Client(), StaticSnapshots: staticSnapshots, DebugAlgorithmTrace: false,
 		ReconcileObserver: func(_ string, _ int64, at time.Time) {
 			select {
 			case observed <- at:
@@ -85,8 +93,11 @@ func TestGroup3Scale3000(t *testing.T) {
 	if !manager.GetCache().WaitForCacheSync(setupContext) {
 		t.Fatal("PRC cache did not sync")
 	}
+	if _, err := staticSnapshots.WaitForReady(setupContext); err != nil {
+		t.Fatalf("static snapshot did not become ready: %v", err)
+	}
 
-	boundary := "PRC observes NGD with 3000 cached Nodes -> Mock Algorithm -> NGG Active"
+	boundary := "PRC observes NGD with static snapshot pre-synced -> dynamic state/Mock Algorithm -> NGG Active"
 	byTarget := map[int][]scale.Sample{}
 	statistics := []scale.Statistics{}
 	for _, target := range targets {
@@ -196,6 +207,7 @@ func candidateGroupCount(response map[string]any) int {
 type scaleMockAlgorithm struct {
 	server   *httptest.Server
 	mu       sync.Mutex
+	staticID string
 	static   []any
 	request  map[string]any
 	response map[string]any
@@ -212,11 +224,18 @@ func (m *scaleMockAlgorithm) handle(writer http.ResponseWriter, request *http.Re
 	var body map[string]any
 	_ = json.NewDecoder(request.Body).Decode(&body)
 	writer.Header().Set("Content-Type", "application/json")
+	if request.Method == http.MethodGet && request.URL.Path == "/internal/v1/node-static-cache/status" {
+		m.mu.Lock()
+		id, count := m.staticID, len(m.static)
+		m.mu.Unlock()
+		_ = json.NewEncoder(writer).Encode(map[string]any{"algorithmBootId": "benchmark-mock-group3", "ready": id != "", "acceptedSnapshotId": id, "nodeCount": count})
+		return
+	}
 	if request.Method == http.MethodPut && strings.HasPrefix(request.URL.Path, "/internal/v1/node-static-snapshots/") {
 		id := strings.TrimPrefix(request.URL.Path, "/internal/v1/node-static-snapshots/")
 		nodes, _ := body["nodes"].([]any)
 		m.mu.Lock()
-		m.static = nodes
+		m.staticID, m.static = id, nodes
 		m.mu.Unlock()
 		_ = json.NewEncoder(writer).Encode(map[string]any{"algorithmBootId": "benchmark-mock-group3", "acceptedSnapshotId": id, "nodeCount": len(nodes)})
 		return

@@ -88,9 +88,17 @@ func TestGroup4Scale3000(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	staticSnapshots := controller.NewStaticSnapshotState()
+	staticReconciler := &controller.NodeStaticSnapshotReconciler{
+		Client: manager.GetClient(), AlgorithmURL: algorithmServer.URL, ClusterID: scale.ClusterID,
+		HTTPClient: algorithmServer.Client(), State: staticSnapshots,
+	}
+	if err := staticReconciler.SetupWithManager(manager); err != nil {
+		t.Fatal(err)
+	}
 	reconciler := &controller.NodeGroupDemandReconciler{
 		Client: manager.GetClient(), Scheme: manager.GetScheme(), AlgorithmURL: algorithmServer.URL,
-		ClusterID: scale.ClusterID, HTTPClient: algorithmServer.Client(), DebugAlgorithmTrace: false,
+		ClusterID: scale.ClusterID, HTTPClient: algorithmServer.Client(), StaticSnapshots: staticSnapshots, DebugAlgorithmTrace: false,
 		ReconcileObserver: func(_ string, _ int64, at time.Time) {
 			select {
 			case observed <- at:
@@ -116,8 +124,11 @@ func TestGroup4Scale3000(t *testing.T) {
 	if !manager.GetCache().WaitForCacheSync(setupContext) {
 		t.Fatal("PRC cache did not sync")
 	}
+	if _, err := staticSnapshots.WaitForReady(setupContext); err != nil {
+		t.Fatalf("static snapshot did not become ready: %v", err)
+	}
 
-	boundary := "PRC observes NGD with 3000 cached Nodes -> real Algorithm/Python -> NGG Active"
+	boundary := "PRC observes NGD with static/metrics pre-synced -> dynamic state/real Algorithm/Python -> NGG Active"
 	byTarget := map[int][]scale.Sample{}
 	statistics := []scale.Statistics{}
 	for _, target := range targets {

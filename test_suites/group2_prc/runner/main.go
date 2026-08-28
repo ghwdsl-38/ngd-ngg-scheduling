@@ -169,6 +169,13 @@ func (w *watchTracker) wait(uid string, generation int64, timeout time.Duration)
 }
 
 func (m *mockAlgorithm) ServeHTTP(w http.ResponseWriter, request *http.Request) {
+	if request.Method == http.MethodGet && request.URL.Path == "/internal/v1/node-static-cache/status" {
+		m.mu.Lock()
+		id, count := m.staticID, len(m.static)
+		m.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"algorithmBootId": m.bootID, "ready": id != "", "acceptedSnapshotId": id, "nodeCount": count})
+		return
+	}
 	if request.Method == http.MethodPut && strings.HasPrefix(request.URL.Path, "/internal/v1/node-static-snapshots/") {
 		m.handlePut(w, request)
 		return
@@ -350,9 +357,15 @@ func main() {
 		algorithmRecorder = exchanges.record
 	}
 	watches := &watchTracker{starts: map[string]time.Time{}}
+	staticSnapshots := controller.NewStaticSnapshotState()
+	staticReconciler := &controller.NodeStaticSnapshotReconciler{
+		Client: mgr.GetClient(), AlgorithmURL: algorithmURL, ClusterID: "envtest-3000",
+		State: staticSnapshots, AlgorithmRecorder: algorithmRecorder,
+	}
+	must(staticReconciler.SetupWithManager(mgr))
 	reconciler := &controller.NodeGroupDemandReconciler{
 		Client: mgr.GetClient(), Scheme: scheme, AlgorithmURL: algorithmURL, ClusterID: "envtest-3000",
-		AlgorithmRecorder: algorithmRecorder, DebugAlgorithmTrace: false, ReconcileObserver: watches.observe,
+		StaticSnapshots: staticSnapshots, AlgorithmRecorder: algorithmRecorder, DebugAlgorithmTrace: false, ReconcileObserver: watches.observe,
 	}
 	must(reconciler.SetupWithManager(mgr))
 	go func() {
@@ -364,6 +377,9 @@ func main() {
 	createFixtureObjects(ctx, apiClient, *fixtureDir)
 	if !mgr.GetCache().WaitForCacheSync(ctx) {
 		fatalf("PRC cache did not sync")
+	}
+	if _, err := staticSnapshots.WaitForReady(ctx); err != nil {
+		fatalf("PRC static snapshot did not become ready: %v", err)
 	}
 
 	baseDemand := readYAMLMap(filepath.Join(*projectRoot, "test_suites/group2_prc/input/formal-ngd.yaml"))

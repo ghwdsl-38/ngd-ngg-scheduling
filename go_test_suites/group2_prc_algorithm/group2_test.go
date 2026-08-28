@@ -73,21 +73,29 @@ func TestGroup2_PRCClientCallsCompleteAlgorithm(t *testing.T) {
 	exchanges := []controller.AlgorithmExchange{}
 	client := controller.AlgorithmClient{BaseURL: server.URL, Client: server.Client(), Recorder: func(exchange controller.AlgorithmExchange) { exchanges = append(exchanges, exchange) }}
 
-	started := time.Now()
 	ack, err := client.PutStatic(ctx, staticID, staticBody)
 	if err != nil {
 		t.Fatalf("PUT static snapshot: %v", err)
 	}
+	if ack.AcceptedSnapshot != staticID {
+		t.Fatalf("accepted snapshot=%s, want %s", ack.AcceptedSnapshot, staticID)
+	}
+	status, err := client.StaticStatus(ctx)
+	if err != nil {
+		t.Fatalf("read static cache status: %v", err)
+	}
+	if !status.Ready || status.AcceptedSnapshot != staticID {
+		t.Fatalf("static cache not ready: %#v", status)
+	}
+
+	// 静态快照和Prometheus都已预热；Group2只统计PRC HTTP Client调用完整Algorithm的业务子区间。
+	started := time.Now()
 	response, err := client.Calculate(ctx, request, 10*time.Second)
 	elapsed := time.Since(started)
 	if err != nil {
 		t.Fatalf("POST allocate: %v", err)
 	}
-	common.WriteTiming(t, runDirectory, "PRC PUT static snapshot -> PRC parses Allocate response", elapsed)
-
-	if ack.AcceptedSnapshot != staticID {
-		t.Fatalf("accepted snapshot=%s, want %s", ack.AcceptedSnapshot, staticID)
-	}
+	common.WriteTiming(t, runDirectory, "PRC POST Allocate with warm static/metrics -> PRC parses response", elapsed)
 	if response.NodeStaticSnapshotID != staticID || response.SchedulerStateSnapshotID != stateID {
 		t.Fatalf("response snapshot identity mismatch")
 	}

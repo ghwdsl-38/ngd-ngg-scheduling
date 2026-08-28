@@ -202,19 +202,24 @@ cat "$latest_result/comparison/diff.txt"
 
 测试输出中的 `go test` 总耗时和 `timing.txt` 的含义不同：
 
-- `go test` 总耗时包括进程启动、Fixture读取、envtest启动、CRD安装、1000 Node预置和证据写盘；
+- `go test` 总耗时包括本组涉及的进程启动、Fixture读取、envtest/CRD/Node预置（仅第三、四组）、证据写盘和清理；
 - `timing.txt`只记录方案约定的真实业务边界，不计算生成输入和写结果文件的时间。
+- `go test -v`同时打印`businessTiming boundary=... elapsedMs=...`，应以这个毫秒值或`timing.txt`为准。
 
 各组业务计时边界：
 
-| 组     | 开始                        | 结束                                         |
-| ------ | --------------------------- | -------------------------------------------- |
-| 第一组 | Go向Python Worker发送请求   | Go收到并解析Python响应                       |
-| 第二组 | PRC发送静态快照PUT          | PRC收到并解析Allocate响应                    |
-| 第三组 | PRC通过Watch观察到NGD并进入Reconcile | NGG Active                 |
-| 第四组 | PRC通过Watch观察到NGD并进入Reconcile | 真实Algorithm返回且NGG Active |
+| 组     | 开始                                      | 结束                          |
+| ------ | ----------------------------------------- | ----------------------------- |
+| 第一组 | Go发送已准备好的Python JSONL请求          | Go解析完Python JSONL响应      |
+| 第二组 | PRC发送POST Allocate（静态和指标已Ready） | PRC收到并解析Allocate响应     |
+| 第三组 | PRC通过Watch观察到NGD并进入Reconcile      | NGG Active                    |
+| 第四组 | PRC通过Watch观察到NGD并进入Reconcile      | 真实Algorithm返回且NGG Active |
 
-所以第三、四组可能显示十几秒的 `go test` 总耗时，但业务链路时间通常只有数秒；展示性能时应读取对应 `timing.txt`。
+第三、四组在创建NGD前，由独立`NodeStaticSnapshotReconciler`完成静态快照构造、Hash计算和PUT，并等待Algorithm确认Ready；这些步骤不计入NGD业务时间。Prometheus同样在计时前由Algorithm独立读取并预热。任务Reconcile只读取已确认的`snapshotId`并发送Node动态状态。
+
+相同真实Algorithm输入下，调用包含关系应为`Group1 JSONL子区间 < Group2 Algorithm HTTP子区间 < Group4完整PRC链路`。单组测试用于功能和Debug，只记录一次；正式性能判断使用3000 Node、每档30次的Mean/P50/P95，聚合报告会自动检查`Group4 Mean > Group2 Mean`。
+
+所以第三、四组可能显示几十秒的`go test`总耗时，但业务链路通常是毫秒到秒级；展示性能时应读取日志中的`businessTiming`或对应`timing.txt`。
 
 ## 8. VS Code断点Debug
 
@@ -237,7 +242,7 @@ cat "$latest_result/comparison/diff.txt"
 
 - 第一组：`algorithm_server/go/algorithm/worker.go`，查看 Go 写入和解析 JSONL；
 - 第二组：`prc/pkg/controller/algorithm_client.go`，查看静态快照PUT和Allocate请求；
-- 第三组：`prc/pkg/controller/prc_controller.go`，查看 Reconcile、NGD转换和NGG创建；
+- 第三组：`prc/pkg/controller/static_snapshot_controller.go`查看独立静态同步，`prc/pkg/controller/prc_controller.go`查看任务Reconcile、NGD转换和NGG创建；
 - 第四组：同时在上述 PRC、Algorithm代码处设断点，观察完整调用链。
 
 Delve只能单步调试 Go 主进程，不能直接进入子进程中的 Python 代码。Python 的真实输入输出可通过本次结果目录中的 `go-to-python-request.jsonl`、`python-to-go-response.jsonl`和pipeline trace查看。

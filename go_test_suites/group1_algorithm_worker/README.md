@@ -10,19 +10,22 @@ source scripts/go-test-env.sh
 go test -p=1 ./go_test_suites/group1_algorithm_worker -run '^TestGroup1_' -v -count=1
 ```
 
-计时只包含Go写入Worker请求至Go解析响应，不包含Fixture生成和文件写入。
+通用Fixture先在计时前转换成生产Worker协议类型。计时只包含Go写入已准备好的JSONL请求至Go解析正式响应，不包含Fixture转换、展示map转换和文件写入，与3000 Node整组Group1保持相同口径。
 
 ## 测试流程
 
 ```text
 固定1000 Node Worker Payload
   -> Go NewPythonWorker启动python3 -m algorithm_worker.worker
+  -> 计时前PreparePythonRequest转换成正式Worker协议类型
+  -> 开始计时
   -> Go通过stdin发送workerEnvelope JSONL
   -> Python requirement过滤占用/不匹配Node
   -> Python topology形成Leaf/Border/Core组
   -> Python loadbalance评分并返回Top-3
   -> Go从stdout读取JSONL、校验消息ID并解析结果
   -> 停止计时
+  -> 转换为展示map
   -> 保存协议证据、Actual和Diff
 ```
 

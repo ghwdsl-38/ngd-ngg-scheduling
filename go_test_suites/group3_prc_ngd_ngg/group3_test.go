@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"demo.ngg/go-test-suites/common"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -59,9 +60,17 @@ func TestGroup3_PRCWatchesNGDAndCreatesNGG(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	staticSnapshots := controller.NewStaticSnapshotState()
+	staticReconciler := &controller.NodeStaticSnapshotReconciler{
+		Client: manager.GetClient(), AlgorithmURL: mock.server.URL, ClusterID: "mock-1000-node-cluster",
+		HTTPClient: mock.server.Client(), State: staticSnapshots,
+	}
+	if err := staticReconciler.SetupWithManager(manager); err != nil {
+		t.Fatalf("setup static snapshot controller: %v", err)
+	}
 	reconciler := &controller.NodeGroupDemandReconciler{
 		Client: manager.GetClient(), Scheme: manager.GetScheme(), AlgorithmURL: mock.server.URL,
-		ClusterID: "mock-1000-node-cluster", HTTPClient: mock.server.Client(), DebugAlgorithmTrace: true,
+		ClusterID: "mock-1000-node-cluster", HTTPClient: mock.server.Client(), StaticSnapshots: staticSnapshots, DebugAlgorithmTrace: true,
 		ReconcileObserver: func(_ string, _ int64, observedAt time.Time) {
 			reconcileStartOnce.Do(func() { reconcileStarted <- observedAt })
 		},
@@ -86,6 +95,26 @@ func TestGroup3_PRCWatchesNGDAndCreatesNGG(t *testing.T) {
 	if !manager.GetCache().WaitForCacheSync(setupContext) {
 		t.Fatal("PRC cache did not sync")
 	}
+	initialStatic, err := staticSnapshots.WaitForReady(setupContext)
+	if err != nil {
+		t.Fatalf("static snapshot did not become ready: %v", err)
+	}
+	// 没有创建任何NGD时修改Node静态Label，验证独立Controller会主动生成新Hash并上传。
+	changedNode := &corev1.Node{}
+	if err := apiClient.Get(setupContext, client.ObjectKey{Name: fixture.Nodes[0].Name}, changedNode); err != nil {
+		t.Fatalf("get Node for independent static sync: %v", err)
+	}
+	changedNode.Labels["tests.ngg.io/static-revision"] = "2"
+	if err := apiClient.Update(setupContext, changedNode); err != nil {
+		t.Fatalf("update Node static Label: %v", err)
+	}
+	if err := common.Eventually(setupContext, 10*time.Millisecond, func(context.Context) (bool, error) {
+		status, ready := staticSnapshots.Current()
+		return ready && status.SnapshotID != initialStatic.SnapshotID, nil
+	}); err != nil {
+		t.Fatalf("wait independent static snapshot refresh: %v", err)
+	}
+	putCountBeforeDemand := mock.puts()
 
 	demand := fixture.Demand.DeepCopy()
 	demand.SetUID("")
@@ -143,6 +172,9 @@ func TestGroup3_PRCWatchesNGDAndCreatesNGG(t *testing.T) {
 	if _, found, _ := unstructured.NestedSlice(grant.Object, "spec", "candidateNodeGroups"); found {
 		t.Fatal("formal NGG must contain one nodes list, not candidateNodeGroups")
 	}
+	if got := mock.puts(); got != putCountBeforeDemand {
+		t.Fatalf("NGD Reconcile issued static PUTs: before=%d after=%d", putCountBeforeDemand, got)
+	}
 
 	actualDirectory := filepath.Join(runDirectory, "actual")
 	_ = common.WriteYAML(filepath.Join(actualDirectory, "ngd-input.yaml"), demand.Object)
@@ -158,6 +190,9 @@ func TestGroup3_PRCWatchesNGDAndCreatesNGG(t *testing.T) {
 type mockAlgorithm struct {
 	server   *httptest.Server
 	mu       sync.Mutex
+	staticID string
+	static   map[string]any
+	putCount int
 	request  map[string]any
 	response map[string]any
 	bootID   string
@@ -175,8 +210,22 @@ func (m *mockAlgorithm) handle(writer http.ResponseWriter, request *http.Request
 	var body map[string]any
 	_ = json.NewDecoder(request.Body).Decode(&body)
 	writer.Header().Set("Content-Type", "application/json")
+	if request.Method == http.MethodGet && request.URL.Path == "/internal/v1/node-static-cache/status" {
+		m.mu.Lock()
+		id, count := m.staticID, 0
+		if nodes, ok := m.static["nodes"].([]any); ok {
+			count = len(nodes)
+		}
+		m.mu.Unlock()
+		_ = json.NewEncoder(writer).Encode(map[string]any{"algorithmBootId": m.bootID, "ready": id != "", "acceptedSnapshotId": id, "nodeCount": count})
+		return
+	}
 	if request.Method == http.MethodPut && strings.HasPrefix(request.URL.Path, "/internal/v1/node-static-snapshots/") {
 		id := strings.TrimPrefix(request.URL.Path, "/internal/v1/node-static-snapshots/")
+		m.mu.Lock()
+		m.staticID, m.static = id, body
+		m.putCount++
+		m.mu.Unlock()
 		_ = json.NewEncoder(writer).Encode(map[string]any{"algorithmBootId": m.bootID, "acceptedSnapshotId": id, "nodeCount": len(body["nodes"].([]any))})
 		return
 	}
@@ -218,6 +267,12 @@ func (m *mockAlgorithm) snapshot() (map[string]any, map[string]any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.request, m.response
+}
+
+func (m *mockAlgorithm) puts() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.putCount
 }
 
 func directory(t *testing.T) string {

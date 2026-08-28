@@ -36,6 +36,15 @@ type StaticAck struct {
 	NodeCount        int    `json:"nodeCount"`
 }
 
+// StaticCacheStatus是Algorithm静态缓存状态接口的最小协议。
+// PRC独立静态同步器用它识别Algorithm重启和缓存丢失，避免重复传输未变化快照。
+type StaticCacheStatus struct {
+	AlgorithmBootID  string `json:"algorithmBootId"`
+	Ready            bool   `json:"ready"`
+	AcceptedSnapshot string `json:"acceptedSnapshotId"`
+	NodeCount        int    `json:"nodeCount"`
+}
+
 type CandidateNode struct {
 	NodeUID   string            `json:"nodeUID"`
 	NodeName  string            `json:"nodeName"`
@@ -79,6 +88,17 @@ func (a AlgorithmClient) PutStatic(ctx context.Context, snapshotID string, body 
 	return a.putStatic(ctx, snapshotID, body)
 }
 
+func (a AlgorithmClient) staticStatus(ctx context.Context) (StaticCacheStatus, error) {
+	var result StaticCacheStatus
+	err := a.do(ctx, http.MethodGet, "/internal/v1/node-static-cache/status", nil, &result)
+	return result, err
+}
+
+// StaticStatus读取Algorithm当前Boot ID和已接收的静态快照身份。
+func (a AlgorithmClient) StaticStatus(ctx context.Context) (StaticCacheStatus, error) {
+	return a.staticStatus(ctx)
+}
+
 func (a AlgorithmClient) calculate(ctx context.Context, body any, timeout time.Duration) (AlgorithmResponse, error) {
 	var result AlgorithmResponse
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -93,9 +113,13 @@ func (a AlgorithmClient) Calculate(ctx context.Context, body any, timeout time.D
 }
 
 func (a AlgorithmClient) do(ctx context.Context, method, path string, body, result any) error {
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("marshal Algorithm request: %w", err)
+	var raw []byte
+	var err error
+	if body != nil {
+		raw, err = json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("marshal Algorithm request: %w", err)
+		}
 	}
 	request, err := http.NewRequestWithContext(ctx, method, a.BaseURL+path, bytes.NewReader(raw))
 	if err != nil {

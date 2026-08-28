@@ -1,0 +1,126 @@
+@startuml
+title NGD-NGG 两层调度系统整体时序图
+scale max 3800 width
+
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName "Noto Sans CJK SC"
+skinparam sequenceArrowThickness 1
+skinparam ParticipantPadding 18
+skinparam BoxPadding 10
+hide footbox
+
+actor "任务提交方" as User
+participant "LLDP Agent\n拓扑合并器" as LLDP #D9EAF7
+database "Kubernetes API Server\nNode / Pod / NGD / NGG" as K8s #DDEBF7
+box "PRC（Go / controller-runtime）" #EEF5FB
+participant "NodeStaticSnapshot\nReconciler" as StaticPRC #D9EAF7
+collections "StaticSnapshotState" as StaticState #E2F0D9
+participant "NodeGroupDemand\nReconciler" as DemandPRC #E9DDF7
+end box
+box "Algorithm Server（Go主进程）" #F2F8ED
+participant "静态快照API" as StaticAPI #D9EAF7
+database "Node静态缓存\ncurrent / previous" as StaticCache #E2F0D9
+participant "Prometheus Metrics Loader\n15秒周期" as MetricsLoader #FFE6BF
+database "指标缓存\ncurrent / previous" as MetricsCache #E2F0D9
+participant "Allocate API" as Allocate #E9DDF7
+end box
+participant "Prometheus" as Prom #FFE6BF
+participant "Python Algorithm Worker\nrequirement → topology → loadbalance" as Python #FFF2CC
+participant "Volcano / kube-scheduler\nNGG插件" as Scheduler #DDEBF7
+participant "目标Node" as Target #E2F0D9
+
+== ① 拓扑采集和Node静态快照：独立流程，不等待NGD ==
+
+LLDP -> K8s : Patch Node Label\nNode→Leaf + Leaf→Border→Core
+K8s -> StaticPRC : Watch Node创建/删除、Label或Allocatable变化\n忽略纯心跳和ResourceVersion更新
+activate StaticPRC
+StaticPRC -> K8s : List Node和拓扑对象
+K8s --> StaticPRC : Node名称/UID/创建时间/Allocatable/Labels\nLeaf/Border/Core/带宽/时延/拓扑版本
+StaticPRC -> StaticPRC : 稳定排序并计算内容SHA-256
+StaticPRC -> StaticState : 读取当前已确认snapshotId
+
+alt Hash未变化
+  StaticPRC -> StaticAPI : GET 静态缓存状态\n核对Boot ID和snapshotId
+  StaticAPI -> StaticCache : 读取当前缓存身份
+  StaticCache --> StaticAPI : Ready / Boot ID / snapshotId
+  StaticAPI --> StaticPRC : 缓存仍有效
+else 首次同步、Hash变化或Algorithm缓存丢失
+  StaticPRC -> StaticState : 置为Not Ready，任务暂时故障关闭
+  StaticPRC -> StaticAPI : PUT 静态快照/{sha256}
+  StaticAPI -> StaticAPI : 重新计算Hash并校验协议
+  StaticAPI -> StaticCache : 原子更新current / previous
+  StaticCache --> StaticAPI : acceptedSnapshotId
+  StaticAPI --> StaticPRC : Boot ID + acceptedSnapshotId
+  StaticPRC -> StaticState : 保存已确认snapshotId并置为Ready
+end
+deactivate StaticPRC
+
+== ② Prometheus指标采集：Algorithm独立后台流程 ==
+
+loop 每15秒刷新一次
+  MetricsLoader -> Prom : GET /api/v1/query\nBearer Token + 14项正式PromQL
+  Prom --> MetricsLoader : 标准Prometheus vector响应
+  alt 查询全部成功
+    MetricsLoader -> MetricsCache : 更新指标Hash、采集时间和Node指标
+  else 暂时失败
+    MetricsLoader -> MetricsCache : 保留上次成功快照并标记degraded
+  end
+end
+
+== ③ NGD到达后的任务级实时计算 ==
+
+User -> K8s : 创建/修改正式NodeGroupDemand
+K8s -> DemandPRC : Informer Watch NGD事件
+activate DemandPRC
+DemandPRC -> StaticState : 读取已确认的静态snapshotId
+alt 静态快照未Ready
+  StaticState --> DemandPRC : Not Ready
+  DemandPRC -> K8s : NGD=Degraded，故障关闭并Requeue
+else 静态快照Ready
+  StaticState --> DemandPRC : snapshotId + Algorithm Boot ID
+  DemandPRC -> K8s : List Node和Pod动态状态
+  K8s --> DemandPRC : Ready / Cordon / 已绑定Pod Requests
+  DemandPRC -> DemandPRC : 构造本次schedulerState Hash\n保留完整NGD spec
+  DemandPRC -> Allocate : POST /api/v1/allocate\nNGD + Node动态状态 + snapshotId
+  activate Allocate
+  Allocate -> StaticCache : 按snapshotId读取Node静态数据
+  StaticCache --> Allocate : 资源、Label和三层拓扑
+  Allocate -> MetricsCache : 读取最新指标快照
+  MetricsCache --> Allocate : CPU/内存/网络指标 + metricSnapshotId
+  Allocate -> Allocate : 合并单次完整计算上下文
+  Allocate -> Python : JSONL请求 / stdin
+  activate Python
+  Python -> Python : requirement：资源和使用状态过滤
+  Python -> Python : topology：按最低允许层级形成可行组
+  Python -> Python : loadbalance：结合指标和拓扑稳定评分
+  Python --> Allocate : JSONL响应 / stdout\n最多3组，含groupScore和具体Node
+  deactivate Python
+  Allocate --> DemandPRC : HTTP 200候选组\n按groupScore降序稳定返回
+  deactivate Allocate
+  DemandPRC -> DemandPRC : 校验请求身份、Hash、顺序和Node UID\n不改分、不重排，选择rank 1
+  DemandPRC -> K8s : 创建/更新联通正式扁平NGG\nspec.nodes仅保存选中组具体Node
+  DemandPRC -> K8s : NGG.status=Active\nNGD.status=Fulfilled
+end
+deactivate DemandPRC
+
+== ④ 第二层Pod调度 ==
+
+K8s -> Scheduler : Watch有效NGG和受管Pending Pod
+Scheduler -> Scheduler : NGG插件只允许spec.nodes范围\n原生Predicates / Filter / Score继续处理细粒度约束
+alt 缺少有效NGG
+  Scheduler -> K8s : Fail Closed，Pod保持Pending
+else 存在有效NGG
+  Scheduler -> Target : Bind Pod到授权范围内的最终Node
+end
+
+legend bottom
+  |= 颜色 |= 数据职责 |
+  |<#D9EAF7>| Node静态数据和三层拓扑；独立同步 |
+  |<#FFE6BF>| Prometheus动态指标；Algorithm每15秒独立刷新 |
+  |<#E9DDF7>| NGD任务级动态状态和实时计算 |
+  |<#E2F0D9>| 已预热的进程内缓存或最终目标Node |
+  |<#FFF2CC>| Python算法执行和Go/Python JSONL边界 |
+endlegend
+
+@enduml

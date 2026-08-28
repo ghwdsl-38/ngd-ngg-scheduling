@@ -85,8 +85,11 @@ func simpleDiff(expected, actual string) string {
 // WriteTiming在业务计时结束后记录边界和毫秒值。
 func WriteTiming(t *testing.T, runDirectory, boundary string, duration time.Duration) {
 	t.Helper()
-	content := fmt.Sprintf("unit: ms\nboundary: %s\nelapsedMs: %.3f\n", boundary, float64(duration.Microseconds())/1000)
+	elapsedMS := float64(duration.Microseconds()) / 1000
+	content := fmt.Sprintf("unit: ms\nboundary: %s\nelapsedMs: %.3f\n", boundary, elapsedMS)
 	if err := os.WriteFile(filepath.Join(runDirectory, "timing.txt"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write timing: %v", err)
 	}
+	// go test末尾的秒数是包含环境准备/清理的整包耗时；这里显式输出真正的业务边界和毫秒值。
+	t.Logf("businessTiming boundary=%q elapsedMs=%.3f", boundary, elapsedMS)
 }

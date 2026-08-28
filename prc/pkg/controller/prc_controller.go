@@ -58,6 +58,8 @@ type NodeGroupDemandReconciler struct {
 	AlgorithmURL string
 	ClusterID    string
 	HTTPClient   *http.Client
+	// StaticSnapshots由独立NodeStaticSnapshotReconciler维护；任务Reconcile只读取已确认身份。
+	StaticSnapshots *StaticSnapshotState
 	// AlgorithmRecorder/DebugAlgorithmTrace 仅用于显式开启的协议留痕；
 	// 默认值不会改变生产请求、响应或调度结果。
 	AlgorithmRecorder   AlgorithmExchangeRecorder
@@ -70,6 +72,9 @@ type NodeGroupDemandReconciler struct {
 // NGD generation changes are primary events; Node, Pod and NNT changes enqueue
 // all demands so Pending/Unsatisfied/Degraded workloads are actively retried.
 func (r *NodeGroupDemandReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.StaticSnapshots == nil {
+		return fmt.Errorf("StaticSnapshotState is required")
+	}
 	formalDemand := newUnstructured(platformDemandGVK)
 	legacyDemand := newUnstructured(demandGVK)
 	topology := newUnstructured(topologyGVK)
@@ -121,15 +126,11 @@ func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.
 	if err := r.List(ctx, pods); err != nil {
 		return ctrl.Result{}, fmt.Errorf("list Pods: %w", err)
 	}
-	topologies := &unstructured.UnstructuredList{}
-	topologies.SetGroupVersionKind(topologyList)
-	if err := r.List(ctx, topologies); err != nil {
-		return ctrl.Result{}, fmt.Errorf("list NNT: %w", err)
+	staticStatus, ready := r.StaticSnapshots.Current()
+	if !ready {
+		return r.degradeAndRetry(ctx, demand, "StaticSnapshotNotReady", "waiting for independent Node static snapshot synchronization")
 	}
-	staticID, staticBody, err := buildStaticSnapshot(r.ClusterID, nodes.Items, topologies.Items)
-	if err != nil {
-		return r.degradeAndRetry(ctx, demand, "StaticSnapshotNotReady", err.Error())
-	}
+	staticID := staticStatus.SnapshotID
 	stateID, stateCapturedAt, schedulerState, err := buildSchedulerState(nodes.Items, pods.Items)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -153,14 +154,6 @@ func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.
 	}
 
 	algorithm := AlgorithmClient{BaseURL: strings.TrimRight(r.AlgorithmURL, "/"), Client: r.httpClient(), Recorder: r.AlgorithmRecorder}
-	ack, err := algorithm.putStatic(ctx, staticID, staticBody)
-	if err != nil {
-		return r.degradeAndRetry(ctx, demand, "AlgorithmUnavailable", err.Error())
-	}
-	if ack.AcceptedSnapshot != staticID {
-		return r.degradeAndRetry(ctx, demand, "SnapshotNotAcknowledged", "Algorithm did not acknowledge static snapshot")
-	}
-
 	grant := newUnstructured(grantGVK)
 	// 联通 NGG 是 Cluster-scoped；名称带上来源 Namespace，避免不同租户同名 NGD 冲突。
 	grantKey := types.NamespacedName{Name: grantName(request.Namespace + "-" + request.Name)}
@@ -189,7 +182,7 @@ func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.
 	if err != nil {
 		return r.degradeAndRetry(ctx, demand, "AlgorithmRequestFailed", err.Error())
 	}
-	if err := validateResponse(response, requestID, demand, task.GetUID(), staticID, stateID, ack.AlgorithmBootID, schedulerState); err != nil {
+	if err := validateResponse(response, requestID, demand, task.GetUID(), staticID, stateID, staticStatus.AlgorithmBootID, schedulerState); err != nil {
 		return r.degradeAndRetry(ctx, demand, "AlgorithmResponseInvalid", err.Error())
 	}
 
@@ -245,29 +238,17 @@ func (r *NodeGroupDemandReconciler) reconcilePlatformDemand(ctx context.Context,
 	if err := r.List(ctx, pods); err != nil {
 		return ctrl.Result{}, fmt.Errorf("list Pods: %w", err)
 	}
-	topologies := &unstructured.UnstructuredList{}
-	topologies.SetGroupVersionKind(topologyList)
-	if err := r.List(ctx, topologies); err != nil {
-		return ctrl.Result{}, fmt.Errorf("list NNT: %w", err)
+	staticStatus, ready := r.StaticSnapshots.Current()
+	if !ready {
+		return r.failPlatformDemand(ctx, demand, "StaticSnapshotNotReady", "waiting for independent Node static snapshot synchronization", true)
 	}
-	staticID, staticBody, err := buildStaticSnapshot(r.ClusterID, nodes.Items, topologies.Items)
-	if err != nil {
-		return r.failPlatformDemand(ctx, demand, "StaticSnapshotNotReady", err.Error(), true)
-	}
+	staticID := staticStatus.SnapshotID
 	stateID, stateCapturedAt, schedulerState, err := buildSchedulerState(nodes.Items, pods.Items)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	algorithm := AlgorithmClient{BaseURL: strings.TrimRight(r.AlgorithmURL, "/"), Client: r.httpClient(), Recorder: r.AlgorithmRecorder}
-	ack, err := algorithm.putStatic(ctx, staticID, staticBody)
-	if err != nil {
-		return r.failPlatformDemand(ctx, demand, "AlgorithmUnavailable", err.Error(), true)
-	}
-	if ack.AcceptedSnapshot != staticID {
-		return r.failPlatformDemand(ctx, demand, "SnapshotNotAcknowledged", "Algorithm did not acknowledge static snapshot", true)
-	}
-
 	grant := newUnstructured(grantGVK)
 	grantKey := types.NamespacedName{Name: grantName(demand.GetName())}
 	grantErr := r.Get(ctx, grantKey, grant)
@@ -299,7 +280,7 @@ func (r *NodeGroupDemandReconciler) reconcilePlatformDemand(ctx context.Context,
 	if err != nil {
 		return r.failPlatformDemand(ctx, demand, "AlgorithmRequestFailed", err.Error(), true)
 	}
-	if err := validateResponse(response, requestID, demand, demand.GetUID(), staticID, stateID, ack.AlgorithmBootID, schedulerState); err != nil {
+	if err := validateResponse(response, requestID, demand, demand.GetUID(), staticID, stateID, staticStatus.AlgorithmBootID, schedulerState); err != nil {
 		return r.failPlatformDemand(ctx, demand, "AlgorithmResponseInvalid", err.Error(), true)
 	}
 	if len(response.CandidateNodeGroups) == 0 {

@@ -36,13 +36,23 @@ func TestGroup1_GoAlgorithmCallsPythonWorker(t *testing.T) {
 		}
 	}()
 
+	// 通用展示对象到正式Worker协议的转换不是JSONL调用的一部分，必须在计时前完成。
+	prepared, err := algorithm.PreparePythonRequest(fixture.WorkerPayload)
+	if err != nil {
+		t.Fatalf("prepare Python request: %v", err)
+	}
 	started := time.Now()
-	result, err := worker.Calculate(ctx, fixture.WorkerPayload)
+	parsed, err := worker.CalculatePrepared(ctx, prepared)
 	elapsed := time.Since(started)
 	if err != nil {
 		t.Fatalf("Go calls Python Worker: %v", err)
 	}
-	common.WriteTiming(t, runDirectory, "Go writes Worker request -> Go parses Worker response", elapsed)
+	common.WriteTiming(t, runDirectory, "Go writes prepared Worker JSONL request -> Go parses Python JSONL response", elapsed)
+	// 展示map转换和Golden比较发生在计时结束后。
+	result, err := parsed.AsMap()
+	if err != nil {
+		t.Fatalf("convert Python result: %v", err)
+	}
 	assertPipeline(t, result)
 	common.CompareGolden(t,
 		filepath.Join(groupDirectory, "testdata", "expected", "worker-result.json"),

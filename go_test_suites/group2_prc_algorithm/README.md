@@ -10,7 +10,7 @@ source scripts/go-test-env.sh
 go test -p=1 ./go_test_suites/group2_prc_algorithm -run '^TestGroup2_' -v -count=1
 ```
 
-计时从PRC发送静态快照PUT开始，到PRC解析Allocate响应结束。Prometheus预热、输入读取和结果写盘不计时。
+静态快照PUT并确认Ready、Prometheus指标预热都在计时前完成。计时只覆盖PRC发送`POST /api/v1/allocate`到PRC解析Allocate响应，这与3000 Node整组测试的Group2口径一致。
 
 ## 测试流程
 
@@ -20,8 +20,9 @@ go test -p=1 ./go_test_suites/group2_prc_algorithm -run '^TestGroup2_' -v -count
   -> PRC BuildSchedulerState聚合Node动态状态
   -> Mock Prometheus验证401/403/422
   -> 真实Algorithm预热14项指标缓存
-  -> 开始计时
   -> PRC AlgorithmClient PUT静态快照
+  -> 查询静态缓存状态并确认snapshotId Ready
+  -> 开始计时
   -> PRC AlgorithmClient POST Allocate
   -> Go Algorithm调用真实Python Worker
   -> PRC解析候选组响应
@@ -38,4 +39,4 @@ Mock Prometheus严格校验`Authorization: Bearer go-test-prometheus-token`和�
 - `prc-algorithm-http.json`；
 - `static-ack.json`、`algorithm-response.json`及对应Diff。
 
-主要断言包括Hash应答关系、动态状态Hash关系、Prometheus 14项查询、固定流水线顺序和候选组完整性。
+主要断言包括Hash应答关系、静态缓存Ready、动态状态Hash关系、Prometheus 14项查询、固定流水线顺序和候选组完整性。`go test -v`会直接打印`businessTiming ... elapsedMs=...`；末尾的包耗时包含环境准备，不能当作业务时间。
