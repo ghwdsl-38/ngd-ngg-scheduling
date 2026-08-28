@@ -33,12 +33,13 @@ type Config struct {
 
 // Application 是 Algorithm 进程内所有有状态组件的生命周期容器。
 type Application struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	service *service
-	handler http.Handler
-	worker  *PythonWorker
-	once    sync.Once
+	ctx         context.Context
+	cancel      context.CancelFunc
+	service     *service
+	handler     http.Handler
+	worker      *PythonWorker
+	metricsOnce sync.Once
+	once        sync.Once
 }
 
 // ConfigFromEnv 构造生产启动配置。认证与 TLS 仍沿用既有环境变量。
@@ -117,13 +118,22 @@ func NewApplication(config Config) (*Application, error) {
 	registerRoutes(mux, service)
 	app := &Application{ctx: ctx, cancel: cancel, service: service, handler: mux, worker: worker}
 	if !config.DisableBackgroundMetrics {
-		go metrics.run(ctx)
+		app.StartBackgroundMetrics()
 	}
 	return app, nil
 }
 
 // Handler 返回生产和测试共用的HTTP Handler。
 func (a *Application) Handler() http.Handler { return a.handler }
+
+// StartBackgroundMetrics starts the immediate-and-periodic Prometheus refresh
+// loop exactly once. Server uses this after the HTTP listener is accepting.
+func (a *Application) StartBackgroundMetrics() {
+	if a == nil || a.service == nil || a.service.metrics == nil {
+		return
+	}
+	a.metricsOnce.Do(func() { go a.service.metrics.run(a.ctx) })
+}
 
 // RefreshMetrics 立即执行一次Prometheus拉取，供测试在计时前确定缓存已经Ready。
 func (a *Application) RefreshMetrics(ctx context.Context) error {

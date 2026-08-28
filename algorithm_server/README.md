@@ -36,6 +36,7 @@ algorithm_server/
 ├── go/
 │   ├── algorithm/
 │   │   ├── application.go
+│   │   ├── server.go
 │   │   ├── cache.go
 │   │   ├── metrics.go
 │   │   ├── metrics_config.go
@@ -68,8 +69,9 @@ algorithm_server/
 
 | 文件                                                         | 实现方式和功能                                                                                                                                                                |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `go/cmd/algorithm-server/main.go`                          | 正式 Server 入口。读取环境变量，创建`Application`，监听HTTP端口并处理SIGTERM优雅退出。                                                                                     |
-| `go/algorithm/application.go`                              | 生产和Go Test共用的组装层，创建缓存、Prometheus、Python Worker和HTTP Handler，并提供`NewApplication/Handler/RefreshMetrics/Close`。                                      |
+| `go/cmd/algorithm-server/main.go`                          | 正式 Server 入口。读取环境变量，创建`Server`并处理SIGTERM优雅退出。                                                                                                         |
+| `go/algorithm/server.go`                                   | 完整Algorithm进程封装；统一拥有Application、HTTP Listener、Prometheus后台刷新、Python Worker关闭和Ready等待。生产入口、Group2和Group4共用。                                  |
+| `go/algorithm/application.go`                              | Algorithm内部组装层，创建缓存、Prometheus、Python Worker和HTTP Handler；由`Server`统一管理生命周期。                                                                        |
 | `go/algorithm/cache.go`                                    | Node 静态快照缓存。校验`sha256:` 内容 Hash、Node UID 唯一性和三层拓扑字段，内存中仅保留 current/previous 两份快照。                                                         |
 | `go/algorithm/metrics.go`                                  | Prometheus 采集与缓存。周期调用 instant query，按 Node 名合并 CPU、内存、吞吐、丢包、错误、重传、链路和带宽指标。                                                           |
 | `go/algorithm/metrics_config.go`                           | 加载指标目录，配置 Bearer Token/Token 文件、CA、TLS Server Name 和超时。                                                                                                    |

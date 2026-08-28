@@ -16,12 +16,11 @@ go test -p=1 ./go_test_suites/group4_full_real_algorithm -run '^TestGroup4_' -v 
 
 ```text
 启动带Bearer认证的Go Mock Prometheus
-  -> 启动真实Go Algorithm Application和真实Python Worker
-  -> 启动Algorithm HTTP Server
+  -> 创建并启动真实algorithm.Server（内部拥有Go Application、HTTP Server和Python Worker）
   -> Algorithm主动请求Mock Prometheus并完成14项指标预热
   -> 启动envtest API Server/etcd并安装联通CRD
   -> 预置1000 Node和Pod
-  -> 启动真实PRC Manager、静态快照Controller和NGD Reconciler
+  -> 创建并启动真实prc.Application（内部注册Manager、静态快照Controller和NGD Reconciler）
   -> 静态Controller独立PUT快照并等待Algorithm确认Ready
   -> 记录静态PUT次数
   -> 创建正式NGD
@@ -64,7 +63,7 @@ PRC -> Kubernetes：真实Create NGG和Status更新
 
 Manager调用Reconcile、Algorithm HTTP Handler调用Go Service、PRC构造NGG属于同一进程内的Go函数调用。
 
-Group4设置`DisableBackgroundMetrics=true`，因此不会在调试期间运行15秒后台刷新；Algorithm HTTP Server启动后会显式执行一次正式`RefreshMetrics`流程。这样既保留真实Prometheus HTTP读取、认证、解析和缓存逻辑，又能保证NGD提交前指标输入确定。正式Algorithm Server仍是启动时立即拉取一次、之后每15秒刷新。
+Group4和正式进程一样，由`algorithm.Server.Start`在HTTP监听启动后开启Prometheus后台刷新：启动时立即拉取一次，之后每15秒刷新。测试通过`WaitForReady`等待第一次真实HTTP采集完成，再启动PRC和提交NGD。Debug模式只延长指标快照有效期，不改变采集流程。
 
 ### 2. 命令行启动Delve
 
@@ -101,14 +100,14 @@ Debug模式只改变测试保护参数：
 在`(dlv)`中粘贴：
 
 ```text
-b go_test_suites/group4_full_real_algorithm/group4_test.go:94
+b algorithm_server/go/algorithm/metrics.go:74
 b prc/pkg/controller/static_snapshot_controller.go:194
-b go_test_suites/group4_full_real_algorithm/group4_test.go:185
+b go_test_suites/group4_full_real_algorithm/group4_test.go:177
 b prc/pkg/controller/prc_controller.go:106
 b prc/pkg/controller/prc_controller.go:279
 b algorithm_server/go/algorithm/service.go:41
 b prc/pkg/controller/prc_controller.go:546
-b go_test_suites/group4_full_real_algorithm/group4_test.go:214
+b go_test_suites/group4_full_real_algorithm/group4_test.go:206
 breakpoints
 c
 ```
@@ -133,30 +132,30 @@ Algorithm读取Prometheus
 位置：
 
 ```text
-go_test_suites/group4_full_real_algorithm/group4_test.go:94
+algorithm_server/go/algorithm/metrics.go:74
 ```
 
 对应代码：
 
 ```go
-app.RefreshMetrics(context.Background())
+func (c *metricsCache) refresh(ctx context.Context)
 ```
 
-此时第92行的Algorithm HTTP Server已经启动。查看两个真实服务地址：
+此时Algorithm HTTP Listener已经启动，后台协程正在执行首次采集。可查看Prometheus地址和刷新周期：
 
 ```text
-p algorithmServer.URL
-p prometheus.URL()
+p c.baseURL
+p c.interval
 ```
 
-执行完整指标刷新并进入下一断点：
+继续执行14项PromQL查询并进入下一断点：
 
 ```text
 n
 c
 ```
 
-`RefreshMetrics`内部会对Mock Prometheus发出14项PromQL请求，携带`Authorization: Bearer go-test-prometheus-token`，解析标准Prometheus响应并写入Algorithm内存快照。
+`refresh`会对Mock Prometheus发出14项PromQL请求，携带`Authorization: Bearer go-test-prometheus-token`，解析标准Prometheus响应并写入Algorithm内存快照。
 
 #### 断点2：PRC向Algorithm同步静态快照
 
@@ -191,7 +190,7 @@ c
 位置：
 
 ```text
-go_test_suites/group4_full_real_algorithm/group4_test.go:185
+go_test_suites/group4_full_real_algorithm/group4_test.go:177
 ```
 
 对应代码：
@@ -348,7 +347,7 @@ c
 位置：
 
 ```text
-go_test_suites/group4_full_real_algorithm/group4_test.go:214
+go_test_suites/group4_full_real_algorithm/group4_test.go:206
 ```
 
 对应代码：

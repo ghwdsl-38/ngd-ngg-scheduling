@@ -8,5 +8,6 @@ __pycache__/
 .coverage
 coverage.out
 coverage.html
+debug.test*
 test_suites/**/runs/*
 !test_suites/**/runs/.gitkeep

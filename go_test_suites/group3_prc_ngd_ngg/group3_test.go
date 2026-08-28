@@ -19,10 +19,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"scheduling.demo.ngg.io/prc/pkg/controller"
-	ctrl "sigs.k8s.io/controller-runtime"
+	prcapp "scheduling.demo.ngg.io/prc/pkg/application"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 var (
@@ -56,31 +54,25 @@ func TestGroup3_PRCWatchesNGDAndCreatesNGG(t *testing.T) {
 	defer mock.server.Close()
 	reconcileStarted := make(chan time.Time, 1)
 	var reconcileStartOnce sync.Once
-	manager, err := ctrl.NewManager(environment.Config, ctrl.Options{Scheme: environment.Scheme, Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0", LeaderElection: false})
-	if err != nil {
-		t.Fatal(err)
-	}
-	staticSnapshots := controller.NewStaticSnapshotState()
-	staticReconciler := &controller.NodeStaticSnapshotReconciler{
-		Client: manager.GetClient(), AlgorithmURL: mock.server.URL, ClusterID: "mock-1000-node-cluster",
-		HTTPClient: mock.server.Client(), State: staticSnapshots,
-	}
-	if err := staticReconciler.SetupWithManager(manager); err != nil {
-		t.Fatalf("setup static snapshot controller: %v", err)
-	}
-	reconciler := &controller.NodeGroupDemandReconciler{
-		Client: manager.GetClient(), Scheme: manager.GetScheme(), AlgorithmURL: mock.server.URL,
-		ClusterID: "mock-1000-node-cluster", HTTPClient: mock.server.Client(), StaticSnapshots: staticSnapshots, DebugAlgorithmTrace: true,
+	prcApplication, err := prcapp.New(prcapp.Config{
+		KubernetesConfig:       environment.Config,
+		Scheme:                 environment.Scheme,
+		AlgorithmURL:           mock.server.URL,
+		ClusterID:              "mock-1000-node-cluster",
+		HTTPClient:             mock.server.Client(),
+		MetricsBindAddress:     "0",
+		HealthProbeBindAddress: "0",
+		DebugAlgorithmTrace:    true,
 		ReconcileObserver: func(_ string, _ int64, observedAt time.Time) {
 			reconcileStartOnce.Do(func() { reconcileStarted <- observedAt })
 		},
-	}
-	if err := reconciler.SetupWithManager(manager); err != nil {
-		t.Fatalf("setup PRC controller: %v", err)
+	})
+	if err != nil {
+		t.Fatalf("create PRC application: %v", err)
 	}
 	managerContext, managerCancel := context.WithCancel(context.Background())
 	managerErrors := make(chan error, 1)
-	go func() { managerErrors <- manager.Start(managerContext) }()
+	go func() { managerErrors <- prcApplication.Start(managerContext) }()
 	defer func() {
 		managerCancel()
 		select {
@@ -92,10 +84,7 @@ func TestGroup3_PRCWatchesNGDAndCreatesNGG(t *testing.T) {
 			t.Error("manager did not stop")
 		}
 	}()
-	if !manager.GetCache().WaitForCacheSync(setupContext) {
-		t.Fatal("PRC cache did not sync")
-	}
-	initialStatic, err := staticSnapshots.WaitForReady(setupContext)
+	initialStatic, err := prcApplication.WaitForReady(setupContext)
 	if err != nil {
 		t.Fatalf("static snapshot did not become ready: %v", err)
 	}
@@ -109,7 +98,7 @@ func TestGroup3_PRCWatchesNGDAndCreatesNGG(t *testing.T) {
 		t.Fatalf("update Node static Label: %v", err)
 	}
 	if err := common.Eventually(setupContext, 10*time.Millisecond, func(context.Context) (bool, error) {
-		status, ready := staticSnapshots.Current()
+		status, ready := prcApplication.StaticSnapshotStatus()
 		return ready && status.SnapshotID != initialStatic.SnapshotID, nil
 	}); err != nil {
 		t.Fatalf("wait independent static snapshot refresh: %v", err)

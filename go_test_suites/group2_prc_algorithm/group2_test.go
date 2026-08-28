@@ -3,7 +3,6 @@ package group2_prc_algorithm_test
 import (
 	"context"
 	"encoding/json"
-	"net/http/httptest"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -52,26 +51,36 @@ func TestGroup2_PRCClientCallsCompleteAlgorithm(t *testing.T) {
 		t.Fatalf("Mock Prometheus authentication: %v", err)
 	}
 	worker := common.PythonWorkerConfig(filepath.Join(runDirectory, "actual"))
-	app, err := algorithm.NewApplication(algorithm.Config{
+	server, err := algorithm.NewServer(algorithm.Config{
 		BootID: "group2-algorithm", PrometheusURL: mock.URL(), PrometheusBearerToken: "go-test-prometheus-token",
-		PrometheusClient: mock.Client(), DisableBackgroundMetrics: true,
+		PrometheusClient: mock.Client(),
 		PythonExecutable: worker.Executable, PythonModule: worker.Module, PythonPath: worker.PythonPath, WorkerEvidenceDir: worker.EvidenceDir,
-	})
+	}, algorithm.ServerOptions{ListenAddress: "127.0.0.1:0"})
 	if err != nil {
-		t.Fatalf("start Algorithm Application: %v", err)
+		t.Fatalf("create Algorithm Server: %v", err)
+	}
+	serverContext, serverCancel := context.WithCancel(context.Background())
+	if err := server.Start(serverContext); err != nil {
+		t.Fatalf("start Algorithm Server: %v", err)
 	}
 	defer func() {
-		if err := app.Close(); err != nil {
-			t.Errorf("close Algorithm: %v", err)
+		serverCancel()
+		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Close(shutdown); err != nil {
+			t.Errorf("close Algorithm Server: %v", err)
+		}
+		if err := server.Wait(); err != nil {
+			t.Errorf("wait Algorithm Server: %v", err)
 		}
 	}()
-	if err := app.RefreshMetrics(ctx); err != nil {
-		t.Fatalf("preload Prometheus metrics: %v", err)
+	readyContext, readyCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer readyCancel()
+	if err := server.WaitForReady(readyContext); err != nil {
+		t.Fatalf("wait Algorithm Server ready: %v", err)
 	}
-	server := httptest.NewServer(app.Handler())
-	defer server.Close()
 	exchanges := []controller.AlgorithmExchange{}
-	client := controller.AlgorithmClient{BaseURL: server.URL, Client: server.Client(), Recorder: func(exchange controller.AlgorithmExchange) { exchanges = append(exchanges, exchange) }}
+	client := controller.AlgorithmClient{BaseURL: server.URL(), Client: server.HTTPClient(), Recorder: func(exchange controller.AlgorithmExchange) { exchanges = append(exchanges, exchange) }}
 
 	ack, err := client.PutStatic(ctx, staticID, staticBody)
 	if err != nil {

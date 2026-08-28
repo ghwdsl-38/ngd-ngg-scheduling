@@ -547,14 +547,13 @@ Expected默认只读。更新Golden必须显式指定测试参数或专用命令
 
 ### 12.1 Algorithm Go包
 
-当前核心代码全部位于`algorithm_server/go`并使用`package main`，独立测试不能在同一Delve进程中导入。
-
-建议调整为：
+当前已经调整为可导入的核心包与薄`main`入口：
 
 ```text
 algorithm_server/go/
 ├── algorithm/
 │   ├── application.go
+│   ├── server.go
 │   ├── worker.go
 │   ├── cache.go
 │   ├── metrics.go
@@ -564,12 +563,13 @@ algorithm_server/go/
     └── main.go
 ```
 
-核心包提供：
+完整进程封装提供：
 
 ```go
-app, err := algorithm.NewApplication(config)
-handler := app.Handler()
-defer app.Close()
+server, err := algorithm.NewServer(config, algorithm.ServerOptions{ListenAddress: "127.0.0.1:0"})
+err = server.Start(ctx)
+err = server.WaitForReady(readyCtx)
+defer server.Close(shutdownCtx)
 ```
 
 `Config`至少允许注入：
@@ -601,7 +601,7 @@ AlgorithmClient.PutStatic(...)
 AlgorithmClient.Calculate(...)
 ```
 
-`NodeGroupDemandReconciler`继续由生产PRC和测试共同使用。测试不能重新实现快照、请求或NGG生成逻辑。
+PRC已增加`prc/pkg/application.Application`，统一创建Manager、注册静态快照Controller和NGD Reconciler、管理私有共享状态并提供`Start/WaitForReady`。正式`prc/cmd/main.go`、Group3和Group4使用同一封装，测试不再手工组装Reconciler。
 
 ### 12.3 Go Workspace
 
@@ -666,8 +666,10 @@ dlv test ./go_test_suites/group1_algorithm_worker -- \
 ```bash
 dlv test ./go_test_suites/group4_full_real_algorithm -- \
   -test.run '^TestGroup4_PRCWatchesNGDCallsRealAlgorithmAndCreatesNGG$' \
-  -test.v -test.count=1
+  -test.v -test.count=1 -test.timeout=30m
 ```
+
+运行Group4 Debug前还需设置`NGG_TEST_DEBUG=true`和`NGG_TEST_DEBUG_TIMEOUT=10m`；它们同时放宽测试等待、PRC调用Algorithm和指标快照有效期，单独增加`-test.timeout`不足够。
 
 IDE规划四个入口：
 

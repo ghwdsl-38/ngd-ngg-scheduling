@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,10 +17,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	prcapp "scheduling.demo.ngg.io/prc/pkg/application"
 	"scheduling.demo.ngg.io/prc/pkg/controller"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 var (
@@ -74,25 +72,33 @@ func TestGroup4_PRCWatchesNGDCallsRealAlgorithmAndCreatesNGG(t *testing.T) {
 		t.Fatalf("Mock Prometheus authentication: %v", err)
 	}
 	worker := common.PythonWorkerConfig(filepath.Join(runDirectory, "actual"))
-	app, err := algorithm.NewApplication(algorithm.Config{
+	algorithmServer, err := algorithm.NewServer(algorithm.Config{
 		BootID: "group4-algorithm", PrometheusURL: prometheus.URL(), PrometheusBearerToken: "go-test-prometheus-token",
-		PrometheusClient: prometheus.Client(), MetricsStaleAfter: metricsStaleAfter, DisableBackgroundMetrics: true,
+		PrometheusClient: prometheus.Client(), MetricsStaleAfter: metricsStaleAfter,
 		PythonExecutable: worker.Executable, PythonModule: worker.Module, PythonPath: worker.PythonPath, WorkerEvidenceDir: worker.EvidenceDir,
-	})
+	}, algorithm.ServerOptions{ListenAddress: "127.0.0.1:0", ShutdownTimeout: managerShutdownTimeout})
 	if err != nil {
-		t.Fatalf("start real Algorithm: %v", err)
+		t.Fatalf("create real Algorithm Server: %v", err)
+	}
+	algorithmContext, algorithmCancel := context.WithCancel(context.Background())
+	if err := algorithmServer.Start(algorithmContext); err != nil {
+		t.Fatalf("start real Algorithm Server: %v", err)
 	}
 	defer func() {
-		if err := app.Close(); err != nil {
-			t.Errorf("close Algorithm: %v", err)
+		algorithmCancel()
+		shutdown, cancel := context.WithTimeout(context.Background(), managerShutdownTimeout)
+		defer cancel()
+		if err := algorithmServer.Close(shutdown); err != nil {
+			t.Errorf("close Algorithm Server: %v", err)
+		}
+		if err := algorithmServer.Wait(); err != nil {
+			t.Errorf("wait Algorithm Server: %v", err)
 		}
 	}()
-	// 先让Algorithm HTTP服务进入监听状态，再由已启动的Algorithm主动从
-	// Mock Prometheus拉取指标。预热仍发生在NGD业务计时开始之前。
-	algorithmServer := httptest.NewServer(app.Handler())
-	defer algorithmServer.Close()
-	if err := app.RefreshMetrics(context.Background()); err != nil {
-		t.Fatalf("Algorithm refresh Prometheus after server startup: %v", err)
+	algorithmReadyContext, algorithmReadyCancel := context.WithTimeout(context.Background(), setupTimeout)
+	defer algorithmReadyCancel()
+	if err := algorithmServer.WaitForReady(algorithmReadyContext); err != nil {
+		t.Fatalf("wait Algorithm Server ready after Prometheus preload: %v", err)
 	}
 
 	environment := common.StartEnvTest(t)
@@ -111,37 +117,26 @@ func TestGroup4_PRCWatchesNGDCallsRealAlgorithmAndCreatesNGG(t *testing.T) {
 	exchanges := []controller.AlgorithmExchange{}
 	reconcileStarted := make(chan time.Time, 1)
 	var reconcileStartOnce sync.Once
-	manager, err := ctrl.NewManager(environment.Config, ctrl.Options{Scheme: environment.Scheme, Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0", LeaderElection: false})
-	if err != nil {
-		t.Fatal(err)
-	}
 	algorithmRecorder := func(exchange controller.AlgorithmExchange) {
 		exchangeMu.Lock()
 		exchanges = append(exchanges, exchange)
 		exchangeMu.Unlock()
 	}
-	staticSnapshots := controller.NewStaticSnapshotState()
-	staticReconciler := &controller.NodeStaticSnapshotReconciler{
-		Client: manager.GetClient(), AlgorithmURL: algorithmServer.URL, ClusterID: "mock-1000-node-cluster",
-		HTTPClient: algorithmServer.Client(), State: staticSnapshots, AlgorithmRecorder: algorithmRecorder,
-	}
-	if err := staticReconciler.SetupWithManager(manager); err != nil {
-		t.Fatalf("setup static snapshot controller: %v", err)
-	}
-	reconciler := &controller.NodeGroupDemandReconciler{
-		Client: manager.GetClient(), Scheme: manager.GetScheme(), AlgorithmURL: algorithmServer.URL,
-		ClusterID: "mock-1000-node-cluster", HTTPClient: algorithmServer.Client(), StaticSnapshots: staticSnapshots, DebugAlgorithmTrace: true,
-		AlgorithmRecorder: algorithmRecorder,
+	prcApplication, err := prcapp.New(prcapp.Config{
+		KubernetesConfig: environment.Config, Scheme: environment.Scheme,
+		AlgorithmURL: algorithmServer.URL(), ClusterID: "mock-1000-node-cluster", HTTPClient: algorithmServer.HTTPClient(),
+		MetricsBindAddress: "0", HealthProbeBindAddress: "0", LeaderElection: false,
+		DebugAlgorithmTrace: true, AlgorithmRecorder: algorithmRecorder,
 		ReconcileObserver: func(_ string, _ int64, observedAt time.Time) {
 			reconcileStartOnce.Do(func() { reconcileStarted <- observedAt })
 		},
-	}
-	if err := reconciler.SetupWithManager(manager); err != nil {
-		t.Fatalf("setup PRC controller: %v", err)
+	})
+	if err != nil {
+		t.Fatalf("create PRC Application: %v", err)
 	}
 	managerContext, managerCancel := context.WithCancel(context.Background())
 	managerErrors := make(chan error, 1)
-	go func() { managerErrors <- manager.Start(managerContext) }()
+	go func() { managerErrors <- prcApplication.Start(managerContext) }()
 	defer func() {
 		managerCancel()
 		select {
@@ -153,11 +148,8 @@ func TestGroup4_PRCWatchesNGDCallsRealAlgorithmAndCreatesNGG(t *testing.T) {
 			t.Error("manager did not stop")
 		}
 	}()
-	if !manager.GetCache().WaitForCacheSync(setupContext) {
-		t.Fatal("PRC cache did not sync")
-	}
-	if _, err := staticSnapshots.WaitForReady(setupContext); err != nil {
-		t.Fatalf("static snapshot did not become ready: %v", err)
+	if _, err := prcApplication.WaitForReady(setupContext); err != nil {
+		t.Fatalf("PRC Application did not become ready: %v", err)
 	}
 	exchangeMu.Lock()
 	putCountBeforeDemand := countMethodPath(exchanges, "PUT", "/internal/v1/node-static-snapshots/")
