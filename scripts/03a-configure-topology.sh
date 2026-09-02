@@ -13,23 +13,31 @@ mapfile -t workers < <(
 for index in "${!workers[@]}"; do
   ordinal=$((index + 1))
   if (( ordinal <= 3 )); then
-    switch_id="switch-a"; bandwidth="20"; latency="1.5"
+    switch_id="switch-a"
   elif (( ordinal <= 5 )); then
-    switch_id="switch-b"; bandwidth="10"; latency="5"
+    switch_id="switch-b"
   else
-    switch_id="switch-c"; bandwidth="25"; latency="1"
+    switch_id="switch-c"
   fi
   node_name="${workers[index]}"
   kube label node "${node_name}" \
     demo.ngg/worker=true \
-    topology.demo.ngg.io/switch="${switch_id}" \
-    topology.demo.ngg.io/core-switch=core-0 \
-    topology.demo.ngg.io/bandwidth-gbps="${bandwidth}" \
-    topology.demo.ngg.io/latency-ms="${latency}" \
-    topology.demo.ngg.io/local-interface=eth0 \
     --overwrite
   kube annotate node "${node_name}" \
+    topology.demo.ngg.io/simulated-leaf-switch="${switch_id}" \
+    topology.demo.ngg.io/local-interface=eth0 \
     topology.demo.ngg.io/remote-port="Ethernet1/${ordinal}" --overwrite
+  # 旧版Agent曾把上层拓扑和链路指标写入Node；新模型只持久化直接Leaf。
+  kube label node "${node_name}" \
+    topology.demo.ngg.io/core-switch- \
+    topology.demo.ngg.io/border-switch- \
+    topology.demo.ngg.io/convergence-switch- \
+    topology.demo.ngg.io/bandwidth-gbps- \
+    topology.demo.ngg.io/latency-ms- \
+    topology.demo.ngg.io/topology-version- \
+    topology.demo.ngg.io/source- \
+    topology.demo.ngg.io/local-interface- \
+    --overwrite >/dev/null 2>&1 || true
 done
 
-kube get nodes -L topology.demo.ngg.io/switch
+kube get nodes -L topology.demo.ngg.io/leaf-switch

@@ -8,7 +8,7 @@ source scripts/go-test-env.sh
 go test -p=1 ./go_test_suites/group3_prc_ngd_ngg -run '^TestGroup3_' -v -count=1
 ```
 
-计时前已经完成envtest启动、CRD安装、1000 Node/Pod及拓扑标签预置、PRC Cache Sync和独立静态快照同步。计时从PRC通过Watch观察到NGD并进入Reconcile开始，到NGG为`Active`结束。静态快照构造与PUT不在任务计时内；NGD `Fulfilled`继续作为正确性断言，但不计时。
+计时前已经完成envtest启动、CRD安装、1000 Node/Pod及Leaf标签预置、PRC Cache Sync和独立静态快照同步。计时从PRC通过Watch观察到NGD并进入Reconcile开始，到NGG为`Active`结束。静态快照构造与PUT不在任务计时内；NGD `Fulfilled`继续作为正确性断言，但不计时。
 
 ## Kubernetes与Algorithm如何模拟
 

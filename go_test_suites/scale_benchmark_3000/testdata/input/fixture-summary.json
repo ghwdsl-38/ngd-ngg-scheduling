@@ -1,9 +1,12 @@
 {
-  "borderCount": 4,
-  "coreCount": 2,
+  "borderDomainCount": 4,
+  "dataCenterCount": 1,
   "leafCount": 150,
+  "locationCount": 1,
   "metricNamesPerNode": 14,
   "metricSamples": 42000,
   "nodeCount": 3000,
-  "nodesPerLeaf": 20
+  "nodesPerLeaf": 20,
+  "regionCount": 1,
+  "roomCount": 1
 }

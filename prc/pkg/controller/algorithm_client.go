@@ -50,6 +50,7 @@ type CandidateNode struct {
 	NodeName  string            `json:"nodeName"`
 	Score     int64             `json:"score"`
 	Resources map[string]string `json:"resources,omitempty"`
+	Topology  map[string]any    `json:"topology,omitempty"`
 }
 
 type CandidateGroup struct {
@@ -70,6 +71,7 @@ type AlgorithmResponse struct {
 	SchedulerStateSnapshotID string           `json:"schedulerStateSnapshotId"`
 	MetricSnapshotID         string           `json:"metricSnapshotId"`
 	MetricSnapshotCapturedAt string           `json:"metricSnapshotCapturedAt"`
+	TopologySnapshotID       string           `json:"topologySnapshotId"`
 	Degraded                 bool             `json:"degraded"`
 	Warnings                 []string         `json:"warnings"`
 	Status                   string           `json:"status"`

@@ -5,7 +5,6 @@ metadata:
     scheduling.platform.example.io/scheduler: volcano
   name: benchmark-select-100
 spec:
-  maxCandidateGroups: 3
   maxNodes: 100
   minResources:
     cpu: "3200"
@@ -17,7 +16,3 @@ spec:
     cpu: "3200"
     memory: 12800Gi
   schedulerName: volcano
-  topologyRequirement:
-    profile: leaf-border-core-v1
-    strategy: NarrowestFit
-    widestAllowedLevel: coreSwitch

@@ -237,12 +237,19 @@ func (m *mockAlgorithm) handle(writer http.ResponseWriter, request *http.Request
 	})
 	candidates := make([]any, 0, 3)
 	for index, state := range available[:3] {
-		candidates = append(candidates, map[string]any{"nodeUID": state["nodeUID"], "nodeName": state["nodeName"], "score": int64(90 - index*5), "resources": map[string]any{"cpuAvailable": "32", "memoryAvailable": "128Gi"}})
+		candidates = append(candidates, map[string]any{
+			"nodeUID": state["nodeUID"], "nodeName": state["nodeName"], "score": int64(90 - index*5),
+			"resources": map[string]any{"cpuAvailable": "32", "memoryAvailable": "128Gi"},
+			"topology": map[string]any{
+				"regionId": "CN-NORTH", "locationId": "HB-HL", "dataCenterId": "HB-HL-DC1",
+				"roomId": "HB-HL-DC1-102", "borderDomainId": "HB-HL-DC1-102-BORDER-DOMAIN-01", "leafSwitchId": "leaf-001",
+			},
+		})
 	}
 	response := map[string]any{
 		"requestId": body["requestId"], "taskUID": body["taskUID"], "ngdUID": body["ngdUID"], "ngdGeneration": body["ngdGeneration"],
 		"algorithmBootId": m.bootID, "nodeStaticSnapshotId": body["nodeStaticSnapshotId"], "schedulerStateSnapshotId": body["schedulerStateSnapshotId"],
-		"metricSnapshotId": "mock-metrics-group3", "metricSnapshotCapturedAt": "2026-08-21T00:00:00Z", "degraded": false, "warnings": []any{}, "status": "SUCCESS",
+		"metricSnapshotId": "mock-metrics-group3", "metricSnapshotCapturedAt": "2026-08-21T00:00:00Z", "topologySnapshotId": "mock-unicom-topology", "degraded": false, "warnings": []any{}, "status": "SUCCESS",
 		"candidateNodeGroups": []any{map[string]any{"rank": int64(1), "groupId": "leaf:leaf-001", "topologyLevel": "leafSwitch", "groupScore": 88.5, "nodes": candidates}},
 	}
 	m.mu.Lock()

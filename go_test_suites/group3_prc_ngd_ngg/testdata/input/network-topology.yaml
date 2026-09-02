@@ -1,0 +1,693 @@
+borderDomains:
+  HB-HL-DC1-102-BORDER-DOMAIN-01:
+    members:
+    - HB-HL-DC1-102-BORDER-DOMAIN-01-SW01-ZTE9904X
+    - HB-HL-DC1-102-BORDER-DOMAIN-01-SW02-ZTE9904X
+    mode: exact-set
+    roomId: HB-HL-DC1-102
+  HB-HL-DC1-102-BORDER-DOMAIN-02:
+    members:
+    - HB-HL-DC1-102-BORDER-DOMAIN-02-SW01-ZTE9904X
+    - HB-HL-DC1-102-BORDER-DOMAIN-02-SW02-ZTE9904X
+    mode: exact-set
+    roomId: HB-HL-DC1-102
+  HB-HL-DC1-102-BORDER-DOMAIN-03:
+    members:
+    - HB-HL-DC1-102-BORDER-DOMAIN-03-SW01-ZTE9904X
+    - HB-HL-DC1-102-BORDER-DOMAIN-03-SW02-ZTE9904X
+    mode: exact-set
+    roomId: HB-HL-DC1-102
+  HB-HL-DC1-102-BORDER-DOMAIN-04:
+    members:
+    - HB-HL-DC1-102-BORDER-DOMAIN-04-SW01-ZTE9904X
+    - HB-HL-DC1-102-BORDER-DOMAIN-04-SW02-ZTE9904X
+    mode: exact-set
+    roomId: HB-HL-DC1-102
+leafMetrics:
+  leaf-001:
+    bandwidthGbps: 25
+    latencyMillis: 4
+  leaf-002:
+    bandwidthGbps: 40
+    latencyMillis: 2.5
+  leaf-003:
+    bandwidthGbps: 50
+    latencyMillis: 1.5
+  leaf-004:
+    bandwidthGbps: 100
+    latencyMillis: 0.8
+  leaf-005:
+    bandwidthGbps: 25
+    latencyMillis: 4
+  leaf-006:
+    bandwidthGbps: 40
+    latencyMillis: 2.5
+  leaf-007:
+    bandwidthGbps: 50
+    latencyMillis: 1.5
+  leaf-008:
+    bandwidthGbps: 100
+    latencyMillis: 0.8
+  leaf-009:
+    bandwidthGbps: 25
+    latencyMillis: 4
+  leaf-010:
+    bandwidthGbps: 40
+    latencyMillis: 2.5
+  leaf-011:
+    bandwidthGbps: 50
+    latencyMillis: 1.5
+  leaf-012:
+    bandwidthGbps: 100
+    latencyMillis: 0.8
+  leaf-013:
+    bandwidthGbps: 25
+    latencyMillis: 4
+  leaf-014:
+    bandwidthGbps: 40
+    latencyMillis: 2.5
+  leaf-015:
+    bandwidthGbps: 50
+    latencyMillis: 1.5
+  leaf-016:
+    bandwidthGbps: 100
+    latencyMillis: 0.8
+  leaf-017:
+    bandwidthGbps: 25
+    latencyMillis: 4
+  leaf-018:
+    bandwidthGbps: 40
+    latencyMillis: 2.5
+  leaf-019:
+    bandwidthGbps: 50
+    latencyMillis: 1.5
+  leaf-020:
+    bandwidthGbps: 100
+    latencyMillis: 0.8
+  leaf-021:
+    bandwidthGbps: 25
+    latencyMillis: 4
+  leaf-022:
+    bandwidthGbps: 40
+    latencyMillis: 2.5
+  leaf-023:
+    bandwidthGbps: 50
+    latencyMillis: 1.5
+  leaf-024:
+    bandwidthGbps: 100
+    latencyMillis: 0.8
+  leaf-025:
+    bandwidthGbps: 25
+    latencyMillis: 4
+  leaf-026:
+    bandwidthGbps: 40
+    latencyMillis: 2.5
+  leaf-027:
+    bandwidthGbps: 50
+    latencyMillis: 1.5
+  leaf-028:
+    bandwidthGbps: 100
+    latencyMillis: 0.8
+  leaf-029:
+    bandwidthGbps: 25
+    latencyMillis: 4
+  leaf-030:
+    bandwidthGbps: 40
+    latencyMillis: 2.5
+  leaf-031:
+    bandwidthGbps: 50
+    latencyMillis: 1.5
+  leaf-032:
+    bandwidthGbps: 100
+    latencyMillis: 0.8
+  leaf-033:
+    bandwidthGbps: 25
+    latencyMillis: 4
+  leaf-034:
+    bandwidthGbps: 40
+    latencyMillis: 2.5
+  leaf-035:
+    bandwidthGbps: 50
+    latencyMillis: 1.5
+  leaf-036:
+    bandwidthGbps: 100
+    latencyMillis: 0.8
+  leaf-037:
+    bandwidthGbps: 25
+    latencyMillis: 4
+  leaf-038:
+    bandwidthGbps: 40
+    latencyMillis: 2.5
+  leaf-039:
+    bandwidthGbps: 50
+    latencyMillis: 1.5
+  leaf-040:
+    bandwidthGbps: 100
+    latencyMillis: 0.8
+  leaf-041:
+    bandwidthGbps: 25
+    latencyMillis: 4
+  leaf-042:
+    bandwidthGbps: 40
+    latencyMillis: 2.5
+  leaf-043:
+    bandwidthGbps: 50
+    latencyMillis: 1.5
+  leaf-044:
+    bandwidthGbps: 100
+    latencyMillis: 0.8
+  leaf-045:
+    bandwidthGbps: 25
+    latencyMillis: 4
+  leaf-046:
+    bandwidthGbps: 40
+    latencyMillis: 2.5
+  leaf-047:
+    bandwidthGbps: 50
+    latencyMillis: 1.5
+  leaf-048:
+    bandwidthGbps: 100
+    latencyMillis: 0.8
+  leaf-049:
+    bandwidthGbps: 25
+    latencyMillis: 4
+  leaf-050:
+    bandwidthGbps: 40
+    latencyMillis: 2.5
+scopes:
+  dataCenters:
+  - id: HB-HL-DC1
+    locationId: HB-HL
+  locations:
+  - id: HB-HL
+    name: 怀来
+    regionId: CN-NORTH
+  regions:
+  - id: CN-NORTH
+    name: 华北
+  rooms:
+  - dataCenterId: HB-HL-DC1
+    id: HB-HL-DC1-102
+topology:
+  HB-HL-DC1-102:
+    leaf-001:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/1
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/1
+      LEAF: {}
+      SPINE: {}
+    leaf-002:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/2
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/2
+      LEAF: {}
+      SPINE: {}
+    leaf-003:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/3
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/3
+      LEAF: {}
+      SPINE: {}
+    leaf-004:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/4
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/4
+      LEAF: {}
+      SPINE: {}
+    leaf-005:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/5
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/5
+      LEAF: {}
+      SPINE: {}
+    leaf-006:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/6
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/6
+      LEAF: {}
+      SPINE: {}
+    leaf-007:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/7
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/7
+      LEAF: {}
+      SPINE: {}
+    leaf-008:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/8
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/8
+      LEAF: {}
+      SPINE: {}
+    leaf-009:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/9
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/9
+      LEAF: {}
+      SPINE: {}
+    leaf-010:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/10
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/10
+      LEAF: {}
+      SPINE: {}
+    leaf-011:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/11
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/11
+      LEAF: {}
+      SPINE: {}
+    leaf-012:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/12
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/12
+      LEAF: {}
+      SPINE: {}
+    leaf-013:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/13
+        HB-HL-DC1-102-BORDER-DOMAIN-01-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/13
+      LEAF: {}
+      SPINE: {}
+    leaf-014:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/14
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/14
+      LEAF: {}
+      SPINE: {}
+    leaf-015:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/15
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/15
+      LEAF: {}
+      SPINE: {}
+    leaf-016:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/16
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/16
+      LEAF: {}
+      SPINE: {}
+    leaf-017:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/17
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/17
+      LEAF: {}
+      SPINE: {}
+    leaf-018:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/18
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/18
+      LEAF: {}
+      SPINE: {}
+    leaf-019:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/19
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/19
+      LEAF: {}
+      SPINE: {}
+    leaf-020:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/20
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/20
+      LEAF: {}
+      SPINE: {}
+    leaf-021:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/21
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/21
+      LEAF: {}
+      SPINE: {}
+    leaf-022:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/22
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/22
+      LEAF: {}
+      SPINE: {}
+    leaf-023:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/23
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/23
+      LEAF: {}
+      SPINE: {}
+    leaf-024:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/24
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/24
+      LEAF: {}
+      SPINE: {}
+    leaf-025:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/25
+        HB-HL-DC1-102-BORDER-DOMAIN-02-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/25
+      LEAF: {}
+      SPINE: {}
+    leaf-026:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/26
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/26
+      LEAF: {}
+      SPINE: {}
+    leaf-027:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/27
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/27
+      LEAF: {}
+      SPINE: {}
+    leaf-028:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/28
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/28
+      LEAF: {}
+      SPINE: {}
+    leaf-029:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/29
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/29
+      LEAF: {}
+      SPINE: {}
+    leaf-030:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/30
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/30
+      LEAF: {}
+      SPINE: {}
+    leaf-031:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/31
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/31
+      LEAF: {}
+      SPINE: {}
+    leaf-032:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/32
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/32
+      LEAF: {}
+      SPINE: {}
+    leaf-033:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/33
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/33
+      LEAF: {}
+      SPINE: {}
+    leaf-034:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/34
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/34
+      LEAF: {}
+      SPINE: {}
+    leaf-035:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/35
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/35
+      LEAF: {}
+      SPINE: {}
+    leaf-036:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/36
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/36
+      LEAF: {}
+      SPINE: {}
+    leaf-037:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/37
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/37
+      LEAF: {}
+      SPINE: {}
+    leaf-038:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/38
+        HB-HL-DC1-102-BORDER-DOMAIN-03-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/38
+      LEAF: {}
+      SPINE: {}
+    leaf-039:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/39
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/39
+      LEAF: {}
+      SPINE: {}
+    leaf-040:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/40
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/40
+      LEAF: {}
+      SPINE: {}
+    leaf-041:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/41
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/41
+      LEAF: {}
+      SPINE: {}
+    leaf-042:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/42
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/42
+      LEAF: {}
+      SPINE: {}
+    leaf-043:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/43
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/43
+      LEAF: {}
+      SPINE: {}
+    leaf-044:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/44
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/44
+      LEAF: {}
+      SPINE: {}
+    leaf-045:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/45
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/45
+      LEAF: {}
+      SPINE: {}
+    leaf-046:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/46
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/46
+      LEAF: {}
+      SPINE: {}
+    leaf-047:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/47
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/47
+      LEAF: {}
+      SPINE: {}
+    leaf-048:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/48
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/48
+      LEAF: {}
+      SPINE: {}
+    leaf-049:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/49
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/49
+      LEAF: {}
+      SPINE: {}
+    leaf-050:
+      BORDER:
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/50
+        HB-HL-DC1-102-BORDER-DOMAIN-04-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/50
+      LEAF: {}
+      SPINE: {}
+version: unicom-border-domain-v1

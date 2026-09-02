@@ -1,0 +1,79 @@
+version: unicom-huabei-huailai-v1
+
+scopes:
+  regions:
+    - id: CN-NORTH
+      name: 华北
+  locations:
+    - id: HB-HL
+      name: 怀来
+      regionId: CN-NORTH
+  dataCenters:
+    - id: HB-HL-DC1
+      locationId: HB-HL
+  rooms:
+    - id: HB-HL-DC1-102
+      name: 102机房
+      dataCenterId: HB-HL-DC1
+
+# Border Domain由网络侧显式配置。Algorithm不会把同一台Node分别放入
+# Border-01和Border-02两个重叠候选组。
+borderDomains:
+  HB-HL-DC1-102-BD-A:
+    roomId: HB-HL-DC1-102
+    mode: active-active
+    members:
+      - HB-HL-DC1-102-C03-02U-LTY-CSQ-BORDER-SW01-ZTE9904X
+      - HB-HL-DC1-102-D03-02U-LTY-CSQ-BORDER-SW02-ZTE9904X
+  HB-HL-DC1-102-BD-B:
+    roomId: HB-HL-DC1-102
+    mode: active-active
+    members:
+      - HB-HL-DC1-102-C05-02U-LTY-CSQ-BORDER-SW03-ZTE9904X
+      - HB-HL-DC1-102-D05-02U-LTY-CSQ-BORDER-SW04-ZTE9904X
+  HB-HL-DC1-102-BD-C:
+    roomId: HB-HL-DC1-102
+    mode: active-active
+    members:
+      - HB-HL-DC1-102-C07-02U-LTY-CSQ-BORDER-SW05-ZTE9904X
+      - HB-HL-DC1-102-D07-02U-LTY-CSQ-BORDER-SW06-ZTE9904X
+
+leafMetrics:
+  switch-a: {bandwidthGbps: 20, latencyMillis: 1.5}
+  switch-b: {bandwidthGbps: 10, latencyMillis: 5}
+  switch-c: {bandwidthGbps: 25, latencyMillis: 1}
+
+# topology下保留联通提供的“机房 -> Leaf -> SPINE/BORDER/LEAF”结构。
+# 当前SPINE为空是合法状态，表示Leaf直接上联Border Domain。
+topology:
+  HB-HL-DC1-102:
+    switch-a:
+      SPINE: {}
+      BORDER:
+        HB-HL-DC1-102-C03-02U-LTY-CSQ-BORDER-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/9
+        HB-HL-DC1-102-D03-02U-LTY-CSQ-BORDER-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/9
+      LEAF: {}
+    switch-b:
+      SPINE: {}
+      BORDER:
+        HB-HL-DC1-102-C05-02U-LTY-CSQ-BORDER-SW03-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/9
+        HB-HL-DC1-102-D05-02U-LTY-CSQ-BORDER-SW04-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/9
+      LEAF: {}
+    switch-c:
+      SPINE: {}
+      BORDER:
+        HB-HL-DC1-102-C07-02U-LTY-CSQ-BORDER-SW05-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/9
+        HB-HL-DC1-102-D07-02U-LTY-CSQ-BORDER-SW06-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/9
+      LEAF: {}

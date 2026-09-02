@@ -21,7 +21,7 @@ go test -p=1 ./go_test_suites/group1_algorithm_worker -run '^TestGroup1_' -v -co
   -> 开始计时
   -> Go通过stdin发送workerEnvelope JSONL
   -> Python requirement过滤占用/不匹配Node
-  -> Python topology形成Leaf/Border/Core组
+  -> Python topology按Leaf/空Spine/Border Domain/Room/DC/Location/Region分组
   -> Python loadbalance评分并返回Top-3
   -> Go从stdout读取JSONL、校验消息ID并解析结果
   -> 停止计时
@@ -32,7 +32,9 @@ go test -p=1 ./go_test_suites/group1_algorithm_worker -run '^TestGroup1_' -v -co
 输入文件：
 
 - `testdata/input/worker-payload.json`：Go发送的完整上下文；
-- `testdata/input/node-static-snapshot.json`：1000 Node静态资源和三层拓扑；
+- `testdata/input/node-static-snapshot.json`：1000 Node静态资源和直连Leaf；
+- `testdata/input/network-topology.yaml`：联通式独立上层拓扑、空SPINE和双Border Domain；
+- `testdata/input/resolved-node-static-snapshot.json`：Go拓扑层补齐后传给Python的完整静态输入；
 - `testdata/input/node-dynamic-state.json`：请求级`inUse`状态；
 - `testdata/input/prometheus-metrics.json`：已经准备好的14项Node指标。
 

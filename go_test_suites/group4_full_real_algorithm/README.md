@@ -8,7 +8,7 @@ source scripts/go-test-env.sh
 go test -p=1 ./go_test_suites/group4_full_real_algorithm -run '^TestGroup4_' -v -count=1
 ```
 
-计时前已经完成Prometheus指标预热、envtest启动、1000 Node/Pod及拓扑标签预置、PRC Cache Sync和独立静态快照同步。计时从PRC通过Watch观察到NGD并进入Reconcile开始，到真实Algorithm返回且NGG为`Active`结束。静态快照构造与PUT不在任务计时内；NGD `Fulfilled`继续作为正确性断言，但不计时。
+计时前已经完成Algorithm独立上层拓扑加载、Prometheus指标预热、envtest启动、1000 Node/Pod及Leaf标签预置、PRC Cache Sync和独立静态快照同步。计时从PRC通过Watch观察到NGD并进入Reconcile开始，到真实Algorithm返回且NGG为`Active`结束。静态快照构造与PUT不在任务计时内；NGD `Fulfilled`继续作为正确性断言，但不计时。
 
 本组不启动Volcano或kube-scheduler，因此验证到正式NGG生成，不验证Pod最终Bind。
 

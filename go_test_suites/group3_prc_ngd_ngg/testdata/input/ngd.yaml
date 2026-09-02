@@ -5,19 +5,14 @@ metadata:
     scheduling.platform.example.io/scheduler: volcano
   name: go-test-demand
 spec:
-  maxCandidateGroups: 3
-  maxNodes: 6
+  maxNodes: 18
   minResources:
-    cpu: "96"
-    memory: 384Gi
+    cpu: "480"
+    memory: 1920Gi
   nodeSelector:
     matchLabels:
       tests.ngg.io/worker: "true"
   quota:
-    cpu: "192"
-    memory: 768Gi
+    cpu: "576"
+    memory: 2304Gi
   schedulerName: volcano
-  topologyRequirement:
-    profile: leaf-border-core-v1
-    strategy: NarrowestFit
-    widestAllowedLevel: coreSwitch

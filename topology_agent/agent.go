@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -13,15 +12,10 @@ import (
 const labelPrefix = "topology.demo.ngg.io/"
 
 type observation struct {
-	LeafSwitchID    string
-	BorderSwitchID  string
-	CoreSwitchID    string
-	BandwidthGbps   float64
-	LatencyMillis   float64
-	LocalInterface  string
-	RemotePortID    string
-	Source          string
-	TopologyVersion string
+	LeafSwitchID   string
+	LocalInterface string
+	RemotePortID   string
+	Source         string
 }
 
 type topologyAgent struct {
@@ -30,7 +24,6 @@ type topologyAgent struct {
 	mode       string
 	interfaces map[string]struct{}
 	listen     time.Duration
-	config     topologyConfig
 	mu         sync.RWMutex
 	current    *observation
 }
@@ -66,11 +59,11 @@ func (a *topologyAgent) reconcile(ctx context.Context, node nodeObject) error {
 	var observed observation
 	var err error
 	if strings.EqualFold(a.mode, "Simulated") {
-		leaf := node.Metadata.Labels[labelPrefix+"switch"]
+		leaf := node.Metadata.Annotations[labelPrefix+"simulated-leaf-switch"]
 		if leaf == "" {
-			return fmt.Errorf("simulated seed label %sswitch is missing", labelPrefix)
+			return fmt.Errorf("simulated seed annotation %ssimulated-leaf-switch is missing", labelPrefix)
 		}
-		observed, err = a.config.resolve(leaf)
+		observed.LeafSwitchID = leaf
 		observed.LocalInterface = valueOr(node.Metadata.Labels[labelPrefix+"local-interface"], "eth0")
 		observed.RemotePortID = node.Metadata.Annotations[labelPrefix+"remote-port"]
 		observed.Source = "SimulatedLLDP"
@@ -78,7 +71,7 @@ func (a *topologyAgent) reconcile(ctx context.Context, node nodeObject) error {
 		var neighbor lldpNeighbor
 		neighbor, err = receiveLLDP(a.interfaces, a.listen)
 		if err == nil {
-			observed, err = a.config.resolve(neighbor.switchID())
+			observed.LeafSwitchID = neighbor.switchID()
 			observed.LocalInterface, observed.RemotePortID, observed.Source = neighbor.LocalInterface, neighbor.PortID, "LLDP"
 		}
 	}
@@ -86,30 +79,23 @@ func (a *topologyAgent) reconcile(ctx context.Context, node nodeObject) error {
 		return err
 	}
 	labels := map[string]string{
-		labelPrefix + "switch": observed.LeafSwitchID, labelPrefix + "leaf-switch": observed.LeafSwitchID,
-		labelPrefix + "border-switch": observed.BorderSwitchID, labelPrefix + "core-switch": observed.CoreSwitchID,
-		labelPrefix + "bandwidth-gbps": formatFloat(observed.BandwidthGbps), labelPrefix + "latency-ms": formatFloat(observed.LatencyMillis),
-		labelPrefix + "topology-version": observed.TopologyVersion, labelPrefix + "source": observed.Source,
+		labelPrefix + "leaf-switch": observed.LeafSwitchID,
 	}
-	annotations := map[string]string{labelPrefix + "local-interface": observed.LocalInterface, labelPrefix + "remote-port": observed.RemotePortID, labelPrefix + "observed-at": time.Now().UTC().Format(time.RFC3339)}
+	annotations := map[string]string{labelPrefix + "source": observed.Source, labelPrefix + "local-interface": observed.LocalInterface, labelPrefix + "remote-port": observed.RemotePortID, labelPrefix + "observed-at": time.Now().UTC().Format(time.RFC3339)}
 	if err := a.client.patchNode(ctx, a.nodeName, labels, annotations); err != nil {
 		return err
 	}
 	a.mu.Lock()
 	a.current = &observed
 	a.mu.Unlock()
-	log.Printf("node=%s source=%s leaf=%s border=%s core=%s", a.nodeName, observed.Source, observed.LeafSwitchID, observed.BorderSwitchID, observed.CoreSwitchID)
+	log.Printf("node=%s source=%s leaf=%s", a.nodeName, observed.Source, observed.LeafSwitchID)
 	return nil
 }
 
 func observationFromLabels(labels, annotations map[string]string) (observation, bool) {
-	result := observation{LeafSwitchID: labels[labelPrefix+"leaf-switch"], BorderSwitchID: labels[labelPrefix+"border-switch"], CoreSwitchID: labels[labelPrefix+"core-switch"], Source: labels[labelPrefix+"source"], TopologyVersion: labels[labelPrefix+"topology-version"], LocalInterface: annotations[labelPrefix+"local-interface"], RemotePortID: annotations[labelPrefix+"remote-port"]}
-	result.BandwidthGbps, _ = strconv.ParseFloat(labels[labelPrefix+"bandwidth-gbps"], 64)
-	result.LatencyMillis, _ = strconv.ParseFloat(labels[labelPrefix+"latency-ms"], 64)
-	return result, result.LeafSwitchID != "" && result.BorderSwitchID != "" && result.CoreSwitchID != "" && result.TopologyVersion != ""
+	result := observation{LeafSwitchID: labels[labelPrefix+"leaf-switch"], Source: annotations[labelPrefix+"source"], LocalInterface: annotations[labelPrefix+"local-interface"], RemotePortID: annotations[labelPrefix+"remote-port"]}
+	return result, result.LeafSwitchID != ""
 }
-
-func formatFloat(value float64) string { return strconv.FormatFloat(value, 'f', -1, 64) }
 func valueOr(value, fallback string) string {
 	if value != "" {
 		return value

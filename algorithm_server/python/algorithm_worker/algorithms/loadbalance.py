@@ -211,6 +211,7 @@ class LoadBalanceAlgorithm:
             "nodeName": str(node["nodeName"]),
             "score": max(0, min(100, round(score))),
             "_availableResources": dict(available),
+            "topology": dict(node.get("topology", {})),
         }
         if "cpu" in available or "memory" in available:
             result["resources"] = {

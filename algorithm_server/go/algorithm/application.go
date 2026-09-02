@@ -29,6 +29,10 @@ type Config struct {
 	PythonModule             string
 	PythonPath               string
 	WorkerEvidenceDir        string
+	TopologyConfigFile       string
+	// TopologyConfigData is used by deterministic tests; production reads the
+	// operator-managed file mounted into Algorithm Server.
+	TopologyConfigData []byte
 }
 
 // Application 是 Algorithm 进程内所有有状态组件的生命周期容器。
@@ -64,6 +68,7 @@ func ConfigFromEnv() (Config, error) {
 		PythonModule:           env("PYTHON_WORKER_MODULE", "algorithm_worker.worker"),
 		PythonPath:             os.Getenv("PYTHONPATH"),
 		WorkerEvidenceDir:      os.Getenv("ALGORITHM_WORKER_EVIDENCE_DIR"),
+		TopologyConfigFile:     env("TOPOLOGY_CONFIG_FILE", "/etc/ngd-ngg/topology.yaml"),
 	}, nil
 }
 
@@ -97,6 +102,11 @@ func NewApplication(config Config) (*Application, error) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	topology, err := loadTopologyCache(config.TopologyConfigFile, config.TopologyConfigData)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("load Algorithm network topology: %w", err)
+	}
 	worker, err := NewPythonWorker(ctx, WorkerConfig{
 		EvidenceDir: config.WorkerEvidenceDir,
 		Executable:  config.PythonExecutable,
@@ -113,7 +123,7 @@ func NewApplication(config Config) (*Application, error) {
 		nodeLabel: config.PrometheusNodeLabel, interval: config.MetricsRefreshInterval,
 		staleAfter: config.MetricsStaleAfter, client: config.PrometheusClient,
 	}
-	service := &service{bootID: config.BootID, static: &staticCache{}, metrics: metrics, worker: worker}
+	service := &service{bootID: config.BootID, static: &staticCache{}, topology: topology, metrics: metrics, worker: worker}
 	mux := http.NewServeMux()
 	registerRoutes(mux, service)
 	app := &Application{ctx: ctx, cancel: cancel, service: service, handler: mux, worker: worker}
@@ -215,7 +225,7 @@ func calculateHandler(app *service, legacy bool) http.HandlerFunc {
 }
 
 func cacheStatus(app *service) map[string]any {
-	return map[string]any{"bootId": app.bootID, "runtime": "go", "nodeStatic": app.static.status(), "schedulerState": map[string]any{"cached": false, "mode": "request-scoped"}, "metrics": app.metrics.status()}
+	return map[string]any{"bootId": app.bootID, "runtime": "go", "nodeStatic": app.static.status(), "networkTopology": app.topology.status(), "schedulerState": map[string]any{"cached": false, "mode": "request-scoped"}, "metrics": app.metrics.status()}
 }
 
 func decodeBody(r *http.Request) (map[string]any, *apiError) {

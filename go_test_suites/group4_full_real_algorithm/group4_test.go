@@ -74,7 +74,7 @@ func TestGroup4_PRCWatchesNGDCallsRealAlgorithmAndCreatesNGG(t *testing.T) {
 	worker := common.PythonWorkerConfig(filepath.Join(runDirectory, "actual"))
 	algorithmServer, err := algorithm.NewServer(algorithm.Config{
 		BootID: "group4-algorithm", PrometheusURL: prometheus.URL(), PrometheusBearerToken: "go-test-prometheus-token",
-		PrometheusClient: prometheus.Client(), MetricsStaleAfter: metricsStaleAfter,
+		PrometheusClient: prometheus.Client(), MetricsStaleAfter: metricsStaleAfter, TopologyConfigData: fixture.TopologyConfig,
 		PythonExecutable: worker.Executable, PythonModule: worker.Module, PythonPath: worker.PythonPath, WorkerEvidenceDir: worker.EvidenceDir,
 	}, algorithm.ServerOptions{ListenAddress: "127.0.0.1:0", ShutdownTimeout: managerShutdownTimeout})
 	if err != nil {

@@ -56,48 +56,6 @@ spec:
                           type: array
                           items:
                             type: string
-              topologyRequirement:
-                type: object
-                description: |
-                  拓扑分组硬约束。NarrowestFit从Leaf向Border、Core逐层扩大，
-                  widestAllowedLevel表示允许放宽到的最宽拓扑层级。
-                required: [profile, strategy, widestAllowedLevel]
-                properties:
-                  profile:
-                    type: string
-                    enum: [leaf-border-core-v1]
-                  strategy:
-                    type: string
-                    enum: [NarrowestFit]
-                  widestAllowedLevel:
-                    type: string
-                    enum: [leafSwitch, borderSwitch, coreSwitch]
-              algorithms:
-                type: array
-                minItems: 3
-                maxItems: 8
-                description: |
-                  Algorithm插件编排，数组顺序就是执行顺序。当前正式链路要求
-                  requirement(FILTER) -> topology(GROUP) -> loadbalance(SCORE)。
-                items:
-                  type: object
-                  required: [name, version]
-                  properties:
-                    name:
-                      type: string
-                      minLength: 1
-                    version:
-                      type: string
-                      minLength: 1
-                    parameters:
-                      type: object
-                      x-kubernetes-preserve-unknown-fields: true
-              maxCandidateGroups:
-                type: integer
-                minimum: 1
-                maximum: 3
-                default: 3
-                description: Algorithm最多返回的候选拓扑组数量。
               maxNodes:
                 type: integer
                 minimum: 1

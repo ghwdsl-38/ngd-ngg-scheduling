@@ -58,8 +58,8 @@ func (c *staticCache) put(id string, body map[string]any) (staticSnapshot, error
 			leaf = stringValue(topology["switchId"])
 			topology["leafSwitchId"] = leaf
 		}
-		if name == "" || uid == "" || leaf == "" || stringValue(topology["coreSwitchId"]) == "" {
-			return staticSnapshot{}, fmt.Errorf("every Node needs nodeName, nodeUID, coreSwitchId and leafSwitchId")
+		if name == "" || uid == "" || leaf == "" {
+			return staticSnapshot{}, fmt.Errorf("every Node needs nodeName, nodeUID and leafSwitchId")
 		}
 		if _, found := seen[uid]; found {
 			return staticSnapshot{}, fmt.Errorf("duplicate nodeUID %s", uid)

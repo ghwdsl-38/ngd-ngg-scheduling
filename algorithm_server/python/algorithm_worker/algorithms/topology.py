@@ -1,9 +1,7 @@
-"""固定流水线 GROUP 阶段：按联通 NGD 的 Leaf→Border→Core 约束分组。"""
+"""固定流水线 GROUP 阶段：按 Algorithm Server 已解析的拓扑逐层分组。"""
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
 from ..context import AllocationContext
@@ -13,47 +11,39 @@ from ..quantity import can_place_minimums
 
 
 class TopologyAlgorithm:
-    """实现 NarrowestFit：使用能够容纳整个任务的最窄拓扑层级。"""
+    """执行固定 NarrowestFit，不从 NGD 读取 profile 或拓扑图。"""
 
     name = "topology"
     version = "v1"
     stage = AlgorithmStage.GROUP
 
-    def __init__(self, profiles_path: Path | None = None) -> None:
-        path = profiles_path or (
-            Path(__file__).resolve().parents[1]
-            / "config"
-            / "topology_profiles.json"
-        )
-        with path.open(encoding="utf-8") as stream:
-            self.profiles = json.load(stream)
+    # SPINE 可以为空；为空时该层不会产生候选组，算法自然继续到 Border Domain。
+    LEVELS = [
+        {"name": "leafSwitch", "field": "leafSwitchId", "groupPrefix": "leaf"},
+        {
+            "name": "spineDomain",
+            "field": "spineDomainId",
+            "groupPrefix": "spine-domain",
+        },
+        {
+            "name": "borderDomain",
+            "field": "borderDomainId",
+            "groupPrefix": "border-domain",
+        },
+        {"name": "room", "field": "roomId", "groupPrefix": "room"},
+        {
+            "name": "dataCenter",
+            "field": "dataCenterId",
+            "groupPrefix": "data-center",
+        },
+        {"name": "location", "field": "locationId", "groupPrefix": "location"},
+        {"name": "region", "field": "regionId", "groupPrefix": "region"},
+    ]
 
     def validate_parameters(self, parameters: dict[str, Any]) -> None:
-        allowed = {
-            "profile",
-            "strategy",
-            "widestAllowedLevel",
-        }
-        unknown = sorted(set(parameters) - allowed)
-        if unknown:
+        if parameters:
             raise InvalidAlgorithmParameters(
-                f"topology/v1 unknown parameters: {', '.join(unknown)}"
-            )
-        profile_name = str(parameters.get("profile", "leaf-border-core-v1"))
-        profile = self.profiles.get(profile_name)
-        if not isinstance(profile, dict):
-            raise InvalidAlgorithmParameters(
-                f"topology/v1 profile {profile_name!r} is not configured"
-            )
-        if parameters.get("strategy", profile.get("strategy")) != "NarrowestFit":
-            raise InvalidAlgorithmParameters(
-                "topology/v1 strategy must be NarrowestFit"
-            )
-        level_names = {str(item["name"]) for item in profile.get("levels", [])}
-        widest = str(parameters.get("widestAllowedLevel", "coreSwitch"))
-        if widest not in level_names:
-            raise InvalidAlgorithmParameters(
-                f"widestAllowedLevel {widest!r} is not in topology profile"
+                "fixed topology algorithm does not accept parameters"
             )
 
     def execute(
@@ -62,27 +52,11 @@ class TopologyAlgorithm:
         parameters: dict[str, Any],
     ) -> dict[str, Any]:
         resource_pool = context.request.get("requestMode") == "resourcePool"
-        ngd = context.request.get("ngd", {}) if resource_pool else {}
-        if resource_pool and not ngd.get("topologyRequirement"):
-            nodes = sorted(
-                context.current_nodes,
-                key=lambda item: (str(item["nodeName"]), str(item["nodeUID"])),
-            )
-            return {"node_groups": ([{
-                "groupId": "cluster:" + context.static_snapshot.cluster_id,
-                "topologyLevel": "cluster",
-                "topologyOrder": 0,
-                "nodes": nodes,
-            }] if nodes else [])}
 
-        profile = self.profiles[str(parameters.get("profile", "leaf-border-core-v1"))]
-        levels = profile["levels"]
-        widest = str(parameters.get("widestAllowedLevel", "coreSwitch"))
-
-        # 资源池模式先生成允许范围内全部层级；评分后再剔除不满足资源需求的
-        # 组，并只保留仍可行的最窄层级。这样不会因 Leaf 资源不足而错过 Border。
+        # 资源池模式先生成各层候选；评分阶段会从最窄层开始，找到首个可满足
+        # NGD 资源需求的层级后停止。这样 Leaf 不够时可以上升到 Border Domain。
         all_groups: list[dict[str, Any]] = []
-        for order, level in enumerate(levels):
+        for order, level in enumerate(self.LEVELS):
             groups = self._group(
                 context.current_nodes,
                 str(level["field"]),
@@ -95,8 +69,6 @@ class TopologyAlgorithm:
                 all_groups.extend(groups)
             elif groups:
                 return {"node_groups": groups}
-            if str(level["name"]) == widest:
-                break
         return {"node_groups": all_groups if resource_pool else []}
 
     @staticmethod

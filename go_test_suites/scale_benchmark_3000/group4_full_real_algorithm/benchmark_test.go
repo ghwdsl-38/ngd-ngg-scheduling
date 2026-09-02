@@ -50,7 +50,7 @@ func TestGroup4Scale3000(t *testing.T) {
 	worker := base.PythonWorkerConfig("")
 	app, err := algorithm.NewApplication(algorithm.Config{
 		BootID: "benchmark-group4", PrometheusURL: prometheus.URL(), PrometheusBearerToken: "benchmark-prometheus-token",
-		PrometheusClient: prometheus.Client(), DisableBackgroundMetrics: true,
+		PrometheusClient: prometheus.Client(), DisableBackgroundMetrics: true, TopologyConfigData: fixture.TopologyConfig,
 		PythonExecutable: worker.Executable, PythonModule: worker.Module, PythonPath: worker.PythonPath,
 	})
 	if err != nil {

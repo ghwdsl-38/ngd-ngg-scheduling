@@ -1,0 +1,303 @@
+// topology.go loads the operator-maintained network graph and resolves the
+// single Leaf observed by LLDP into stable scheduling domains.  Kubernetes
+// Nodes carry only their direct Leaf; Region/Location/DC/Room and all switch
+// relationships stay inside Algorithm Server.
+package algorithm
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"sort"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+type topologyScopeConfig struct {
+	ID           string `yaml:"id" json:"id"`
+	Name         string `yaml:"name,omitempty" json:"name,omitempty"`
+	RegionID     string `yaml:"regionId,omitempty" json:"regionId,omitempty"`
+	LocationID   string `yaml:"locationId,omitempty" json:"locationId,omitempty"`
+	DataCenterID string `yaml:"dataCenterId,omitempty" json:"dataCenterId,omitempty"`
+}
+
+type topologyScopesConfig struct {
+	Regions     []topologyScopeConfig `yaml:"regions" json:"regions"`
+	Locations   []topologyScopeConfig `yaml:"locations" json:"locations"`
+	DataCenters []topologyScopeConfig `yaml:"dataCenters" json:"dataCenters"`
+	Rooms       []topologyScopeConfig `yaml:"rooms" json:"rooms"`
+}
+
+type topologyLinkConfig struct {
+	LocalPort string `yaml:"local_port,omitempty" json:"local_port,omitempty"`
+	PeerPort  string `yaml:"peer_port,omitempty" json:"peer_port,omitempty"`
+}
+
+// The upper-case field names intentionally match China Unicom's topology
+// document. Empty SPINE maps are valid and mean that Leaf connects directly
+// to its Border domain in this room.
+type leafAdjacencyConfig struct {
+	Spines  map[string]topologyLinkConfig `yaml:"SPINE" json:"SPINE"`
+	Borders map[string]topologyLinkConfig `yaml:"BORDER" json:"BORDER"`
+	Leaves  map[string]topologyLinkConfig `yaml:"LEAF" json:"LEAF"`
+}
+
+type borderDomainConfig struct {
+	RoomID  string   `yaml:"roomId" json:"roomId"`
+	Mode    string   `yaml:"mode,omitempty" json:"mode,omitempty"`
+	Members []string `yaml:"members" json:"members"`
+}
+
+type leafMetricConfig struct {
+	BandwidthGbps float64 `yaml:"bandwidthGbps,omitempty" json:"bandwidthGbps,omitempty"`
+	LatencyMillis float64 `yaml:"latencyMillis,omitempty" json:"latencyMillis,omitempty"`
+}
+
+type networkTopologyConfig struct {
+	Version       string                                    `yaml:"version" json:"version"`
+	Scopes        topologyScopesConfig                      `yaml:"scopes" json:"scopes"`
+	BorderDomains map[string]borderDomainConfig             `yaml:"borderDomains" json:"borderDomains"`
+	LeafMetrics   map[string]leafMetricConfig               `yaml:"leafMetrics,omitempty" json:"leafMetrics,omitempty"`
+	Topology      map[string]map[string]leafAdjacencyConfig `yaml:"topology" json:"topology"`
+}
+
+type resolvedLeafTopology struct {
+	RegionID        string
+	LocationID      string
+	DataCenterID    string
+	RoomID          string
+	LeafSwitchID    string
+	SpineDomainID   string
+	SpineSwitchIDs  []string
+	BorderDomainID  string
+	BorderSwitchIDs []string
+	PeerLeafIDs     []string
+	BandwidthGbps   float64
+	LatencyMillis   float64
+}
+
+type topologyCache struct {
+	snapshotID        string
+	version           string
+	byLeaf            map[string]resolvedLeafTopology
+	roomCount         int
+	borderDomainCount int
+}
+
+func loadTopologyCache(path string, data []byte) (*topologyCache, error) {
+	var err error
+	if len(data) == 0 {
+		if path == "" {
+			return nil, fmt.Errorf("topology config file is required")
+		}
+		data, err = os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read topology config: %w", err)
+		}
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	var config networkTopologyConfig
+	if err := decoder.Decode(&config); err != nil {
+		return nil, fmt.Errorf("decode topology config: %w", err)
+	}
+	return normalizeTopologyConfig(config)
+}
+
+func normalizeTopologyConfig(config networkTopologyConfig) (*topologyCache, error) {
+	if strings.TrimSpace(config.Version) == "" {
+		return nil, fmt.Errorf("topology config version is required")
+	}
+	regions, err := indexScopes("region", config.Scopes.Regions)
+	if err != nil {
+		return nil, err
+	}
+	locations, err := indexScopes("location", config.Scopes.Locations)
+	if err != nil {
+		return nil, err
+	}
+	dataCenters, err := indexScopes("dataCenter", config.Scopes.DataCenters)
+	if err != nil {
+		return nil, err
+	}
+	rooms, err := indexScopes("room", config.Scopes.Rooms)
+	if err != nil {
+		return nil, err
+	}
+	if len(regions) == 0 || len(locations) == 0 || len(dataCenters) == 0 || len(rooms) == 0 {
+		return nil, fmt.Errorf("topology config requires Region, Location, DataCenter and Room scopes")
+	}
+	for _, location := range locations {
+		if _, ok := regions[location.RegionID]; !ok {
+			return nil, fmt.Errorf("location %q references unknown region %q", location.ID, location.RegionID)
+		}
+	}
+	for _, dc := range dataCenters {
+		if _, ok := locations[dc.LocationID]; !ok {
+			return nil, fmt.Errorf("dataCenter %q references unknown location %q", dc.ID, dc.LocationID)
+		}
+	}
+	for _, room := range rooms {
+		if _, ok := dataCenters[room.DataCenterID]; !ok {
+			return nil, fmt.Errorf("room %q references unknown dataCenter %q", room.ID, room.DataCenterID)
+		}
+	}
+
+	byLeaf := map[string]resolvedLeafTopology{}
+	knownBorders := map[string]struct{}{}
+	for roomID, leaves := range config.Topology {
+		room, ok := rooms[roomID]
+		if !ok {
+			return nil, fmt.Errorf("topology references unknown room %q", roomID)
+		}
+		dc := dataCenters[room.DataCenterID]
+		location := locations[dc.LocationID]
+		for leafID, links := range leaves {
+			if leafID == "" {
+				return nil, fmt.Errorf("room %q contains empty Leaf id", roomID)
+			}
+			if _, duplicate := byLeaf[leafID]; duplicate {
+				return nil, fmt.Errorf("Leaf %q occurs in more than one room", leafID)
+			}
+			borders := sortedKeys(links.Borders)
+			if len(borders) == 0 {
+				return nil, fmt.Errorf("Leaf %q has no Border link", leafID)
+			}
+			for _, id := range borders {
+				knownBorders[id] = struct{}{}
+			}
+			spines := sortedKeys(links.Spines)
+			metric := config.LeafMetrics[leafID]
+			byLeaf[leafID] = resolvedLeafTopology{
+				RegionID: location.RegionID, LocationID: location.ID, DataCenterID: dc.ID, RoomID: room.ID,
+				LeafSwitchID: leafID, SpineSwitchIDs: spines, BorderSwitchIDs: borders,
+				PeerLeafIDs: sortedKeys(links.Leaves), BandwidthGbps: metric.BandwidthGbps, LatencyMillis: metric.LatencyMillis,
+			}
+		}
+	}
+	if len(byLeaf) == 0 {
+		return nil, fmt.Errorf("topology config contains no Leaf")
+	}
+
+	for domainID, domain := range config.BorderDomains {
+		if domainID == "" || domain.RoomID == "" || len(domain.Members) == 0 {
+			return nil, fmt.Errorf("Border domain needs id, roomId and members")
+		}
+		if _, ok := rooms[domain.RoomID]; !ok {
+			return nil, fmt.Errorf("Border domain %q references unknown room %q", domainID, domain.RoomID)
+		}
+		for _, member := range domain.Members {
+			if _, ok := knownBorders[member]; !ok {
+				return nil, fmt.Errorf("Border domain %q references unknown Border %q", domainID, member)
+			}
+		}
+	}
+	for leafID, leaf := range byLeaf {
+		domainID := ""
+		for candidateID, domain := range config.BorderDomains {
+			if domain.RoomID == leaf.RoomID && equalStringsAsSet(domain.Members, leaf.BorderSwitchIDs) {
+				if domainID != "" {
+					return nil, fmt.Errorf("Leaf %q matches multiple Border domains", leafID)
+				}
+				domainID = candidateID
+			}
+		}
+		if domainID == "" {
+			return nil, fmt.Errorf("Leaf %q Border set has no explicit Border domain", leafID)
+		}
+		leaf.BorderDomainID = domainID
+		if len(leaf.SpineSwitchIDs) > 0 {
+			id, _ := canonicalHash(leaf.SpineSwitchIDs)
+			leaf.SpineDomainID = "spine-domain:" + id[len("sha256:"):len("sha256:")+12]
+		}
+		for _, peer := range leaf.PeerLeafIDs {
+			if _, ok := byLeaf[peer]; !ok {
+				return nil, fmt.Errorf("Leaf %q references unknown peer Leaf %q", leafID, peer)
+			}
+		}
+		byLeaf[leafID] = leaf
+	}
+
+	identity := map[string]any{"version": config.Version, "scopes": config.Scopes, "borderDomains": config.BorderDomains, "leafMetrics": config.LeafMetrics, "topology": config.Topology}
+	id, err := canonicalHash(identity)
+	if err != nil {
+		return nil, err
+	}
+	return &topologyCache{snapshotID: id, version: config.Version, byLeaf: byLeaf, roomCount: len(rooms), borderDomainCount: len(config.BorderDomains)}, nil
+}
+
+func indexScopes(kind string, values []topologyScopeConfig) (map[string]topologyScopeConfig, error) {
+	result := make(map[string]topologyScopeConfig, len(values))
+	for _, value := range values {
+		if value.ID == "" {
+			return nil, fmt.Errorf("%s id is required", kind)
+		}
+		if _, duplicate := result[value.ID]; duplicate {
+			return nil, fmt.Errorf("duplicate %s %q", kind, value.ID)
+		}
+		result[value.ID] = value
+	}
+	return result, nil
+}
+
+func sortedKeys[T any](values map[string]T) []string {
+	result := make([]string, 0, len(values))
+	for key := range values {
+		result = append(result, key)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func equalStringsAsSet(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	a, b := append([]string(nil), left...), append([]string(nil), right...)
+	sort.Strings(a)
+	sort.Strings(b)
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *topologyCache) resolve(snapshot staticSnapshot) (staticSnapshot, []string, error) {
+	resolved := snapshot
+	resolved.TopologyVersion = c.version
+	resolved.Nodes = make([]map[string]any, 0, len(snapshot.Nodes))
+	warnings := []string{}
+	for _, original := range snapshot.Nodes {
+		node := copyMap(original)
+		topology, _ := original["topology"].(map[string]any)
+		leafID := stringValue(topology["leafSwitchId"])
+		leaf, ok := c.byLeaf[leafID]
+		if !ok {
+			warnings = append(warnings, fmt.Sprintf("Node %s Leaf %q is absent from Algorithm topology config", stringValue(node["nodeName"]), leafID))
+			continue
+		}
+		resolvedTopology := map[string]any{
+			"regionId": leaf.RegionID, "locationId": leaf.LocationID, "dataCenterId": leaf.DataCenterID, "roomId": leaf.RoomID,
+			"leafSwitchId": leaf.LeafSwitchID, "switchId": leaf.LeafSwitchID,
+			"borderDomainId": leaf.BorderDomainID, "borderSwitchIds": leaf.BorderSwitchIDs,
+			"spineDomainId": leaf.SpineDomainID, "spineSwitchIds": leaf.SpineSwitchIDs,
+			"peerLeafSwitchIds": leaf.PeerLeafIDs, "bandwidthGbps": leaf.BandwidthGbps, "latencyMillis": leaf.LatencyMillis,
+		}
+		node["topology"] = resolvedTopology
+		resolved.Nodes = append(resolved.Nodes, node)
+	}
+	if len(resolved.Nodes) == 0 {
+		return staticSnapshot{}, warnings, fmt.Errorf("no Node Leaf can be resolved by Algorithm topology config")
+	}
+	return resolved, warnings, nil
+}
+
+func (c *topologyCache) status() map[string]any {
+	if c == nil {
+		return map[string]any{"ready": false, "snapshotId": "", "version": "", "leafCount": 0, "roomCount": 0, "borderDomainCount": 0}
+	}
+	return map[string]any{"ready": len(c.byLeaf) > 0, "snapshotId": c.snapshotID, "version": c.version, "leafCount": len(c.byLeaf), "roomCount": c.roomCount, "borderDomainCount": c.borderDomainCount}
+}

@@ -34,7 +34,9 @@ func ScaleRoot() string {
 // schedulable, with no bound Pods, so minResources can select an exact count.
 type Fixture struct {
 	StaticSnapshot   map[string]any
+	ResolvedSnapshot map[string]any
 	StaticSnapshotID string
+	TopologyConfig   []byte
 	NodeUsageStates  []any
 	Metrics          map[string]map[string]float64
 	MetricSnapshot   map[string]any
@@ -65,12 +67,14 @@ func GenerateFixture() (*Fixture, error) {
 	}
 	static := copyMap(source.StaticSnapshot)
 	static["clusterId"] = ClusterID
+	resolved := copyMap(source.ResolvedSnapshot)
+	resolved["clusterId"] = ClusterID
 	staticID, err := base.CanonicalHash(static)
 	if err != nil {
 		return nil, err
 	}
 	return &Fixture{
-		StaticSnapshot: static, StaticSnapshotID: staticID,
+		StaticSnapshot: static, ResolvedSnapshot: resolved, StaticSnapshotID: staticID, TopologyConfig: source.TopologyConfig,
 		NodeUsageStates: states, Metrics: source.Metrics,
 		MetricSnapshot: copyMap(metric), Nodes: nodes,
 	}, nil
@@ -84,12 +88,9 @@ func DemandSpec(target int) map[string]any {
 	return map[string]any{
 		"schedulerName": "volcano",
 		"nodeSelector":  map[string]any{"matchLabels": map[string]any{"tests.ngg.io/worker": "true"}},
-		"topologyRequirement": map[string]any{
-			"profile": "leaf-border-core-v1", "strategy": "NarrowestFit", "widestAllowedLevel": "coreSwitch",
-		},
-		"maxCandidateGroups": int64(3), "maxNodes": int64(target),
-		"quota":        map[string]any{"cpu": cpu, "memory": memory},
-		"minResources": map[string]any{"cpu": cpu, "memory": memory},
+		"maxNodes":      int64(target),
+		"quota":         map[string]any{"cpu": cpu, "memory": memory},
+		"minResources":  map[string]any{"cpu": cpu, "memory": memory},
 	}
 }
 
@@ -102,7 +103,8 @@ func (f *Fixture) Allocation(target int, requestID string) map[string]any {
 }
 
 func (f *Fixture) WorkerPayload(target int, requestID string) map[string]any {
-	static := copyMap(f.StaticSnapshot)
+	static := copyMap(f.ResolvedSnapshot)
+	static["clusterId"] = ClusterID
 	static["snapshotId"] = f.StaticSnapshotID
 	return map[string]any{
 		"request": f.Allocation(target, requestID), "staticSnapshot": static,
@@ -126,6 +128,9 @@ func WriteCanonicalInputs(root string, fixture *Fixture) error {
 	if err := base.WriteJSON(filepath.Join(input, "node-static-snapshot-3000.json"), static); err != nil {
 		return err
 	}
+	if err := os.WriteFile(filepath.Join(input, "network-topology.yaml"), fixture.TopologyConfig, 0o644); err != nil {
+		return err
+	}
 	if err := base.WriteJSON(filepath.Join(input, "node-dynamic-state-3000.json"), map[string]any{"scope": "request", "nodes": fixture.NodeUsageStates}); err != nil {
 		return err
 	}
@@ -133,7 +138,7 @@ func WriteCanonicalInputs(root string, fixture *Fixture) error {
 		return err
 	}
 	if err := base.WriteJSON(filepath.Join(input, "fixture-summary.json"), map[string]any{
-		"nodeCount": NodeCount, "coreCount": 2, "borderCount": 4, "leafCount": 150,
+		"nodeCount": NodeCount, "regionCount": 1, "locationCount": 1, "dataCenterCount": 1, "roomCount": 1, "borderDomainCount": 4, "leafCount": 150,
 		"nodesPerLeaf": 20, "metricNamesPerNode": 14, "metricSamples": NodeCount * 14,
 	}); err != nil {
 		return err

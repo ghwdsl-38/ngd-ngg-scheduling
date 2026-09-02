@@ -70,16 +70,15 @@ flowchart TD
 
 ## 3. 3000 Node拓扑
 
-拓扑由[fixture.go](common/fixture.go)确定性生成，版本为`dc-core-border-leaf-v1`：
+拓扑由[fixture.go](common/fixture.go)确定性生成。Node静态协议为`node-leaf-v1`，上层关系使用独立Algorithm配置：
 
 ```text
-dc-test-01：3000 Node
-├── core-01：1500 Node
-│   ├── border-01：leaf-001~038，760 Node
-│   └── border-02：leaf-039~075，740 Node
-└── core-02：1500 Node
-    ├── border-03：leaf-076~113，760 Node
-    └── border-04：leaf-114~150，740 Node
+华北 → 怀来 → HB-HL-DC1 → HB-HL-DC1-102机房：3000 Node
+├── Border Domain 01（双Border）：760 Node
+├── Border Domain 02（双Border）：740 Node
+├── Border Domain 03（双Border）：760 Node
+└── Border Domain 04（双Border）：740 Node
+SPINE: {}
 
 每个Leaf固定连接20个连续编号的Worker
 worker-0001 ... worker-3000
@@ -87,21 +86,17 @@ worker-0001 ... worker-3000
 
 ```mermaid
 flowchart TB
-    DC[dc-test-01<br/>3000 Node]
-    C1[core-01<br/>1500 Node]
-    C2[core-02<br/>1500 Node]
-    B1[border-01<br/>38 Leaf / 760 Node]
-    B2[border-02<br/>37 Leaf / 740 Node]
-    B3[border-03<br/>38 Leaf / 760 Node]
-    B4[border-04<br/>37 Leaf / 740 Node]
+    DC[华北 / 怀来 / DC1 / 102机房<br/>3000 Node]
+    B1[Border Domain 01<br/>双Border / 760 Node]
+    B2[Border Domain 02<br/>双Border / 740 Node]
+    B3[Border Domain 03<br/>双Border / 760 Node]
+    B4[Border Domain 04<br/>双Border / 740 Node]
     L[每个Leaf<br/>20 Node]
 
-    DC -->|核心域1| C1
-    DC -->|核心域2| C2
-    C1 -->|下联Border| B1
-    C1 -->|下联Border| B2
-    C2 -->|下联Border| B3
-    C2 -->|下联Border| B4
+    DC -->|显式非重叠Domain| B1
+    DC -->|显式非重叠Domain| B2
+    DC -->|显式非重叠Domain| B3
+    DC -->|显式非重叠Domain| B4
     B1 -->|下联Leaf| L
     B2 -->|下联Leaf| L
     B3 -->|下联Leaf| L
@@ -122,46 +117,28 @@ Unschedulable：false
 每个Node带有：
 
 ```text
-topology.kubernetes.io/region
-topology.kubernetes.io/rack
-topology.demo.ngg.io/core-switch
-topology.demo.ngg.io/border-switch
 topology.demo.ngg.io/leaf-switch
-topology.demo.ngg.io/bandwidth-gbps
-topology.demo.ngg.io/latency-ms
 ```
 
 带宽在`25/40/50/100 Gbps`之间循环，时延在`4/2.5/1.5/0.8 ms`之间循环。每个Node还有14项CPU、内存和网络Prometheus指标，共`3000×14=42000`个指标样本。
 
-本测试不启动LLDP。Node标签代表“LLDP采集Node到Leaf关系，静态配置补齐Leaf到Border/Core关系”后已经准备好的拓扑结果。
+本测试不启动LLDP。Node只模拟LLDP写入的Leaf标签；Region、Location、DC、Room、双Border Domain、空SPINE、带宽和时延来自`testdata/input/network-topology.yaml`，由真实Algorithm Go层解析。
 
 ## 4. 为什么不同数量会落在不同层级
 
-测试统一使用：
+正式NGD不携带拓扑profile。服务端固定`NarrowestFit`，优先选择能容纳全部目标Node的最窄层级：
 
-```yaml
-topologyRequirement:
-  profile: leaf-border-core-v1
-  strategy: NarrowestFit
-  widestAllowedLevel: coreSwitch
-```
-
-`NarrowestFit`优先选择能容纳全部目标Node的最窄层级：
-
-| 选择Node | Leaf容量20 | Border容量740/760 | Core容量1500 | 最终层级 |
-| -------: | ---------: | ----------------: | -----------: | -------- |
-|       10 |       满足 |                — |           — | Leaf     |
-|      100 |     不满足 |              满足 |           — | Border   |
-|      300 |     不满足 |              满足 |           — | Border   |
-|      500 |     不满足 |              满足 |           — | Border   |
-|      800 |     不满足 |            不满足 |         满足 | Core     |
-|     1000 |     不满足 |            不满足 |         满足 | Core     |
+| 选择Node | Leaf容量20 | Border Domain容量740/760 | Room容量3000 | 最终层级 |
+| -------: | ---------: | -----------------------: | -----------: | -------- |
+|       10 |       满足 |                        — |            — | Leaf |
+| 100/300/500 | 不满足 | 满足 | — | Border Domain |
+| 800/1000 | 不满足 | 不满足 | 满足 | Room |
 
 真实Algorithm中：
 
 - 10 Node有150个可行Leaf，评分后返回Top-3；
-- 100/300/500 Node有4个可行Border，评分后返回Top-3；
-- 800/1000 Node只有2个可行Core，因此返回Top-2；
+- 100/300/500 Node有4个可行Border Domain，评分后返回Top-3；
+- 800/1000 Node在Room层只有1个可行组，因此返回Top-1；
 - PRC始终只把rank 1候选组写入正式NGG。
 
 ## 5. 如何精确选择N个Node

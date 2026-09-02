@@ -1,11 +1,10 @@
 {
   "debugTrace": true,
   "ngd": {
-    "maxCandidateGroups": 3,
-    "maxNodes": 6,
+    "maxNodes": 18,
     "minResources": {
-      "cpu": "96",
-      "memory": "384Gi"
+      "cpu": "480",
+      "memory": "1920Gi"
     },
     "nodeSelector": {
       "matchLabels": {
@@ -13,19 +12,14 @@
       }
     },
     "quota": {
-      "cpu": "192",
-      "memory": "768Gi"
+      "cpu": "576",
+      "memory": "2304Gi"
     },
-    "schedulerName": "volcano",
-    "topologyRequirement": {
-      "profile": "leaf-border-core-v1",
-      "strategy": "NarrowestFit",
-      "widestAllowedLevel": "coreSwitch"
-    }
+    "schedulerName": "volcano"
   },
   "ngdGeneration": 1,
   "ngdUID": "ngd-uid-1000",
-  "nodeStaticSnapshotId": "sha256:5d6031df8b153273bb1db525cbfddee9cfdbbc75b80678d34c46f1ba3d2a526b",
+  "nodeStaticSnapshotId": "sha256:22f9faed3a3b4eb92184ebe74135cedf9e21cff36285a5668016d1464267cad9",
   "nodeUsageStates": [
     {
       "inUse": false,

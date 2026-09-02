@@ -18,7 +18,7 @@ algorithm_ready="$(kube -n "${SYSTEM_NAMESPACE}" get deployment/ngd-ngg-algorith
 log "Algorithm API Server已部署: image=${algorithm_image}, availableReplicas=${algorithm_ready}"
 
 mapfile -t switch_c_nodes < <(
-  kube get nodes -l 'topology.demo.ngg.io/switch=switch-c' \
+  kube get nodes -l 'topology.demo.ngg.io/leaf-switch=switch-c' \
     -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort
 )
 (( ${#switch_c_nodes[@]} == 4 )) || die "switch-c应包含4个Worker"
@@ -127,7 +127,7 @@ kube get nnt -o yaml >"${ngg_output_dir}/node-network-topologies-legacy.yaml"
 failed=0
 placement_lines=()
 while read -r pod node; do
-  switch_id="$(kube get node "${node}" -o 'jsonpath={.metadata.labels.topology\.demo\.ngg\.io/switch}')"
+  switch_id="$(kube get node "${node}" -o 'jsonpath={.metadata.labels.topology\.demo\.ngg\.io/leaf-switch}')"
   allowed="$(kube -n "${DEMO_NAMESPACE}" get ngg ngg-topology \
     -o jsonpath='{range .spec.candidateNodeGroups[1].nodes[*]}{.name}{"\n"}{end}' |
     awk -v target="${node}" '$0==target {print "yes"}')"

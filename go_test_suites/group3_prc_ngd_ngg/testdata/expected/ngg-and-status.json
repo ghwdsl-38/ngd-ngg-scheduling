@@ -32,9 +32,8 @@
           "score": 90,
           "topology": {
             "accessSwitch": "leaf-001",
-            "convergenceSwitch": "border-01",
-            "dataCenter": "dc-test-01",
-            "rack": "rack-001"
+            "convergenceSwitch": "HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "dataCenter": "HB-HL-DC1"
           }
         },
         {
@@ -46,9 +45,8 @@
           "score": 85,
           "topology": {
             "accessSwitch": "leaf-001",
-            "convergenceSwitch": "border-01",
-            "dataCenter": "dc-test-01",
-            "rack": "rack-001"
+            "convergenceSwitch": "HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "dataCenter": "HB-HL-DC1"
           }
         },
         {
@@ -60,9 +58,8 @@
           "score": 80,
           "topology": {
             "accessSwitch": "leaf-001",
-            "convergenceSwitch": "border-01",
-            "dataCenter": "dc-test-01",
-            "rack": "rack-001"
+            "convergenceSwitch": "HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "dataCenter": "HB-HL-DC1"
           }
         }
       ],

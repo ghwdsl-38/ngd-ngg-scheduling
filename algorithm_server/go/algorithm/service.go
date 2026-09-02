@@ -10,10 +10,11 @@ import (
 )
 
 type service struct {
-	bootID  string
-	static  *staticCache
-	metrics *metricsCache
-	worker  calculator
+	bootID   string
+	static   *staticCache
+	topology *topologyCache
+	metrics  *metricsCache
+	worker   calculator
 }
 
 func (s *service) allocate(ctx context.Context, request map[string]any, legacy bool) (map[string]any, *apiError) {
@@ -28,6 +29,10 @@ func (s *service) allocate(ctx context.Context, request map[string]any, legacy b
 	if !found {
 		return nil, &apiError{RequestID: requestID, Code: "STATIC_SNAPSHOT_NOT_FOUND", Message: fmt.Sprintf("node static snapshot %q is not available", request["nodeStaticSnapshotId"]), Retryable: true, Status: 409}
 	}
+	resolvedStatic, topologyWarnings, topologyErr := s.topology.resolve(static)
+	if topologyErr != nil {
+		return nil, &apiError{RequestID: requestID, Code: "TOPOLOGY_RESOLUTION_FAILED", Message: topologyErr.Error(), Retryable: true, Status: 409}
+	}
 	// 新协议直接发送 nodeUsageStates；旧协议 schedulerState 在 Go 中适配。
 	normalized, err := normalizeUsageStates(request, static.Nodes)
 	if err != nil {
@@ -36,9 +41,10 @@ func (s *service) allocate(ctx context.Context, request map[string]any, legacy b
 	requestCopy := copyMap(request)
 	requestCopy["nodeUsageStates"] = normalized
 	metric, degraded, warnings := s.metrics.resolve()
+	warnings = append(warnings, topologyWarnings...)
 	warnings = append(warnings, ignoredNGDWarnings(requestCopy)...)
 	// Worker 每次收到完整上下文，因此 Python 不需要维护跨请求缓存。
-	result, workerErr := s.worker.calculate(ctx, workerPayload{Request: requestCopy, StaticSnapshot: static, MetricSnapshot: metric, MetricsDegraded: degraded, Warnings: warnings})
+	result, workerErr := s.worker.calculate(ctx, workerPayload{Request: requestCopy, StaticSnapshot: resolvedStatic, MetricSnapshot: metric, MetricsDegraded: degraded, Warnings: warnings})
 	if workerErr != nil {
 		return nil, workerErr
 	}
@@ -71,6 +77,7 @@ func (s *service) allocate(ctx context.Context, request map[string]any, legacy b
 		"requestId": requestID, "taskUID": stringValue(request["taskUID"]), "ngdUID": stringValue(request["ngdUID"]),
 		"ngdGeneration": request["ngdGeneration"], "algorithmBootId": s.bootID,
 		"nodeStaticSnapshotId": static.SnapshotID, "metricsSnapshotId": metricID, "metricSnapshotId": metricID,
+		"topologySnapshotId":       s.topology.snapshotID,
 		"metricSnapshotCapturedAt": metricCapturedAt,
 		"degraded":                 degraded, "warnings": warnings, "status": status, "candidateNodeGroups": groups,
 	}
@@ -163,7 +170,7 @@ func ignoredNGDWarnings(request map[string]any) []string {
 	if !ok {
 		return nil
 	}
-	fields := []string{"algorithms", "minThroughput", "crossClusterAffinity", "intraClusterAffinity", "networkReachability", "preferredSubnet"}
+	fields := []string{"minThroughput", "crossClusterAffinity", "intraClusterAffinity", "networkReachability", "preferredSubnet"}
 	warnings := []string{}
 	for _, field := range fields {
 		value, exists := ngd[field]

@@ -23,7 +23,8 @@ flowchart TB
 - Node 静态数据：由 PRC 上传，Go 保存当前和前一个内容 Hash 快照。
 - Node 动态数据：由 PRC 随每次任务请求发送，只在本次请求中使用，不跨请求缓存。
 - Prometheus 指标：由 Go 自己周期读取，进程内保存当前和前一个有效快照。
-- 拓扑数据：位于静态 Node 的 `topology` 字段中，当前 profile 是 Node → Leaf → Border → Core；缺失可选 Border 数据时可继续扩大到 Core。
+- Node静态拓扑：PRC只上传每个Node的直连`leafSwitchId`。
+- 上层网络拓扑：Go从独立YAML加载Region→Location→DataCenter→Room→Border Domain→可选Spine→Leaf，不写入NGD或Node Label。
 - 输出：Python 最多返回 3 个稳定排序候选组；Go 和 PRC 均不修改分数和顺序。
 
 ## 2. 目录结构
@@ -41,6 +42,7 @@ algorithm_server/
 │   │   ├── metrics.go
 │   │   ├── metrics_config.go
 │   │   ├── prometheus_metrics.json
+│   │   ├── topology.go
 │   │   ├── service.go
 │   │   ├── worker.go
 │   │   └── types.go
@@ -61,7 +63,6 @@ algorithm_server/
         │   ├── topology.py
         │   └── loadbalance.py
         └── config/
-            ├── topology_profiles.json
             └── loadbalance_profiles.json
 ```
 
@@ -72,7 +73,8 @@ algorithm_server/
 | `go/cmd/algorithm-server/main.go`                          | 正式 Server 入口。读取环境变量，创建`Server`并处理SIGTERM优雅退出。                                                                                                         |
 | `go/algorithm/server.go`                                   | 完整Algorithm进程封装；统一拥有Application、HTTP Listener、Prometheus后台刷新、Python Worker关闭和Ready等待。生产入口、Group2和Group4共用。                                  |
 | `go/algorithm/application.go`                              | Algorithm内部组装层，创建缓存、Prometheus、Python Worker和HTTP Handler；由`Server`统一管理生命周期。                                                                        |
-| `go/algorithm/cache.go`                                    | Node 静态快照缓存。校验`sha256:` 内容 Hash、Node UID 唯一性和三层拓扑字段，内存中仅保留 current/previous 两份快照。                                                         |
+| `go/algorithm/cache.go`                                    | Node静态快照缓存。校验`sha256:`内容Hash、Node UID唯一性和直连Leaf，内存中仅保留current/previous两份。                                                                     |
+| `go/algorithm/topology.go`                                 | 严格解析独立拓扑YAML，校验显式Border Domain，用Leaf补齐上层拓扑并计算`topologySnapshotId`。                                                                               |
 | `go/algorithm/metrics.go`                                  | Prometheus 采集与缓存。周期调用 instant query，按 Node 名合并 CPU、内存、吞吐、丢包、错误、重传、链路和带宽指标。                                                           |
 | `go/algorithm/metrics_config.go`                           | 加载指标目录，配置 Bearer Token/Token 文件、CA、TLS Server Name 和超时。                                                                                                    |
 | `go/algorithm/prometheus_metrics.json`                     | Mock 与真实 Prometheus 共用的14项指标契约。                                                                                                                                |
@@ -90,9 +92,8 @@ algorithm_server/
 | `python/algorithm_worker/quantity.py`                      | 解析 Kubernetes CPU、内存和扩展资源 Quantity，计算 PodSet 最小资源需求并进行节点装箱检查。                                                                                    |
 | `python/algorithm_worker/services/node_view_builder.py`    | 合并 Node 静态属性、请求级占用状态和`nodeSelector`，生成本次算法使用的 Node 视图；复用只读静态子对象和已解析资源容量。                                                       |
 | `python/algorithm_worker/algorithms/requirement.py`        | 固定FILTER步骤：排除不可用或标签不匹配的Node，并形成扣减已请求资源后的可用视图。                                                                                              |
-| `python/algorithm_worker/algorithms/topology.py`           | 固定GROUP步骤：按正式NGD的NarrowestFit要求生成Leaf、Border、Core候选；无拓扑要求时生成cluster组。                                                                             |
+| `python/algorithm_worker/algorithms/topology.py`           | 固定GROUP步骤：按Leaf→可选Spine→Border Domain→Room→DC→Location→Region执行NarrowestFit。                                                                                     |
 | `python/algorithm_worker/algorithms/loadbalance.py`        | 固定SCORE步骤：综合资源和Prometheus指标评分，逐层验证资源可行性，再按`minResources/maxNodes/quota`选具体Node并稳定排序。                                                       |
-| `python/algorithm_worker/config/topology_profiles.json`    | 三层拓扑字段与层级顺序配置；默认 profile 为 `leaf-border-core-v1`。                                                                                                          |
 | `python/algorithm_worker/config/loadbalance_profiles.json` | 评分 profile 及资源、负载、拓扑权重，新增 profile 无需修改 Go 主服务。                                                                                                        |
 | `demo_1000_nodes/run_demo.py`                              | 独立验证驱动：在内存中生成 1000 Node/拓扑/动态/指标数据，启动模拟 Prometheus 和真实 Algorithm 容器，走 HTTP 协议并导出证据。                                                  |
 | `Dockerfile.algorithm`                                     | 位于项目根目录。第一阶段编译 Go 二进制，第二阶段加入 Python Worker，最终`ENTRYPOINT` 为 `/app/algorithm-server`。                                                         |
@@ -126,13 +127,13 @@ loadbalance/v1 (SCORE)
 
 ### GROUP
 
-存在 `topologyRequirement` 时先按 `Leaf → Border → Core` 形成允许范围内的拓扑组；SCORE阶段再按该顺序验证资源可行性。某一层出现可行组后立即停止，不再计算更宽层级。未声明拓扑约束时形成一个集群级候选组，不擅自默认到 Core。
+正式NGD不携带拓扑profile。GROUP固定按`Leaf → 可选Spine Domain → Border Domain → Room → DataCenter → Location → Region`形成拓扑组；SCORE按该顺序验证资源可行性。某一层出现可行组后立即停止。联通样例`SPINE: {}`时直接跳到Border Domain。
 
 ### SCORE
 
 节点分数综合剩余资源比例与 Prometheus CPU、内存和网络质量；组分数再结合静态带宽、时延形成的拓扑质量。资源池从高分 Node 开始选择：满足 `minResources` 后停止，且始终不突破 `maxNodes` 和 `quota`。Node 按 `score desc → nodeName → nodeUID` 排序，同一最窄可行层级的组按 `groupScore desc → groupId` 排序。
 
-同一Node可能同时属于Leaf、Border和Core组。实现中每个请求只解析一次Node容量、只计算一次Node资源/Prometheus分数，各拓扑层复用结果；Node视图只浅拷贝顶层字典，静态标签和拓扑保持只读共享。这样不改变排序与返回协议，同时避免对3000 Node静态对象反复深拷贝和跨层重复评分。
+同一Node会出现在自身Leaf、Border Domain及更宽范围的临时候选中，但同一层的显式Border Domain互不重叠。每个请求只解析一次Node容量、只计算一次Node资源/Prometheus分数，各拓扑层复用结果。
 
 ## 4. HTTP 接口
 
@@ -150,7 +151,7 @@ loadbalance/v1 (SCORE)
 ```json
 {
   "clusterId": "cluster-a",
-  "topologyVersion": "core-leaf-node-v1",
+  "topologyVersion": "node-leaf-v1",
   "nodes": []
 }
 ```
@@ -265,6 +266,8 @@ docker build -t ngd-ngg-algorithm:v0.4.0 -f Dockerfile.algorithm .
 docker run --rm --name ngd-ngg-algorithm-standalone \
   -p 18080:8080 \
   -e PROMETHEUS_URL= \
+  -e TOPOLOGY_CONFIG_FILE=/etc/ngd-ngg/topology.yaml \
+  -v /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/config/topology/unicom-kind-topology.yaml:/etc/ngd-ngg/topology.yaml:ro \
   ngd-ngg-algorithm:v0.4.0
 ```
 
@@ -291,6 +294,7 @@ cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/algorithm_server/go
 PYTHONPATH=../python \
   ALGORITHM_LISTEN_ADDRESS=:18080 \
   PROMETHEUS_URL= \
+  TOPOLOGY_CONFIG_FILE=../../config/topology/unicom-kind-topology.yaml \
   /mnt/data0/tools/go/bin/go run ./cmd/algorithm-server
 ```
 
@@ -309,6 +313,7 @@ PYTHONPATH=../python \
 | `PROMETHEUS_CA_FILE`                 | 空 | 自定义 CA PEM 文件          |
 | `PROMETHEUS_TLS_SERVER_NAME`         | 空 | TLS Server Name             |
 | `PROMETHEUS_INSECURE_SKIP_VERIFY`    | false | 仅隔离测试环境可显式启用  |
+| `TOPOLOGY_CONFIG_FILE`               | `/etc/ngd-ngg/topology.yaml` | 独立上层网络拓扑YAML；无效时服务拒绝启动 |
 
 未要求实时指标时，Prometheus 不可用会返回 `degraded=true` 并继续使用硬约束；算法参数设置 `requireMetrics=true` 时，指标未就绪返回 HTTP 503。
 
@@ -318,17 +323,17 @@ PYTHONPATH=../python \
 
 ## 7. 1000 节点独立演示
 
-> 当前状态（2026-08-19）：Algorithm 已切换为完整 CPU/内存/网络指标目录和 Bearer 认证能力；本节旧 Demo 生成器仍只模拟 CPU/内存且不校验认证，因此本轮没有执行。下一阶段测试实现时必须按最新测试方案补齐全部查询与认证后再作为通过证据。
+> 该独立Demo已改为Node只带Leaf、Algorithm单独挂载联通式拓扑。完整14项指标与认证校验由`go_test_suites`承担；本Demo继续用CPU/内存两项指标做快速容器演示。
 
 该演示不需要 Kubernetes、Volcano 或 PRC，但会启动真实 Algorithm Docker 容器并通过 HTTP 调用所有关键接口。模拟规模为：
 
-- 4 个 Core Switch；
-- 每个 Core 下 25 个 Leaf Switch，共 100 个 Leaf；
+- 华北/怀来/HB-HL-DC1/102机房；
+- 4 个非重叠双Border Domain，SPINE为空；
+- 每个Domain下25个Leaf，共100个Leaf；
 - 每个 Leaf 下 10 个 Node，共 1000 个 Node；
 - 1000 份 CPU/内存 Prometheus 指标；
 - 1000 条请求级动态状态，其中初始 200 个 Node 为 `inUse=true`；
-- 32 个带 GPU 资源需求的任务副本；
-- 返回稳定排序的 Top-3 候选叶交换机组。
+- 返回稳定排序的 Top-3 Border Domain候选组。
 
 ### 7.1 演示总体是怎么模拟的
 
@@ -346,7 +351,7 @@ flowchart LR
     MOCK -->|旧Demo：两次/api/v1/query| ALG
     DRIVER -->|PUT静态Hash快照| ALG
     DRIVER -->|POST请求1：初始动态状态| ALG
-    DRIVER -->|POST请求2：增加8个占用节点| ALG
+    DRIVER -->|POST请求2：占用第一Border Domain全部节点| ALG
     ALG -->|Top-3候选组| DRIVER
     DATA -->|保存可阅读的数据| FILES
     DRIVER -->|保存请求、响应、摘要、日志| FILES
@@ -372,11 +377,10 @@ flowchart LR
 | 内存 |                     128 GiB |
 | GPU  |                        4 张 |
 
-每个 Node 还包含三个演示标签：
+每个 Node 只包含任务筛选标签和一个直连 Leaf 标签：
 
 - `demo.ngg/worker=true`：任务的 `nodeSelector` 用它筛选计算节点；
-- `demo.ngg/core=core-xx`：便于人查看节点所在 Core；
-- `demo.ngg/leaf=leaf-xxx`：便于人查看节点所在 Leaf。
+- `topology.demo.ngg.io/leaf-switch=leaf-xxx`：模拟LLDP采集结果。
 
 单个节点的模拟结构如下：
 
@@ -391,14 +395,11 @@ flowchart LR
   },
   "labels": {
     "demo.ngg/worker": "true",
-    "demo.ngg/core": "core-01",
-    "demo.ngg/leaf": "leaf-001"
+    "topology.demo.ngg.io/leaf-switch": "leaf-001"
   },
   "topology": {
-    "coreSwitchId": "core-01",
     "leafSwitchId": "leaf-001",
-    "bandwidthGbps": 25,
-    "latencyMillis": 4.0
+    "switchId": "leaf-001"
   }
 }
 ```
@@ -417,28 +418,30 @@ PUT /internal/v1/node-static-snapshots/{snapshotId}
 
 Algorithm 会重新计算 Hash。路径中的 Hash 和内容不一致时请求失败，因此不是随便填写一个版本号。
 
-### 7.3 三层拓扑怎么模拟
+### 7.3 联通式拓扑怎么模拟
 
 节点和交换机的映射规则是确定的：
 
 ```text
-Node编号
-  └─ 每10个Node组成1个Leaf Switch
-       └─ 每25个Leaf Switch组成1个Core Switch
+华北 → 怀来 → HB-HL-DC1 → 102机房
+  └─ 4个显式Border Domain（每组2台Border，组间不重叠）
+       └─ SPINE为空
+            └─ 每个Domain下25个Leaf
+                 └─ 每个Leaf下10个Node
 ```
 
 具体规模：
 
 | 层级        | 数量 | 编号                               | 下挂关系                              |
 | ----------- | ---: | ---------------------------------- | ------------------------------------- |
-| Core Switch |    4 | `core-01` ～ `core-04`         | 每个 Core 下 25 个 Leaf               |
+| Border Domain |  4 | `HB-HL-DC1-102-BORDER-DOMAIN-01`～`04` | 每组双Border，下挂25个Leaf |
 | Leaf Switch |  100 | `leaf-001` ～ `leaf-100`       | 每个 Leaf 下 10 个 Node               |
-| Node        | 1000 | `worker-0001` ～ `worker-1000` | 每个 Node 只属于一个 Leaf 和一个 Core |
+| Node        | 1000 | `worker-0001` ～ `worker-1000` | 每个 Node 只标记一个直连 Leaf |
 
 例如：
 
 ```text
-core-01
+HB-HL-DC1-102-BORDER-DOMAIN-01（双Border，SPINE为空）
 ├── leaf-001
 │   ├── worker-0001
 │   ├── ...
@@ -449,7 +452,7 @@ core-01
 └── leaf-025
     └── worker-0250
 
-core-02
+HB-HL-DC1-102-BORDER-DOMAIN-02
 └── leaf-026 ～ leaf-050
 ```
 
@@ -462,13 +465,14 @@ core-02
 |        3 |  50 Gbps | 1.5 ms |
 |        4 | 100 Gbps | 0.8 ms |
 
-这里的带宽和时延是演示值。真实集群中应由 LLDP/NNT、网络控制器或其他拓扑采集组件提供。
+这里的带宽和时延是演示值，存放在Algorithm独立拓扑配置中，不写Node Label。
 
 需要注意：
 
-- Algorithm 真正使用的拓扑来自 `node-static-snapshot.json` 中每个 Node 的 `topology` 字段；
+- `node-static-snapshot.json`只提供Node→Leaf；
+- `network-topology.yaml`是Algorithm实际挂载读取的上层拓扑配置（内容采用JSON序列化，JSON也是合法YAML）；
 - `topology.json` 是根据同一批数据额外导出的“人类可读拓扑总览”；
-- `topology.json` 不会被单独上传给 Algorithm，不能把它理解成第二个接口请求。
+- Go层合并二者后再把完整拓扑传给Python Worker。
 
 ### 7.4 Prometheus 指标怎么模拟
 
@@ -563,21 +567,19 @@ Algorithm 启动后执行两次查询：
 
 | 参数 | 值 | 含义 |
 | --- | ---: | --- |
-| `minResources.cpu` | 192 核 | 候选节点组至少提供的可用 CPU |
-| `minResources.memory` | 768 GiB | 候选节点组至少提供的可用内存 |
-| `maxNodes` | 10 | 一个候选组最多返回的 Node 数 |
-| `quota` | 320 核、1280 GiB | 候选节点组资源上限 |
-| `maxCandidateGroups` | 3 | 最多返回 3 个候选组 |
+| `minResources.cpu` | 480 核 | 候选节点组至少提供的可用 CPU |
+| `minResources.memory` | 1920 GiB | 候选节点组至少提供的可用内存 |
+| `maxNodes` | 18 | 一个候选组最多返回的 Node 数 |
+| `quota` | 576 核、2304 GiB | 候选节点组资源上限 |
 
 一个 Leaf 初始有 8 个可用 Node：
 
 ```text
-CPU：6 × 32 = 192核       = minResources.cpu
-内存：6 × 128Gi = 768Gi   = minResources.memory
-Node：选择6个高分Node     ≤ maxNodes 10
+CPU：8 × 32 = 256核       < minResources.cpu
+内存：8 × 128Gi = 1024Gi  < minResources.memory
 ```
 
-所以每个正常 Leaf 都能满足资源下限，算法优先返回 `leafSwitch` 级候选组，不需要扩大到 Core。
+所以单Leaf不能满足。SPINE为空被跳过，Algorithm扩大到Border Domain并从中选择15个高分Node满足下限。
 
 服务端固定执行为：
 
@@ -586,7 +588,7 @@ requirement/v1
   → 排除inUse节点，检查NGD标签并计算可用资源
 
 topology/v1
-  → 按Leaf/Border/Core生成拓扑组
+  → 按Leaf/空Spine/Border Domain/Room/DC/Location/Region生成拓扑组
 
 loadbalance/v1
   → 评分后按minResources、maxNodes和quota选具体Node
@@ -605,13 +607,9 @@ Top-3
 
 ### 7.7 为什么要发送两次请求
 
-第一次请求使用初始状态：每个 Leaf 有 8 个可用 Node。实跑结果为：
-
-```text
-leaf:leaf-016 → leaf:leaf-076 → leaf:leaf-032
-```
-
-第一次响应中 `leaf:leaf-016` 包含 8 个通过过滤的 Node。驱动程序把这 8 个 Node 在第二份完整动态状态中全部改成 `inUse=true`。加上这个 Leaf 原本已经占用的 2 个 Node，`leaf-016` 的 10 个 Node 全部不可用。
+第一次请求中每个Leaf只有8个可用Node，单Leaf不足15个Node的最低需求；
+Algorithm跳过空SPINE，在Border Domain层返回Top-3。驱动程序随后找出rank 1
+Domain下的全部Leaf，并把这些Leaf连接的Node全部置为`inUse=true`。
 
 第二次请求：
 
@@ -619,13 +617,7 @@ leaf:leaf-016 → leaf:leaf-076 → leaf:leaf-032
 - Prometheus 指标快照不变；
 - 任务资源需求和算法配置不变；
 - `requestId` 改变；
-- 动态状态中 `inUse=true` 从 200 条增加到 208 条。
-
-实跑结果变为：
-
-```text
-leaf:leaf-076 → leaf:leaf-032 → leaf:leaf-092
-```
+- 动态状态中 `inUse=true` 增加了第一Border Domain覆盖的节点。
 
 这证明：
 
@@ -645,7 +637,7 @@ make algorithm-1000-demo
 ### 7.9 实际执行过程
 
 1. 从当前代码构建 `ngd-ngg-algorithm:v0.4.0`；
-2. 生成静态 Node、三层拓扑、Prometheus 指标和动态状态；
+2. 生成Leaf静态Node、独立联通式拓扑、Prometheus指标和动态状态；
 3. 启动模拟 Prometheus HTTP API；
 4. 启动真实 Algorithm API Server 容器；
 5. 等待 1000 个 Node 的指标进入缓存；
@@ -660,6 +652,7 @@ make algorithm-1000-demo
 ```text
 results/algorithm-1000-nodes/
 ├── node-static-snapshot.json
+├── network-topology.yaml
 ├── topology.json
 ├── prometheus-metrics.json
 ├── node-dynamic-state.json
@@ -677,13 +670,14 @@ results/algorithm-1000-nodes/
 
 | 文件                           | 类型             | 内容和用途                                                                    |
 | ------------------------------ | ---------------- | ----------------------------------------------------------------------------- |
-| `node-static-snapshot.json`  | 模拟静态输入     | 1000 个 Node 的名称、UID、容量、标签和拓扑，以及计算出的`snapshotId`        |
-| `topology.json`              | 可读拓扑证据     | 按 Core→Leaf→Node 展开的树形总览；不单独发送给 Algorithm                    |
+| `node-static-snapshot.json`  | 模拟静态输入     | 1000个Node的名称、UID、容量和直连Leaf，以及计算出的`snapshotId` |
+| `network-topology.yaml`      | Algorithm配置    | Region到Leaf、空SPINE、双Border Domain和链路参数；实际挂载给容器读取 |
+| `topology.json`              | 可读拓扑证据     | 按Region→Room→Border Domain→Leaf→Node整理的总览 |
 | `prometheus-metrics.json`    | 模拟指标源证据   | 1000 个 Node 的 CPU/内存利用率；模拟 HTTP Server 根据它构造 Prometheus vector |
 | `node-dynamic-state.json`    | 初始动态状态证据 | 1000 条`nodeUID + inUse`，其中 200 条为 true                                |
 | `allocation-request-1.json`  | 真实接口请求     | 静态 Hash、完整NGD和初始1000条动态状态                                        |
 | `allocation-response-1.json` | 真实接口响应     | 第一次请求的状态、快照身份、Top-3 组、组分和候选 Node                         |
-| `allocation-request-2.json`  | 真实接口请求     | 第一候选组的 8 个 Node 改为占用后的完整第二次请求                             |
+| `allocation-request-2.json`  | 真实接口请求     | 第一候选Border Domain全部Node改为占用后的完整第二次请求 |
 | `allocation-response-2.json` | 真实接口响应     | 第二次 Top-3，用于证明动态状态改变已经生效                                    |
 | `demo-summary.json`          | 验收摘要         | 节点/拓扑/指标数量、缓存状态、两次候选摘要和 PASS 状态                        |
 | `algorithm-server.log`       | 服务证据         | Go Server 启动、Python Worker 模块及 health、cache、PUT、两次 POST 的日志     |
@@ -696,24 +690,29 @@ results/algorithm-1000-nodes/
 | ------------------- | --------------------------------------------- |
 | `snapshotId`      | 演示计算出的内容 SHA-256；用于 URL 和请求引用 |
 | `clusterId`       | 模拟集群身份`algorithm-1000-node-demo`      |
-| `topologyVersion` | 当前拓扑模型版本`core-leaf-node-v1`         |
+| `topologyVersion` | Node静态协议版本`node-leaf-v1` |
 | `nodes`           | 1000 个静态 Node 对象                         |
 
 文件中的 `snapshotId` 是为了展示方便附加的字段。PUT 时实际发送的 Hash 内容是 `clusterId + topologyVersion + nodes`，不会把 `snapshotId` 自己参与 Hash，否则会形成循环计算。
 
 #### topology.json
 
-这个文件从 Node 静态数据反向整理出三层树：
+这个文件把相同模拟数据整理为可读树：
 
 ```json
 {
-  "model": "core-leaf-node",
-  "coreSwitchCount": 4,
+  "model": "region-location-dc-room-border-domain-leaf-node",
+  "regionId": "CN-NORTH",
+  "locationId": "HB-HL",
+  "dataCenterId": "HB-HL-DC1",
+  "roomId": "HB-HL-DC1-102",
+  "borderDomainCount": 4,
   "leafSwitchCount": 100,
   "nodeCount": 1000,
-  "cores": [
+  "borderDomains": [
     {
-      "coreSwitchId": "core-01",
+      "borderDomainId": "HB-HL-DC1-102-BORDER-DOMAIN-01",
+      "spines": {},
       "leafSwitches": [
         {
           "leafSwitchId": "leaf-001",
@@ -727,7 +726,7 @@ results/algorithm-1000-nodes/
 }
 ```
 
-它适合检查拓扑是否生成正确；Algorithm 不读取这个文件。
+它适合人工检查；Algorithm实际读取的是同目录`network-topology.yaml`。
 
 #### prometheus-metrics.json
 
@@ -757,7 +756,6 @@ Algorithm 内部通过 Node 名称把 Prometheus 指标与静态 Node 对齐。N
 | `requestMode`         | 正式资源池请求固定为 `resourcePool`    |
 | `ngd`                 | PRC 原样传入的联通 NGD `spec`          |
 | `nodeUsageStates`      | 本次请求完整的 1000 条动态状态          |
-| `ngd.maxCandidateGroups` | 返回候选组上限 3                     |
 
 #### allocation-response-1.json
 
@@ -774,19 +772,19 @@ Algorithm 内部通过 Node 名称把 Prometheus 指标与静态 Node 对齐。N
 
 每个候选组：
 
-- `groupId`：例如 `leaf:leaf-016`；
-- `topologyLevel`：本例为 `leafSwitch`；
+- `groupId`：例如 `border-domain:HB-HL-DC1-102-BORDER-DOMAIN-01`；
+- `topologyLevel`：本例为 `borderDomain`；
 - `groupScore`：组综合分；
 - `rank`：Algorithm 最终顺序；
 - `nodes`：组内通过过滤的 Node，以及每个 Node 的分数。
 
-响应里的 Node 只有 8 个而不是 Leaf 下的 10 个，因为两个初始 `inUse=true` 的 Node 已在 FILTER 阶段删除。
+每组返回15个具体Node，因为15个32核/128Gi节点刚好满足资源下限。
 
 #### allocation-request-2.json 和 allocation-response-2.json
 
-第二份请求不是增量补丁，而是再次携带 1000 条完整状态。它与第一次请求的主要差异是第一候选组的 8 个可用 Node 也变为 `inUse=true`。
+第二份请求不是增量补丁，而是再次携带1000条完整状态。它把第一候选Border Domain中的全部Node置为`inUse=true`。
 
-第二份响应用于检查 `leaf:leaf-016` 是否消失，并确认新的第三候选组 `leaf:leaf-092` 被补入。
+第二份响应用于检查第一Border Domain是否消失，并确认下一组按分数补入。
 
 #### demo-summary.json
 
@@ -794,10 +792,10 @@ Algorithm 内部通过 Node 名称把 Prometheus 指标与静态 Node 对齐。N
 
 - `status=PASS`：所有断言通过；
 - `staticNodeCount=1000`：静态输入规模；
-- `topology`：4 Core、100 Leaf、1000 Node；
+- `topology`：华北/怀来/DC1/102机房、4 Border Domain、100 Leaf、1000 Node；
 - `prometheus.nodeMetricCount=1000`：指标覆盖数量；
 - `prometheus.degraded=false`：计算使用了有效指标；
-- `dynamicState`：第一次 200 个占用，第二次 208 个占用；
+- `dynamicState`：第一次200个占用，第二次增加第一Border Domain的全部Node；
 - `request1Candidates/request2Candidates`：两次候选摘要；
 - `removedAfterDynamicStateChange`：预期被动态状态移除的组；
 - `cacheStatus`：Algorithm 静态和指标缓存的真实状态。
@@ -818,25 +816,9 @@ POST /api/v1/allocate                              200
 
 ### 7.11 如何理解本次实际结果
 
-第一次 Top-3：
-
-| rank | groupId           | groupScore | 可用 Node |
-| ---: | ----------------- | ---------: | --------: |
-|    1 | `leaf:leaf-016` |      82.04 |         8 |
-|    2 | `leaf:leaf-076` |      82.04 |         8 |
-|    3 | `leaf:leaf-032` |      81.94 |         8 |
-
-`leaf-016` 和 `leaf-076` 分数相同，最终仍按照稳定规则得到固定顺序，因此重复运行不会随机交换。
-
-第二次把 `leaf-016` 的 8 个候选 Node 设为占用后：
-
-| rank | groupId           | groupScore | 可用 Node |
-| ---: | ----------------- | ---------: | --------: |
-|    1 | `leaf:leaf-076` |      82.04 |         8 |
-|    2 | `leaf:leaf-032` |      81.94 |         8 |
-|    3 | `leaf:leaf-092` |      81.94 |         8 |
-
-静态 Hash 和指标 Hash 都没有变化，只有请求级动态状态变化，所以候选变化可以明确归因于 `nodeUsageStates`。
+第一次应返回3个`topologyLevel=borderDomain`候选，每组含15个具体Node。
+第二次会移除第一次的rank 1 Domain。静态Hash、拓扑Hash和指标Hash都不变，
+只有请求级动态状态变化，因此候选变化可以明确归因于`nodeUsageStates`。
 
 ### 7.12 成功标准
 

@@ -60,8 +60,9 @@ def build_demo_data() -> tuple[
     dict[str, Any],
     list[dict[str, Any]],
     dict[str, dict[str, float]],
+    dict[str, Any],
 ]:
-    """生成静态节点、Core/Leaf 拓扑、任务级占用状态和指标。"""
+    """生成Leaf静态节点、联通式上层拓扑、任务级状态和指标。"""
 
     nodes: list[dict[str, Any]] = []
     usage_states: list[dict[str, Any]] = []
@@ -92,14 +93,11 @@ def build_demo_data() -> tuple[
                 },
                 "labels": {
                     "demo.ngg/worker": "true",
-                    "demo.ngg/core": core_id,
-                    "demo.ngg/leaf": leaf_id,
+                    "topology.demo.ngg.io/leaf-switch": leaf_id,
                 },
                 "topology": {
-                    "coreSwitchId": core_id,
                     "leafSwitchId": leaf_id,
-                    "bandwidthGbps": bandwidth,
-                    "latencyMillis": latency,
+                    "switchId": leaf_id,
                 },
             }
         )
@@ -142,27 +140,87 @@ def build_demo_data() -> tuple[
         leaf["nodeNames"].append(node_name)
 
     topology = {
-        "model": "core-leaf-node",
-        "coreSwitchCount": CORE_COUNT,
+        "model": "region-location-dc-room-border-domain-leaf-node",
+        "regionId": "CN-NORTH",
+        "locationId": "HB-HL",
+        "dataCenterId": "HB-HL-DC1",
+        "roomId": "HB-HL-DC1-102",
+        "borderDomainCount": CORE_COUNT,
         "leafSwitchCount": CORE_COUNT * LEAVES_PER_CORE,
         "nodeCount": NODE_COUNT,
-        "cores": [
+        "borderDomains": [
             {
-                "coreSwitchId": core["coreSwitchId"],
+                "borderDomainId": (
+                    f"HB-HL-DC1-102-BORDER-DOMAIN-{index:02d}"
+                ),
+                "spines": {},
                 "leafSwitches": [
                     core["leafSwitches"][leaf_id]
                     for leaf_id in sorted(core["leafSwitches"])
                 ],
             }
-            for core_id, core in sorted(cores.items())
+            for index, (_core_id, core) in enumerate(
+                sorted(cores.items()), start=1
+            )
         ],
     }
     static_snapshot = {
         "clusterId": "algorithm-1000-node-demo",
-        "topologyVersion": "core-leaf-node-v1",
+        "topologyVersion": "node-leaf-v1",
         "nodes": nodes,
     }
-    return static_snapshot, topology, usage_states, metrics
+    borders_by_domain = {
+        f"HB-HL-DC1-102-BORDER-DOMAIN-{number:02d}": [
+            f"HB-HL-DC1-102-BD{number:02d}-BORDER-SW01-ZTE9904X",
+            f"HB-HL-DC1-102-BD{number:02d}-BORDER-SW02-ZTE9904X",
+        ]
+        for number in range(1, CORE_COUNT + 1)
+    }
+    room: dict[str, Any] = {}
+    leaf_metrics: dict[str, Any] = {}
+    for leaf_number in range(1, CORE_COUNT * LEAVES_PER_CORE + 1):
+        leaf_id = f"leaf-{leaf_number:03d}"
+        domain_number = (leaf_number - 1) // LEAVES_PER_CORE + 1
+        domain_id = f"HB-HL-DC1-102-BORDER-DOMAIN-{domain_number:02d}"
+        room[leaf_id] = {
+            "SPINE": {},
+            "BORDER": {
+                border: {
+                    "local_port": f"cgei-0/1/1/{51 + index * 2}",
+                    "peer_port": f"cgei-0/3/0/{leaf_number}",
+                }
+                for index, border in enumerate(borders_by_domain[domain_id])
+            },
+            "LEAF": {},
+        }
+        leaf_metrics[leaf_id] = {
+            "bandwidthGbps": (25, 40, 50, 100)[(leaf_number - 1) % 4],
+            "latencyMillis": (4.0, 2.5, 1.5, 0.8)[(leaf_number - 1) % 4],
+        }
+    topology_config = {
+        "version": "unicom-border-domain-demo-v1",
+        "scopes": {
+            "regions": [{"id": "CN-NORTH", "name": "华北"}],
+            "locations": [
+                {"id": "HB-HL", "name": "怀来", "regionId": "CN-NORTH"}
+            ],
+            "dataCenters": [{"id": "HB-HL-DC1", "locationId": "HB-HL"}],
+            "rooms": [
+                {"id": "HB-HL-DC1-102", "dataCenterId": "HB-HL-DC1"}
+            ],
+        },
+        "borderDomains": {
+            domain_id: {
+                "roomId": "HB-HL-DC1-102",
+                "mode": "exact-set",
+                "members": members,
+            }
+            for domain_id, members in borders_by_domain.items()
+        },
+        "leafMetrics": leaf_metrics,
+        "topology": {"HB-HL-DC1-102": room},
+    }
+    return static_snapshot, topology, usage_states, metrics, topology_config
 
 
 class MockPrometheusHandler(BaseHTTPRequestHandler):
@@ -258,7 +316,9 @@ def docker(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[s
     )
 
 
-def start_algorithm_container(prometheus_port: int) -> tuple[str, int]:
+def start_algorithm_container(
+    prometheus_port: int, topology_config_path: Path
+) -> tuple[str, int]:
     """启动正式 Algorithm 镜像，并让容器访问宿主机模拟 Prometheus。"""
 
     if shutil.which("docker") is None:
@@ -294,6 +354,10 @@ def start_algorithm_container(prometheus_port: int) -> tuple[str, int]:
         "PROMETHEUS_STALE_SECONDS=60",
         "--env",
         "PROMETHEUS_REQUEST_TIMEOUT_SECONDS=5",
+        "--env",
+        "TOPOLOGY_CONFIG_FILE=/etc/ngd-ngg/topology.yaml",
+        "--volume",
+        f"{topology_config_path.resolve()}:/etc/ngd-ngg/topology.yaml:ro",
         ALGORITHM_IMAGE,
     )
     if not result.stdout.strip():
@@ -405,15 +469,11 @@ def build_request(
             "nodeSelector": {
                 "matchLabels": {"demo.ngg/worker": "true"}
             },
-            "topologyRequirement": {
-                "profile": "leaf-border-core-v1",
-                "strategy": "NarrowestFit",
-                "widestAllowedLevel": "coreSwitch",
-            },
-            "maxCandidateGroups": 3,
-            "maxNodes": 10,
-            "quota": {"cpu": "320", "memory": "1280Gi"},
-            "minResources": {"cpu": "192", "memory": "768Gi"},
+            # 每Leaf只有8个可用Node，15个Node的最低需求会跳过空SPINE，
+            # 在独立拓扑配置定义的Border Domain层找到候选。
+            "maxNodes": 18,
+            "quota": {"cpu": "576", "memory": "2304Gi"},
+            "minResources": {"cpu": "480", "memory": "1920Gi"},
         },
     }
 
@@ -423,7 +483,7 @@ def verify_response(
     snapshot_id: str,
     forbidden_group: str = "",
 ) -> None:
-    """断言响应身份、Top-3 排序、Leaf 层级和动态排除结果。"""
+    """断言响应身份、Top-3排序、Border Domain和动态排除结果。"""
 
     assert response["status"] == "SUCCESS", response
     assert response["nodeStaticSnapshotId"] == snapshot_id
@@ -434,7 +494,7 @@ def verify_response(
     assert [item["rank"] for item in candidates] == [1, 2, 3]
     scores = [item["groupScore"] for item in candidates]
     assert scores == sorted(scores, reverse=True)
-    assert all(item["topologyLevel"] == "leafSwitch" for item in candidates)
+    assert all(item["topologyLevel"] == "borderDomain" for item in candidates)
     if forbidden_group:
         assert forbidden_group not in {
             item["groupId"] for item in candidates
@@ -465,6 +525,7 @@ def main() -> int:
         topology,
         usage_states,
         metrics,
+        topology_config,
     ) = build_demo_data()
     snapshot_id = canonical_hash(static_snapshot)
     unavailable_count = sum(
@@ -479,6 +540,7 @@ def main() -> int:
         },
     )
     write_json("topology.json", topology)
+    write_json("network-topology.yaml", topology_config)
     write_json(
         "prometheus-metrics.json",
         {
@@ -503,7 +565,7 @@ def main() -> int:
     try:
         prometheus_port = int(prometheus.server_address[1])
         container_name, api_port = start_algorithm_container(
-            prometheus_port
+            prometheus_port, RESULTS_DIR / "network-topology.yaml"
         )
         base_url = f"http://127.0.0.1:{api_port}"
         wait_for_api(base_url)
@@ -541,11 +603,25 @@ def main() -> int:
         verify_response(first_response, snapshot_id)
         write_json("allocation-response-1.json", first_response)
 
-        # 把第一候选叶交换机中的可用节点全部标为占用，验证动态状态
-        # 不进入跨请求缓存，并且第二次请求会重新过滤该候选组。
+        # 把第一候选Border Domain中的全部节点标为占用，验证动态状态
+        # 不进入跨请求缓存，并且第二次请求会重新过滤该Domain。
         first_group = first_response["candidateNodeGroups"][0]
+        selected_domain = first_group["groupId"].removeprefix(
+            "border-domain:"
+        )
+        selected_members = set(
+            topology_config["borderDomains"][selected_domain]["members"]
+        )
+        room_topology = topology_config["topology"]["HB-HL-DC1-102"]
+        selected_leaves = {
+            leaf
+            for leaf, adjacency in room_topology.items()
+            if set(adjacency["BORDER"]) == selected_members
+        }
         newly_busy = {
-            item["nodeUID"] for item in first_group["nodes"]
+            node["nodeUID"]
+            for node in static_snapshot["nodes"]
+            if node["topology"]["leafSwitchId"] in selected_leaves
         }
         second_request = copy.deepcopy(first_request)
         second_request["requestId"] = "algorithm-1000-request-2"
@@ -577,8 +653,11 @@ def main() -> int:
             "staticSnapshotId": snapshot_id,
             "staticNodeCount": len(static_snapshot["nodes"]),
             "topology": {
-                "levels": ["coreSwitch", "leafSwitch", "node"],
-                "coreSwitchCount": CORE_COUNT,
+                "levels": [
+                    "region", "location", "dataCenter", "room",
+                    "borderDomain", "leafSwitch", "node",
+                ],
+                "borderDomainCount": CORE_COUNT,
                 "leafSwitchCount": CORE_COUNT * LEAVES_PER_CORE,
                 "nodeCount": NODE_COUNT,
             },
@@ -605,7 +684,7 @@ def main() -> int:
 
         print("Algorithm API Server 1000 节点独立演示：PASS")
         print(
-            f"静态节点={NODE_COUNT}，Core={CORE_COUNT}，"
+            f"静态节点={NODE_COUNT}，BorderDomain={CORE_COUNT}，"
             f"Leaf={CORE_COUNT * LEAVES_PER_CORE}"
         )
         print(

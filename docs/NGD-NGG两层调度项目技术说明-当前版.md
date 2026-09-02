@@ -24,7 +24,8 @@
 - Go PRC，基于 Kubebuilder/controller-runtime 的 Manager 和 Reconciler；
 - Go Algorithm API Server，负责 HTTP、静态缓存、Prometheus 缓存和 Python Worker 生命周期；
 - Python 算法 Worker，固定执行 `requirement → topology → loadbalance`；
-- Go LLDP Agent，支持模拟采集和真实 LLDP 帧监听，将拓扑持久化到 Node Label；
+- Go LLDP Agent，支持模拟采集和真实 LLDP 帧监听，只把 Node 直连 Leaf 持久化到 Node Label；
+- Algorithm Server 独立加载“区域→位置→数据中心→机房→Border Domain→可选 Spine→Leaf”网络配置；
 - 联通正式 Cluster-scoped NGD 的读取，以及联通扁平 NGG 的生成；
 - 旧版 Top-3 NGG 的 Volcano 插件和 kube-scheduler 插件演示；
 - 1000 Node 四组 Go Test、VS Code/Delve Debug 和 3000 Node 性能矩阵。
@@ -46,12 +47,12 @@ flowchart TB
         KAPI[Kubernetes API Server]
         NODE[Node / Pod]
         LLDP[Go LLDP Agent]
-        TOPO[Leaf→Border→Core 静态配置]
+        TOPO[Algorithm上层网络拓扑配置]
         PROM[Prometheus]
 
         NODE -->|Node对象和Pod绑定状态| KAPI
-        TOPO -->|补齐Leaf上层关系| LLDP
-        LLDP -->|采集Node→Leaf并Patch拓扑Label| KAPI
+        TOPO -->|启动加载并计算拓扑Hash| ALG
+        LLDP -->|只采集Node→Leaf并Patch Leaf Label| KAPI
     end
 
     subgraph L1[第一层：资源池计算]
@@ -95,7 +96,8 @@ flowchart TB
 
 | 数据 | 来源 | 维护者 | 更新方式 | 调度请求中是否完整传输 |
 |---|---|---|---|---|
-| Node 静态数据 | Kubernetes Node + 拓扑 Label | PRC 静态 Controller、Algorithm 静态缓存 | Node/拓扑变化触发，内容 Hash 去重 | 否，只传 `nodeStaticSnapshotId` |
+| Node 静态数据 | Kubernetes Node + Leaf Label | PRC 静态 Controller、Algorithm 静态缓存 | Node/Leaf变化触发，内容 Hash 去重 | 否，只传 `nodeStaticSnapshotId` |
+| 上层网络拓扑 | Algorithm YAML 配置 | Algorithm 拓扑缓存 | 服务启动时严格解析，内容 Hash 标识 | 否，NGD不携带拓扑图 |
 | Node 动态状态 | Node Ready/Unschedulable + 已绑定 Pod Request | PRC NGD Reconciler | 每次任务请求重新构造 | 是，当前以 `schedulerState` 发送 |
 | 实时指标 | Prometheus | Algorithm Go 主进程 | 启动后立即拉取，之后每 15 秒刷新 | PRC 不传；Algorithm 从内存取快照 |
 
@@ -122,11 +124,6 @@ spec:
   nodeSelector:
     matchLabels:
       kubernetes.io/arch: amd64
-  topologyRequirement:
-    profile: leaf-border-core-v1
-    strategy: NarrowestFit
-    widestAllowedLevel: coreSwitch
-  maxCandidateGroups: 3
   maxNodes: 100
   minResources:
     cpu: "3200"
@@ -140,22 +137,21 @@ spec:
 
 - `schedulerName`；
 - `nodeSelector`；
-- `topologyRequirement`；
-- `maxCandidateGroups`；
 - `maxNodes`；
 - `minResources`；
 - `quota`。
 
 以下字段会被 PRC 原样传给 Algorithm，但当前算法只生成 warning，不参与计算：
 
-- `algorithms`；
 - `minThroughput`；
 - `crossClusterAffinity`；
 - `intraClusterAffinity`；
 - `networkReachability`；
 - `preferredSubnet`。
 
-当前算法顺序由服务端固定，不读取 `spec.algorithms`。
+正式 NGD 严格采用联通原始 CRD，不增加 `profile`、`topologyRequirement`、
+`algorithms` 或 `maxCandidateGroups`。算法顺序、NarrowestFit 层级和 Top-3
+上限由服务端固定；上层网络关系来自 Algorithm 独立配置。
 
 NGD Status 由 PRC 更新：
 
@@ -165,7 +161,7 @@ status:
   grantRef: ngg-example-demand
   resolvedNodeCount: 100
   lastUpdated: "..."
-  message: selectedGroup=border:border-01 nodes=100
+  message: selectedGroup=border-domain:HB-HL-DC1-102-BORDER-DOMAIN-01 nodes=100
 ```
 
 ### 4.2 NGG：NodeGroupGrant
@@ -197,7 +193,7 @@ spec:
       memoryAvailable: 128Gi
     topology:
       dataCenter: dc-test-01
-      convergenceSwitch: border-01
+      convergenceSwitch: HB-HL-DC1-102-BORDER-DOMAIN-01
       accessSwitch: leaf-001
 status:
   phase: Active
@@ -226,8 +222,8 @@ Algorithm 内部仍可以返回最多 3 个候选组：
   "candidateNodeGroups": [
     {
       "rank": 1,
-      "groupId": "border:border-01",
-      "topologyLevel": "borderSwitch",
+      "groupId": "border-domain:HB-HL-DC1-102-BORDER-DOMAIN-01",
+      "topologyLevel": "borderDomain",
       "groupScore": 82.35,
       "nodes": [
         {
@@ -251,36 +247,41 @@ Algorithm 内部仍可以返回最多 3 个候选组：
 
 ### 5.1 拓扑模型
 
-算法当前使用三层网络拓扑：
+算法当前使用以下层级。SPINE 是可选层，联通样例中为空时直接跳过：
 
 ```text
-Core Switch
-└── Border Switch
-    └── Leaf Switch
-        └── Kubernetes Node
+华北 Region
+└── 怀来 Location
+    └── HB-HL-DC1 DataCenter
+        └── HB-HL-DC1-102 Room
+            └── Border Domain（显式双Border集合，彼此不重叠）
+                └── Spine Domain（可选，允许为空）
+                    └── Leaf Switch
+                        └── Kubernetes Node（一台Node暂只连接一个Leaf）
 ```
 
 Kind Demo 的模拟拓扑为：
 
 ```mermaid
 flowchart TB
-    C[core-0]
-    BA[border-a]
-    BB[border-b]
-    BC[border-c]
+    R[华北 / 怀来 / DC1 / 102机房]
+    BA[Border Domain A<br/>双Border]
+    BB[Border Domain B<br/>双Border]
+    BC[Border Domain C<br/>双Border]
     LA[switch-a<br/>20 Gbps / 1.5 ms]
     LB[switch-b<br/>10 Gbps / 5 ms]
     LC[switch-c<br/>25 Gbps / 1 ms]
 
-    C --> BA --> LA
-    C --> BB --> LB
-    C --> BC --> LC
+    R --> BA --> LA
+    R --> BB --> LB
+    R --> BC --> LC
     LA --> A[3 Workers]
     LB --> B[2 Workers]
     LC --> D[4 Workers]
 ```
 
-3000 Node 性能测试使用 2 个 Core、4 个 Border、150 个 Leaf，每个 Leaf 连接 20 个 Node。
+1000/3000 Node 测试均采用联通式空 SPINE、双 Border Domain 配置；每个 Leaf
+连接 20 个内存模拟 Node。配置文件为 `config/topology/*.yaml`。
 
 ### 5.2 LLDP Agent 工作方式
 
@@ -289,30 +290,28 @@ flowchart TB
 Agent 作为 DaemonSet 运行在每个 Worker：
 
 1. 启动时读取本 Node；
-2. 如果完整拓扑 Label 已存在，直接恢复到内存，不重复采集；
-3. `Simulated` 模式从种子 Label 获取 Leaf；
+2. 如果 Leaf Label 已存在，直接恢复到内存，不重复采集；
+3. `Simulated` 模式从种子 Annotation 获取 Leaf；
 4. `LLDP` 模式通过 EtherType `0x88CC` 监听真实 LLDP 帧，取得 Node→Leaf；
-5. 从 ConfigMap JSON 补齐 Leaf→Border→Core；
-6. Patch Node Label/Annotation；
-7. Watch 当前 Node，Node 变化后重新 Reconcile。
+5. 只 Patch `leaf-switch` Label，以及采集来源、接口、端口和时间 Annotation；
+6. Watch 当前 Node，Node 变化后重新 Reconcile。
 
 关键 Node Label：
 
 ```text
 topology.demo.ngg.io/leaf-switch
-topology.demo.ngg.io/border-switch
-topology.demo.ngg.io/core-switch
-topology.demo.ngg.io/bandwidth-gbps
-topology.demo.ngg.io/latency-ms
-topology.demo.ngg.io/topology-version
-topology.demo.ngg.io/source
 ```
+
+Border、Spine、Leaf互联端口和 Region/Location/DataCenter/Room 均不写 Node。
+Algorithm 启动时从 `TOPOLOGY_CONFIG_FILE` 加载并校验独立 YAML；联通原始样例
+见 `config/topology/unicom-huailai-102-sample.yaml`。
 
 部署配置：`config/manager/lldp-agent.yaml`。物理网络切换参考：`config/manager/lldp-agent-real-patch.yaml`。
 
 ### 5.3 PRC 如何取得拓扑
 
-PRC 静态 Controller 从 Kubernetes API 列出 Node，优先解析上述 Node Label。若 Label 不完整，才回退读取旧 `NodeNetworkTopology`（NNT）CR。
+PRC 静态 Controller 从 Kubernetes API 列出 Node，读取 `leaf-switch` Label；
+若 Label 不存在，才回退读取旧 `NodeNetworkTopology`（NNT）CR 中的直连交换机。
 
 静态快照包含：
 
@@ -320,11 +319,14 @@ PRC 静态 Controller 从 Kubernetes API 列出 Node，优先解析上述 Node L
 - Node 创建时间；
 - `status.allocatable`；
 - Node Labels；
-- Leaf、Border、Core；
-- 链路带宽和时延；
-- 拓扑版本。
+- `leafSwitchId`（同时兼容填充 `switchId`）；
+- 固定静态协议版本 `node-leaf-v1`。
 
 PRC 对规范化后的完整快照计算 SHA-256 内容 Hash。内容不变时 snapshot ID 不变，不使用进程内自增版本号。
+
+Algorithm 收到请求后用 Leaf 查询自身拓扑缓存，补齐 Region、Location、
+DataCenter、Room、Border Domain、可选 Spine、带宽和时延。拓扑配置本身另算
+`topologySnapshotId`，不会混入 PRC 的 Node 静态快照 Hash。
 
 ## 6. PRC 实现
 
@@ -579,16 +581,15 @@ flowchart LR
 
 代码：`algorithm_server/python/algorithm_worker/algorithms/topology.py`。
 
-配置：`algorithm_server/python/algorithm_worker/config/topology_profiles.json`。
-
 使用 `NarrowestFit`：
 
 1. 先按 Leaf 分组；
-2. 如果没有任何 Leaf 能满足整个需求，再按 Border 分组；
-3. 如果 Border 仍不能满足，并且 `widestAllowedLevel=coreSwitch`，再按 Core 分组；
-4. 在找到至少一个可行层级后，不再返回更宽层级。
+2. 存在 Spine 时按 Spine Domain 分组；SPINE 为空时跳过；
+3. Leaf/Spine不能满足时按非重叠的 Border Domain 分组；
+4. 再依次放宽到 Room、DataCenter、Location、Region；
+5. 在找到至少一个可行层级后，不再返回更宽层级。
 
-所以 `widestAllowedLevel` 是允许放宽到的最宽层级，不是要求一定按该层级分组。
+层级顺序由服务端固定，NGD 不再提供 profile 或 `widestAllowedLevel`。
 
 #### loadbalance
 
@@ -616,7 +617,7 @@ Node score 综合 CPU/内存可用比例和 Prometheus 指标。拓扑质量根�
 2. Node name；
 3. Node UID。
 
-正式资源池模式随后根据 `maxNodes`、`minResources` 和 `quota` 从高分到低分选择具体 Node。最多返回 `maxCandidateGroups`，且硬上限为 3。
+正式资源池模式随后根据 `maxNodes`、`minResources` 和 `quota` 从高分到低分选择具体 Node。服务端最多返回 3 组。
 
 ## 8. 第二层调度器
 
@@ -664,17 +665,17 @@ Cluster-scoped NodeGroupGrant
 ## 9. 正式链路端到端流程
 
 ```text
-1. LLDP Agent/静态配置把三层拓扑写入 Node Label
+1. LLDP Agent只把Node直连Leaf写入Node Label
 2. PRC静态Controller Watch Node并构造静态快照
 3. PRC通过PUT把静态快照同步到Algorithm
-4. Algorithm后台每15秒从Prometheus更新指标快照
-5. 用户创建Cluster-scoped NGD
-6. PRC Watch到NGD，读取Node/Pod并构造动态状态
-7. PRC调用Algorithm /api/v1/allocate
-8. Algorithm读取静态缓存和Prometheus缓存
-9. Algorithm通过JSONL调用Python Worker
-10. Python执行requirement→topology→loadbalance
-11. Algorithm最多返回3个候选组
+4. Algorithm启动时加载独立上层拓扑并计算topologySnapshotId
+5. Algorithm后台每15秒从Prometheus更新指标快照
+6. 用户创建Cluster-scoped NGD
+7. PRC Watch到NGD，读取Node/Pod并构造动态状态
+8. PRC调用Algorithm /api/v1/allocate
+9. Algorithm用Leaf补齐上层拓扑，并读取Prometheus缓存
+10. Algorithm通过JSONL调用Python Worker
+11. Python执行requirement→topology→loadbalance并最多返回3组
 12. PRC校验响应并选择rank 1
 13. PRC创建/更新一份扁平正式NGG
 14. PRC设置NGG Active和NGD Fulfilled
@@ -851,7 +852,7 @@ make benchmark-3000-all
 ```bash
 kubectl --context kind-volcano-ngd-ngg-v2-demo -n ngd-ngg-system get deploy,pod,svc
 kubectl --context kind-volcano-ngd-ngg-v2-demo -n monitoring get pod,svc
-kubectl --context kind-volcano-ngd-ngg-v2-demo get nodes -L topology.demo.ngg.io/leaf-switch,topology.demo.ngg.io/border-switch,topology.demo.ngg.io/core-switch
+kubectl --context kind-volcano-ngd-ngg-v2-demo get nodes -L topology.demo.ngg.io/leaf-switch
 ```
 
 ### 12.2 查看正式对象
@@ -915,7 +916,7 @@ Kind 演示输出位于 `results/`，主要包括：
 
 ### 13.4 部分正式 NGD 字段未实现
 
-吞吐量下限、跨集群/集群内亲和、外部网络可达性、子网偏好和动态算法编排尚未参与计算。当前只保留字段并返回 warning。
+吞吐量下限、跨集群/集群内亲和、外部网络可达性和子网偏好尚未参与计算。当前只保留字段并返回 warning。
 
 ### 13.5 真实 LLDP 尚需物理环境验证
 
@@ -947,19 +948,20 @@ Algorithm `/readyz` 只表示 HTTP 服务可用，不表示静态快照就绪。
 | `algorithm_server/go/algorithm/server.go` | HTTP监听与完整生命周期 |
 | `algorithm_server/go/algorithm/service.go` | 一次Allocate请求的业务编排 |
 | `algorithm_server/go/algorithm/cache.go` | Node静态快照缓存 |
+| `algorithm_server/go/algorithm/topology.go` | 独立拓扑YAML校验、Hash及Leaf到上层拓扑解析 |
 | `algorithm_server/go/algorithm/metrics.go` | Prometheus拉取和指标快照 |
 | `algorithm_server/go/algorithm/prometheus_metrics.json` | 14项PromQL指标目录 |
 | `algorithm_server/go/algorithm/worker.go` | Go启动Python及JSONL通信 |
 | `algorithm_server/python/algorithm_worker/pipeline.py` | 固定算法流水线 |
 | `algorithm_server/python/algorithm_worker/services/node_view_builder.py` | 动态状态、标签和资源过滤 |
 | `algorithm_server/python/algorithm_worker/algorithms/requirement.py` | FILTER阶段入口 |
-| `algorithm_server/python/algorithm_worker/algorithms/topology.py` | Leaf/Border/Core NarrowestFit分组 |
+| `algorithm_server/python/algorithm_worker/algorithms/topology.py` | Leaf→可选Spine→Border Domain→Room→DC→Location→Region NarrowestFit分组 |
 | `algorithm_server/python/algorithm_worker/algorithms/loadbalance.py` | Node/Group评分和资源池Node选择 |
-| `algorithm_server/python/algorithm_worker/config/` | 拓扑与负载均衡Profile |
+| `algorithm_server/python/algorithm_worker/config/` | 负载均衡Profile |
 | `topology_agent/main.go` | LLDP Agent Cobra入口 |
 | `topology_agent/lldp.go` | 真实LLDP帧监听和解析 |
-| `topology_agent/config.go` | Leaf→Border→Core静态配置解析 |
-| `topology_agent/agent.go` | 采集、恢复和Node Label持久化流程 |
+| `topology_agent/agent.go` | Node直连Leaf采集、恢复和Label持久化流程 |
+| `config/topology/` | Algorithm独立上层网络拓扑配置及联通102机房样例 |
 | `ngg_consumer/formalgrant/grant.go` | 正式扁平NGG校验与合并核心 |
 | `plugin/nodegroupgrant/nodegroupgrant.go` | 旧版NGG Volcano插件 |
 | `plugin/kubescheduler/nodegroupgrant/plugin.go` | 旧版NGG kube-scheduler Filter插件 |

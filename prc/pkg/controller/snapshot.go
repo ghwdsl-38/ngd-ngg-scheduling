@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -25,12 +23,8 @@ type staticNode struct {
 }
 
 type topology struct {
-	SwitchID       string  `json:"switchId"`
-	LeafSwitchID   string  `json:"leafSwitchId"`
-	BorderSwitchID string  `json:"borderSwitchId,omitempty"`
-	CoreSwitchID   string  `json:"coreSwitchId"`
-	BandwidthGbps  float64 `json:"bandwidthGbps"`
-	LatencyMillis  float64 `json:"latencyMillis"`
+	SwitchID     string `json:"switchId"`
+	LeafSwitchID string `json:"leafSwitchId"`
 }
 
 type staticSnapshot struct {
@@ -49,7 +43,6 @@ type schedulerNodeState struct {
 
 func buildStaticSnapshot(clusterID string, nodes []corev1.Node, topologies []unstructured.Unstructured) (string, staticSnapshot, error) {
 	byUID := map[string]topology{}
-	versions := map[string]struct{}{}
 	for i := range topologies {
 		item := &topologies[i]
 		uid, _, _ := unstructured.NestedString(item.Object, "spec", "nodeRef", "uid")
@@ -57,22 +50,13 @@ func buildStaticSnapshot(clusterID string, nodes []corev1.Node, topologies []uns
 		if uid == "" || switchID == "" {
 			continue
 		}
-		coreSwitch, _, _ := unstructured.NestedString(item.Object, "status", "coreSwitchId")
-		bandwidth := nestedNumber(item.Object, "status", "bandwidthGbps")
-		latency := nestedNumber(item.Object, "status", "latencyMillis")
-		version, _, _ := unstructured.NestedString(item.Object, "status", "topologyVersion")
-		byUID[uid] = topology{SwitchID: switchID, LeafSwitchID: switchID, CoreSwitchID: coreSwitch, BandwidthGbps: bandwidth, LatencyMillis: latency}
-		if version != "" {
-			versions[version] = struct{}{}
-		}
+		byUID[uid] = topology{SwitchID: switchID, LeafSwitchID: switchID}
 	}
-	result := staticSnapshot{ClusterID: clusterID}
+	result := staticSnapshot{ClusterID: clusterID, TopologyVersion: "node-leaf-v1"}
 	for i := range nodes {
 		node := &nodes[i]
-		topo, topologyVersion, found := topologyFromNodeLabels(node.Labels)
-		if found {
-			versions[topologyVersion] = struct{}{}
-		} else {
+		topo, found := topologyFromNodeLabels(node.Labels)
+		if !found {
 			topo, found = byUID[string(node.UID)]
 		}
 		if !found {
@@ -93,15 +77,6 @@ func buildStaticSnapshot(clusterID string, nodes []corev1.Node, topologies []uns
 		}
 		return result.Nodes[i].NodeUID < result.Nodes[j].NodeUID
 	})
-	versionList := make([]string, 0, len(versions))
-	for version := range versions {
-		versionList = append(versionList, version)
-	}
-	sort.Strings(versionList)
-	result.TopologyVersion = strings.Join(versionList, "+")
-	if result.TopologyVersion == "" {
-		result.TopologyVersion = "unknown"
-	}
 	if len(result.Nodes) == 0 {
 		return "", result, fmt.Errorf("no Worker has usable topology labels or NodeNetworkTopology status")
 	}
@@ -115,27 +90,16 @@ func BuildStaticSnapshot(clusterID string, nodes []corev1.Node, topologies []uns
 	return id, snapshot, err
 }
 
-func topologyFromNodeLabels(labels map[string]string) (topology, string, bool) {
+func topologyFromNodeLabels(labels map[string]string) (topology, bool) {
 	const prefix = "topology.demo.ngg.io/"
 	leaf := labels[prefix+"leaf-switch"]
 	if leaf == "" {
 		leaf = labels[prefix+"switch"]
 	}
-	core := labels[prefix+"core-switch"]
-	version := labels[prefix+"topology-version"]
-	if leaf == "" || core == "" || version == "" {
-		return topology{}, "", false
+	if leaf == "" {
+		return topology{}, false
 	}
-	bandwidth, bandwidthErr := strconv.ParseFloat(labels[prefix+"bandwidth-gbps"], 64)
-	latency, latencyErr := strconv.ParseFloat(labels[prefix+"latency-ms"], 64)
-	if bandwidthErr != nil || latencyErr != nil {
-		return topology{}, "", false
-	}
-	return topology{
-		SwitchID: leaf, LeafSwitchID: leaf,
-		BorderSwitchID: labels[prefix+"border-switch"], CoreSwitchID: core,
-		BandwidthGbps: bandwidth, LatencyMillis: latency,
-	}, version, true
+	return topology{SwitchID: leaf, LeafSwitchID: leaf}, true
 }
 
 func nestedNumber(object map[string]any, fields ...string) float64 {

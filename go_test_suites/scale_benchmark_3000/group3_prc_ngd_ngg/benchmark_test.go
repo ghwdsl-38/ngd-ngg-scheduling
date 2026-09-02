@@ -258,48 +258,31 @@ func (m *scaleMockAlgorithm) handle(writer http.ResponseWriter, request *http.Re
 func (m *scaleMockAlgorithm) allocate(body map[string]any) (map[string]any, error) {
 	ngd, _ := body["ngd"].(map[string]any)
 	target := int(ngd["maxNodes"].(float64))
-	field, level, prefix := "leafSwitchId", "leafSwitch", "leaf"
-	if target > 20 {
-		field, level, prefix = "borderSwitchId", "borderSwitch", "border"
-	}
-	if target > 740 {
-		field, level, prefix = "coreSwitchId", "coreSwitch", "core"
-	}
 	m.mu.Lock()
 	static := append([]any(nil), m.static...)
 	m.mu.Unlock()
-	groups := map[string][]map[string]any{}
+	nodes := make([]map[string]any, 0, len(static))
 	for _, raw := range static {
-		node := raw.(map[string]any)
-		topology, _ := node["topology"].(map[string]any)
-		groupID := fmt.Sprint(topology[field])
-		groups[groupID] = append(groups[groupID], node)
+		nodes = append(nodes, raw.(map[string]any))
 	}
-	ids := make([]string, 0, len(groups))
-	for id, nodes := range groups {
-		if len(nodes) >= target {
-			ids = append(ids, id)
-		}
+	if len(nodes) < target {
+		return nil, fmt.Errorf("only %d Nodes available for target %d", len(nodes), target)
 	}
-	if len(ids) == 0 {
-		return nil, fmt.Errorf("no %s group can select %d Nodes", level, target)
-	}
-	sort.Strings(ids)
-	nodes := groups[ids[0]]
 	sort.Slice(nodes, func(i, j int) bool { return fmt.Sprint(nodes[i]["nodeName"]) < fmt.Sprint(nodes[j]["nodeName"]) })
 	candidates := make([]any, 0, target)
 	for _, node := range nodes[:target] {
 		candidates = append(candidates, map[string]any{
 			"nodeUID": node["nodeUID"], "nodeName": node["nodeName"], "score": int64(90),
 			"resources": map[string]any{"cpuAvailable": "32", "memoryAvailable": "128Gi"},
+			"topology":  map[string]any{"regionId": "CN-NORTH", "locationId": "HB-HL", "dataCenterId": "HB-HL-DC1", "roomId": "HB-HL-DC1-102", "borderDomainId": "HB-HL-DC1-102-BORDER-DOMAIN-01", "leafSwitchId": "leaf-001"},
 		})
 	}
 	return map[string]any{
 		"requestId": body["requestId"], "taskUID": body["taskUID"], "ngdUID": body["ngdUID"], "ngdGeneration": body["ngdGeneration"],
 		"algorithmBootId": "benchmark-mock-group3", "nodeStaticSnapshotId": body["nodeStaticSnapshotId"], "schedulerStateSnapshotId": body["schedulerStateSnapshotId"],
-		"metricSnapshotId": "benchmark-mock-metrics", "metricSnapshotCapturedAt": "2026-08-25T00:00:00Z",
+		"metricSnapshotId": "benchmark-mock-metrics", "metricSnapshotCapturedAt": "2026-08-25T00:00:00Z", "topologySnapshotId": "mock-unicom-topology",
 		"degraded": false, "warnings": []any{}, "status": "SUCCESS",
-		"candidateNodeGroups": []any{map[string]any{"rank": int64(1), "groupId": prefix + ":" + ids[0], "topologyLevel": level, "groupScore": 90.0, "nodes": candidates}},
+		"candidateNodeGroups": []any{map[string]any{"rank": int64(1), "groupId": "room:HB-HL-DC1-102", "topologyLevel": "room", "groupScore": 90.0, "nodes": candidates}},
 	}, nil
 }
 

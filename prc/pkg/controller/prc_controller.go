@@ -262,8 +262,8 @@ func (r *NodeGroupDemandReconciler) reconcilePlatformDemand(ctx context.Context,
 
 	requestID := fmt.Sprintf("%s-generation-%d-state-%s", demand.GetUID(), demand.GetGeneration(), shortHash(stateID))
 	// 联通 NGD spec 作为一个完整对象原样传给 Algorithm。Algorithm 当前只读取
-	// nodeSelector、topologyRequirement、maxCandidateGroups、maxNodes、quota 和
-	// minResources；其余字段仍保留在协议中，便于后续兼容而不需要再次改 PRC。
+	// nodeSelector、maxNodes、quota 和 minResources；拓扑图与固定算法顺序均由
+	// Algorithm Server 管理。其余字段保留在协议中，便于后续兼容而不改 PRC。
 	ngdSpec, _ := runtime.DeepCopyJSONValue(spec).(map[string]any)
 	algorithmRequest := map[string]any{
 		"requestId": requestID, "taskUID": string(demand.GetUID()), "ngdUID": string(demand.GetUID()),
@@ -314,22 +314,8 @@ func validatePlatformDemandSpec(spec map[string]any) error {
 	if stringValue(spec, "schedulerName") == "" {
 		return fmt.Errorf("spec.schedulerName is required")
 	}
-	// minThroughput、IP亲和、网络可达性、preferredSubnet和algorithms均保留
-	// 在原始NGD中并透传给Algorithm，但当前阶段不参与计算。
-	topology := mapValue(spec, "topologyRequirement")
-	if len(topology) > 0 {
-		if profile := stringValue(topology, "profile"); profile != "leaf-border-core-v1" {
-			return fmt.Errorf("spec.topologyRequirement.profile must be leaf-border-core-v1")
-		}
-		if strategy := stringValue(topology, "strategy"); strategy != "NarrowestFit" {
-			return fmt.Errorf("spec.topologyRequirement.strategy must be NarrowestFit")
-		}
-		switch stringValue(topology, "widestAllowedLevel") {
-		case "leafSwitch", "borderSwitch", "coreSwitch":
-		default:
-			return fmt.Errorf("spec.topologyRequirement.widestAllowedLevel must be leafSwitch, borderSwitch or coreSwitch")
-		}
-	}
+	// minThroughput、IP亲和、网络可达性和preferredSubnet均按联通原始契约
+	// 原样透传；当前阶段只处理资源需求与nodeSelector。
 	for _, field := range []string{"minResources", "quota"} {
 		resources := mapOrEmpty(spec, field)
 		for _, name := range []string{"cpu", "memory"} {
@@ -587,7 +573,10 @@ func buildPlatformGrantSpec(demand *unstructured.Unstructured, demandSpec map[st
 			}
 			item["resources"] = resources
 		}
-		if node := byName[candidate.NodeName]; node != nil {
+		if topology := platformCandidateTopology(candidate.Topology); len(topology) > 0 {
+			item["topology"] = topology
+		} else if node := byName[candidate.NodeName]; node != nil {
+			// 兼容旧Algorithm响应；新链路应始终使用Algorithm解析出的上层拓扑。
 			if topology := platformTopology(node.Labels); len(topology) > 0 {
 				item["topology"] = topology
 			}
@@ -608,6 +597,21 @@ func buildPlatformGrantSpec(demand *unstructured.Unstructured, demandSpec map[st
 		"demandRef": demandRef,
 		"nodes":     items,
 	}
+}
+
+func platformCandidateTopology(topology map[string]any) map[string]any {
+	value := map[string]any{}
+	fields := map[string]string{
+		"dataCenter":        "dataCenterId",
+		"convergenceSwitch": "borderDomainId",
+		"accessSwitch":      "leafSwitchId",
+	}
+	for target, source := range fields {
+		if item := stringValue(topology, source); item != "" {
+			value[target] = item
+		}
+	}
+	return value
 }
 
 func platformTopology(labels map[string]string) map[string]any {

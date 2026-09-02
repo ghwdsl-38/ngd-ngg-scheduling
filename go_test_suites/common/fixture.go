@@ -23,7 +23,9 @@ import (
 type Fixture struct {
 	NodeCount        int
 	StaticSnapshot   map[string]any
+	ResolvedSnapshot map[string]any
 	StaticSnapshotID string
+	TopologyConfig   []byte
 	NodeUsageStates  []any
 	Metrics          map[string]map[string]float64
 	Allocation       map[string]any
@@ -39,6 +41,7 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 		return nil, fmt.Errorf("nodeCount must be a positive multiple of 20")
 	}
 	staticNodes := make([]any, 0, nodeCount)
+	resolvedNodes := make([]any, 0, nodeCount)
 	states := make([]any, 0, nodeCount)
 	metrics := make(map[string]map[string]float64, nodeCount)
 	nodes := make([]corev1.Node, 0, nodeCount)
@@ -47,37 +50,39 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 	for number := 1; number <= nodeCount; number++ {
 		leafNumber := (number-1)/20 + 1
 		borderNumber := (leafNumber-1)*4/leafCount + 1
-		coreNumber := (borderNumber-1)/2 + 1
 		name := fmt.Sprintf("worker-%04d", number)
 		uid := fmt.Sprintf("uid-worker-%04d", number)
 		leaf := fmt.Sprintf("leaf-%03d", leafNumber)
-		border := fmt.Sprintf("border-%02d", borderNumber)
-		core := fmt.Sprintf("core-%02d", coreNumber)
+		borderDomain := fmt.Sprintf("HB-HL-DC1-102-BORDER-DOMAIN-%02d", borderNumber)
+		borders := []string{
+			fmt.Sprintf("HB-HL-DC1-102-BORDER-DOMAIN-%02d-SW01-ZTE9904X", borderNumber),
+			fmt.Sprintf("HB-HL-DC1-102-BORDER-DOMAIN-%02d-SW02-ZTE9904X", borderNumber),
+		}
 		bandwidths := []float64{25, 40, 50, 100}
 		latencies := []float64{4, 2.5, 1.5, 0.8}
 		bandwidth := bandwidths[(leafNumber-1)%len(bandwidths)]
 		latency := latencies[(leafNumber-1)%len(latencies)]
 		labels := map[string]string{
-			"tests.ngg.io/worker":                     "true",
-			"topology.kubernetes.io/region":           "dc-test-01",
-			"topology.kubernetes.io/rack":             fmt.Sprintf("rack-%03d", leafNumber),
-			"topology.demo.ngg.io/topology-version":   "dc-core-border-leaf-v1",
-			"topology.demo.ngg.io/core-switch":        core,
-			"topology.demo.ngg.io/border-switch":      border,
-			"topology.demo.ngg.io/leaf-switch":        leaf,
-			"topology.demo.ngg.io/bandwidth-gbps":     fmt.Sprint(bandwidth),
-			"topology.demo.ngg.io/latency-ms":         fmt.Sprint(latency),
-			"topology.demo.ngg.io/convergence-switch": border,
+			"tests.ngg.io/worker":              "true",
+			"topology.demo.ngg.io/leaf-switch": leaf,
 		}
-		topology := map[string]any{
-			"dataCenter": "dc-test-01", "coreSwitchId": core, "borderSwitchId": border,
-			"leafSwitchId": leaf, "switchId": leaf, "bandwidthGbps": bandwidth, "latencyMillis": latency,
+		topology := map[string]any{"leafSwitchId": leaf, "switchId": leaf}
+		resolvedTopology := map[string]any{
+			"regionId": "CN-NORTH", "locationId": "HB-HL", "dataCenterId": "HB-HL-DC1",
+			"roomId": "HB-HL-DC1-102", "borderDomainId": borderDomain,
+			"borderSwitchIds": borders, "spineDomainId": "", "spineSwitchIds": []any{},
+			"leafSwitchId": leaf, "switchId": leaf, "peerLeafSwitchIds": []any{},
+			"bandwidthGbps": bandwidth, "latencyMillis": latency,
 		}
-		staticNodes = append(staticNodes, map[string]any{
+		staticNode := map[string]any{
 			"nodeName": name, "nodeUID": uid, "createdAt": "2026-08-21T00:00:00Z",
 			"allocatable": map[string]any{"cpu": "32", "memory": "128Gi", "nvidia.com/gpu": "4"},
 			"labels":      labels, "topology": topology,
-		})
+		}
+		resolvedNode := copyMap(staticNode)
+		resolvedNode["topology"] = resolvedTopology
+		staticNodes = append(staticNodes, staticNode)
+		resolvedNodes = append(resolvedNodes, resolvedNode)
 		inUse := number%3 == 0
 		state := map[string]any{"nodeUID": uid, "inUse": inUse, "requestedResources": map[string]any{}}
 		states = append(states, state)
@@ -125,18 +130,24 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 			})
 		}
 	}
-	static := map[string]any{"clusterId": "mock-1000-node-cluster", "topologyVersion": "dc-core-border-leaf-v1", "nodes": staticNodes}
+	static := map[string]any{"clusterId": "mock-1000-node-cluster", "topologyVersion": "node-leaf-v1", "nodes": staticNodes}
+	resolvedStatic := map[string]any{"clusterId": "mock-1000-node-cluster", "topologyVersion": "unicom-border-domain-v1", "nodes": resolvedNodes}
+	topologyConfig, err := buildTopologyConfig(leafCount)
+	if err != nil {
+		return nil, err
+	}
 	snapshotID, err := CanonicalHash(static)
 	if err != nil {
 		return nil, err
 	}
 	ngdSpec := map[string]any{
-		"schedulerName":       "volcano",
-		"nodeSelector":        map[string]any{"matchLabels": map[string]any{"tests.ngg.io/worker": "true"}},
-		"topologyRequirement": map[string]any{"profile": "leaf-border-core-v1", "strategy": "NarrowestFit", "widestAllowedLevel": "coreSwitch"},
-		"maxCandidateGroups":  int64(3), "maxNodes": int64(6),
-		"quota":        map[string]any{"cpu": "192", "memory": "768Gi"},
-		"minResources": map[string]any{"cpu": "96", "memory": "384Gi"},
+		"schedulerName": "volcano",
+		"nodeSelector":  map[string]any{"matchLabels": map[string]any{"tests.ngg.io/worker": "true"}},
+		// 每个Leaf有20个Node，其中约1/3处于占用状态；15个Node的最低需求
+		// 故意无法在单Leaf满足，用来验证SPINE为空时上升到Border Domain。
+		"maxNodes":     int64(18),
+		"quota":        map[string]any{"cpu": "576", "memory": "2304Gi"},
+		"minResources": map[string]any{"cpu": "480", "memory": "1920Gi"},
 	}
 	allocation := map[string]any{
 		"requestId": "group-request-1000", "taskUID": "task-uid-1000", "ngdUID": "ngd-uid-1000", "ngdGeneration": int64(1),
@@ -146,7 +157,7 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 	if err != nil {
 		return nil, err
 	}
-	workerStatic := copyMap(static)
+	workerStatic := copyMap(resolvedStatic)
 	workerStatic["snapshotId"] = snapshotID
 	workerPayload := map[string]any{
 		"request": allocation, "staticSnapshot": workerStatic,
@@ -161,7 +172,54 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 		"metadata": map[string]any{"name": "go-test-demand", "labels": map[string]any{"scheduling.platform.example.io/scheduler": "volcano"}},
 		"spec":     ngdSpec,
 	}}
-	return &Fixture{NodeCount: nodeCount, StaticSnapshot: static, StaticSnapshotID: snapshotID, NodeUsageStates: states, Metrics: metrics, Allocation: allocation, WorkerPayload: workerPayload, Nodes: nodes, Pods: pods, Demand: demand}, nil
+	return &Fixture{NodeCount: nodeCount, StaticSnapshot: static, ResolvedSnapshot: resolvedStatic, StaticSnapshotID: snapshotID, TopologyConfig: topologyConfig, NodeUsageStates: states, Metrics: metrics, Allocation: allocation, WorkerPayload: workerPayload, Nodes: nodes, Pods: pods, Demand: demand}, nil
+}
+
+// buildTopologyConfig生成与联通样例同构的独立配置：机房下每个Leaf包含
+// SPINE/BORDER/LEAF邻接表，SPINE允许为空，双Border由显式Domain归并。
+func buildTopologyConfig(leafCount int) ([]byte, error) {
+	borderDomains := map[string]any{}
+	room := map[string]any{}
+	leafMetrics := map[string]any{}
+	for number := 1; number <= leafCount; number++ {
+		leaf := fmt.Sprintf("leaf-%03d", number)
+		domainNumber := (number-1)*4/leafCount + 1
+		domain := fmt.Sprintf("HB-HL-DC1-102-BORDER-DOMAIN-%02d", domainNumber)
+		borders := []any{
+			fmt.Sprintf("HB-HL-DC1-102-BORDER-DOMAIN-%02d-SW01-ZTE9904X", domainNumber),
+			fmt.Sprintf("HB-HL-DC1-102-BORDER-DOMAIN-%02d-SW02-ZTE9904X", domainNumber),
+		}
+		members := make([]any, len(borders))
+		copy(members, borders)
+		borderDomains[domain] = map[string]any{"roomId": "HB-HL-DC1-102", "mode": "exact-set", "members": members}
+		borderLinks := map[string]any{}
+		for index, raw := range borders {
+			borderLinks[raw.(string)] = map[string]any{
+				"local_port": fmt.Sprintf("cgei-0/1/1/%d", 51+index*2),
+				"peer_port":  fmt.Sprintf("cgei-0/3/0/%d", number),
+			}
+		}
+		room[leaf] = map[string]any{"SPINE": map[string]any{}, "BORDER": borderLinks, "LEAF": map[string]any{}}
+		bandwidths := []float64{25, 40, 50, 100}
+		latencies := []float64{4, 2.5, 1.5, 0.8}
+		leafMetrics[leaf] = map[string]any{
+			"bandwidthGbps": bandwidths[(number-1)%len(bandwidths)],
+			"latencyMillis": latencies[(number-1)%len(latencies)],
+		}
+	}
+	config := map[string]any{
+		"version": "unicom-border-domain-v1",
+		"scopes": map[string]any{
+			"regions":     []any{map[string]any{"id": "CN-NORTH", "name": "华北"}},
+			"locations":   []any{map[string]any{"id": "HB-HL", "name": "怀来", "regionId": "CN-NORTH"}},
+			"dataCenters": []any{map[string]any{"id": "HB-HL-DC1", "locationId": "HB-HL"}},
+			"rooms":       []any{map[string]any{"id": "HB-HL-DC1-102", "dataCenterId": "HB-HL-DC1"}},
+		},
+		"borderDomains": borderDomains,
+		"leafMetrics":   leafMetrics,
+		"topology":      map[string]any{"HB-HL-DC1-102": room},
+	}
+	return yaml.Marshal(config)
 }
 
 // CanonicalHash与Algorithm静态缓存的JSON SHA-256规则一致。
@@ -211,11 +269,12 @@ func WriteFixtureInput(directory string, fixture *Fixture, includeKubernetes boo
 	static := copyMap(fixture.StaticSnapshot)
 	static["snapshotId"] = fixture.StaticSnapshotID
 	files := map[string]any{
-		"node-static-snapshot.json": static,
-		"node-dynamic-state.json":   map[string]any{"scope": "request", "nodes": fixture.NodeUsageStates},
-		"prometheus-metrics.json":   map[string]any{"source": "mock-prometheus-http", "nodes": fixture.Metrics},
-		"allocation-request.json":   fixture.Allocation,
-		"worker-payload.json":       fixture.WorkerPayload,
+		"node-static-snapshot.json":          static,
+		"node-dynamic-state.json":            map[string]any{"scope": "request", "nodes": fixture.NodeUsageStates},
+		"prometheus-metrics.json":            map[string]any{"source": "mock-prometheus-http", "nodes": fixture.Metrics},
+		"allocation-request.json":            fixture.Allocation,
+		"worker-payload.json":                fixture.WorkerPayload,
+		"resolved-node-static-snapshot.json": fixture.ResolvedSnapshot,
 	}
 	if includeKubernetes {
 		files["kubernetes-nodes.json"] = map[string]any{"items": fixture.Nodes}
@@ -234,7 +293,10 @@ func WriteFixtureInput(directory string, fixture *Fixture, includeKubernetes boo
 			return err
 		}
 	}
-	return WriteJSON(filepath.Join(directory, "fixture-summary.json"), map[string]any{"nodeCount": fixture.NodeCount, "metricNamesPerNode": 14, "metricSamples": fixture.NodeCount * 14, "topology": "2 core / 4 border / 50 leaf / 20 nodes per leaf"})
+	if err := os.WriteFile(filepath.Join(directory, "network-topology.yaml"), fixture.TopologyConfig, 0o644); err != nil {
+		return err
+	}
+	return WriteJSON(filepath.Join(directory, "fixture-summary.json"), map[string]any{"nodeCount": fixture.NodeCount, "metricNamesPerNode": 14, "metricSamples": fixture.NodeCount * 14, "topology": "华北 / 怀来 / HB-HL-DC1 / 102机房 / 4 Border Domain / 50 Leaf / 20 Node per Leaf; SPINE empty"})
 }
 
 func copyMap(source map[string]any) map[string]any {

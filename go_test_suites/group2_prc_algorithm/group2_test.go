@@ -53,7 +53,7 @@ func TestGroup2_PRCClientCallsCompleteAlgorithm(t *testing.T) {
 	worker := common.PythonWorkerConfig(filepath.Join(runDirectory, "actual"))
 	server, err := algorithm.NewServer(algorithm.Config{
 		BootID: "group2-algorithm", PrometheusURL: mock.URL(), PrometheusBearerToken: "go-test-prometheus-token",
-		PrometheusClient: mock.Client(),
+		PrometheusClient: mock.Client(), TopologyConfigData: fixture.TopologyConfig,
 		PythonExecutable: worker.Executable, PythonModule: worker.Module, PythonPath: worker.PythonPath, WorkerEvidenceDir: worker.EvidenceDir,
 	}, algorithm.ServerOptions{ListenAddress: "127.0.0.1:0"})
 	if err != nil {

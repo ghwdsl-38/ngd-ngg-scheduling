@@ -49,11 +49,11 @@ class PipelineRunner:
             ]
             context.candidates.sort(key=lambda item: (-item["groupScore"], item["groupId"]))
 
-        ngd = context.request.get("ngd", {})
-        max_groups = int(
-            ngd.get("maxCandidateGroups", 3)
+        # 联通正式NGD没有候选组数量字段，资源池模式固定返回不超过3组。
+        max_groups = (
+            3
             if context.request.get("requestMode") == "resourcePool"
-            else context.request.get("maxCandidateGroups", 3)
+            else int(context.request.get("maxCandidateGroups", 3))
         )
         max_groups = max(1, min(3, max_groups))
         # SCORE 已稳定排序；这里只截断、清理内部字段并生成连续 rank。
@@ -68,32 +68,15 @@ class PipelineRunner:
     def _fixed_plan(self, request: dict[str, Any]) -> list[tuple[Any, dict[str, Any]]]:
         """从固定服务配置和 NGD 约束构造参数，不读取 spec.algorithms。"""
 
-        topology = request.get("topologyRequirement", {})
-        if request.get("requestMode") == "resourcePool":
-            ngd = request.get("ngd")
-            if not isinstance(ngd, dict):
-                raise InvalidRequest("resourcePool request requires ngd")
-            topology = ngd.get("topologyRequirement", {})
-        if not isinstance(topology, dict):
-            raise InvalidRequest("topologyRequirement must be an object")
-
-        if topology.get("profile"):
-            topology_parameters = {
-                "profile": topology.get("profile"),
-                "strategy": topology.get("strategy"),
-                "widestAllowedLevel": topology.get("widestAllowedLevel"),
-            }
-        else:
-            # 旧任务模式只声明同一 Leaf；正式资源池缺省拓扑则由 Topology
-            # 算法直接形成 cluster 组，不会使用这里的兼容默认值。
-            topology_parameters = {
-                "profile": "leaf-border-core-v1",
-                "strategy": "NarrowestFit",
-                "widestAllowedLevel": "leafSwitch",
-            }
+        if request.get("requestMode") == "resourcePool" and not isinstance(
+            request.get("ngd"), dict
+        ):
+            raise InvalidRequest("resourcePool request requires ngd")
         return [
             (self.requirement, {}),
-            (self.topology, topology_parameters),
+            # 联通正式NGD不携带profile或拓扑图。层级和NarrowestFit策略
+            # 由Algorithm Server固定实现，具体网络关系由Go层配置解析。
+            (self.topology, {}),
             (self.loadbalance, {
                 "profile": "balanced-v2",
                 "requireMetrics": False,
