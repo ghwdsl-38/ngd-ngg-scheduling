@@ -2,7 +2,7 @@
 
 > 项目路径：`/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo`  
 > 整理日期：2026-09-02  
-> 代码基线：`main` 分支，提交 `258c7fc`（`refactor: encapsulate PRC and algorithm runtimes`）
+> 代码基线：`main` 分支，提交 `54fac80`（`feat: add Unicom border-domain topology scheduling`）
 
 ## 1. 文档目的
 
