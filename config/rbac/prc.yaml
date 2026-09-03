@@ -49,7 +49,7 @@ rules:
   verbs: ["get", "update", "patch"]
 - apiGroups: ["scheduling.platform.example.io"]
   resources: ["nodegroupgrants"]
-  verbs: ["get", "list", "watch", "create", "update", "patch"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: ["scheduling.platform.example.io"]
   resources: ["nodegroupgrants/status"]
   verbs: ["get", "update", "patch"]

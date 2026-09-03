@@ -56,6 +56,20 @@
         "NGG_TEST_DEBUG_TIMEOUT": "10m",
         "GOMAXPROCS": "2"
       }
+    },
+    {
+      "name": "Debug Group5 - PRC refresh update delete",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/go_test_suites/group5_prc_refresh_lifecycle",
+      "args": ["-test.run", "^TestGroup5_", "-test.v", "-test.count=1", "-test.timeout", "30m"],
+      "env": {
+        "GOMODCACHE": "${workspaceFolder}/.cache/go-mod",
+        "GOCACHE": "${workspaceFolder}/.cache/go-build",
+        "KUBEBUILDER_ASSETS": "${workspaceFolder}/.cache/envtest/1.35.5",
+        "GOMAXPROCS": "2"
+      }
     }
   ]
 }

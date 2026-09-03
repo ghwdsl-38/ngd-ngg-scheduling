@@ -59,7 +59,7 @@ Kind 拓扑为 1 个 Control Plane 和 9 个 Worker：
 - `plugin/kubescheduler/`：kube-scheduler NGG 插件及自定义 scheduler 注册入口；
 - `ngg_consumer/formalgrant/`：正式扁平 NGG 的公共解析、时效/生命周期校验和授权合并核心；
 - `test_suites/`：3000 Node 三大统一测试组、固定 Fixture、Mock Prometheus、envtest runner 和结果格式；
-- `go_test_suites/`：1000 Node 四组标准`go test`，支持独立Expected/Actual/Results和VS Code/Delve本地Debug；
+- `go_test_suites/`：1000 Node 五组标准`go test`，支持独立Expected/Actual/Results和VS Code/Delve本地Debug；
 - `config/crd/`：NGD、NGG、NNT CRD；
 - `config/manager/`：PRC、Algorithm 和 LLDP Agent 部署；
 - `config/kubescheduler/`：第二个 scheduler profile 和 Deployment；
@@ -115,14 +115,15 @@ make demo-show-latest  # 展示最新结果
 
 每组结果保存在`test_suites/<组>/runs/<时间戳>/`：`timing-run/`只保存性能结果，`evidence-run/`按原始格式保存输入、中间过程和输出。详细命令和文件含义见`test_suites/README.md`。运行数据由`.gitignore`排除。
 
-新的四组标准Go Test：
+新的五组标准Go Test：
 
 ```bash
 make go-test-group1  # Go调用真实Python Worker
 make go-test-group2  # PRC调用真实Algorithm和Mock Prometheus
 make go-test-group3  # envtest + PRC Watch + Mock Algorithm
 make go-test-group4  # envtest + PRC + 真实Algorithm完整组件链路
-make go-test-all     # 串行运行四组
+make go-test-group5  # PRC周期刷新、NGD修改、consumer保留和删除清理
+make go-test-all     # 串行运行五组
 ```
 
 每组结果分别保存在`go_test_suites/<组>/results/<run-id>/`，详细输入、输出和计时边界见[`go_test_suites/README.md`](go_test_suites/README.md)。

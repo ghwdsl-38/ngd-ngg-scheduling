@@ -12,16 +12,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
@@ -36,6 +33,8 @@ const (
 	defaultTaskPoll       = 5 * time.Second
 	defaultPodPoll        = 2 * time.Second
 	maxAlgorithmBodyBytes = 4 << 20
+	prcSpecFieldManager   = "ngd-ngg-prc-spec"
+	prcStatusFieldManager = "ngd-ngg-prc-status"
 )
 
 var (
@@ -52,7 +51,10 @@ var (
 	}
 )
 
-type NodeGroupDemandReconciler struct {
+// DemandProcessor executes one complete NGD business calculation. It is shared
+// by the initial event path and every scheduled refresh so both paths publish
+// NGG and status with identical semantics.
+type DemandProcessor struct {
 	client.Client
 	Scheme       *runtime.Scheme
 	AlgorithmURL string
@@ -68,42 +70,9 @@ type NodeGroupDemandReconciler struct {
 	ReconcileObserver func(uid string, generation int64, observedAt time.Time)
 }
 
-// SetupWithManager uses the Kubebuilder/controller-runtime builder pattern.
-// NGD generation changes are primary events; Node, Pod and NNT changes enqueue
-// all demands so Pending/Unsatisfied/Degraded workloads are actively retried.
-func (r *NodeGroupDemandReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if r.StaticSnapshots == nil {
-		return fmt.Errorf("StaticSnapshotState is required")
-	}
-	formalDemand := newUnstructured(platformDemandGVK)
-	legacyDemand := newUnstructured(demandGVK)
-	topology := newUnstructured(topologyGVK)
-	return ctrl.NewControllerManagedBy(mgr).
-		For(formalDemand, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Watches(legacyDemand, &handler.EnqueueRequestForObject{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(r.mapAllDemands)).
-		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.mapAllDemands)).
-		Watches(topology, handler.EnqueueRequestsFromMapFunc(r.mapAllDemands)).
-		Complete(r)
-}
-
-func (r *NodeGroupDemandReconciler) mapAllDemands(ctx context.Context, _ client.Object) []reconcile.Request {
-	requests := []reconcile.Request{}
-	for _, listGVK := range []schema.GroupVersionKind{platformDemandList, demandList} {
-		list := &unstructured.UnstructuredList{}
-		list.SetGroupVersionKind(listGVK)
-		if err := r.List(ctx, list); err != nil {
-			ctrl.LoggerFrom(ctx).Error(err, "list demands for event fan-out", "gvk", listGVK.String())
-			continue
-		}
-		for i := range list.Items {
-			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
-		}
-	}
-	return requests
-}
-
-func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
+// Process executes one refresh. RequeueAfter is returned as a scheduling hint
+// to RefreshScheduler and is never returned to the NGD event controller.
+func (r *DemandProcessor) Process(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("ngd", request.NamespacedName)
 	formal := request.Namespace == ""
 	demandType := demandGVK
@@ -182,6 +151,14 @@ func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.
 	if err != nil {
 		return r.degradeAndRetry(ctx, demand, "AlgorithmRequestFailed", err.Error())
 	}
+	current, err := r.demandStillCurrent(ctx, demand)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !current {
+		log.Info("discarded stale Algorithm result", "uid", demand.GetUID(), "generation", demand.GetGeneration())
+		return ctrl.Result{}, nil
+	}
 	if err := validateResponse(response, requestID, demand, task.GetUID(), staticID, stateID, staticStatus.AlgorithmBootID, schedulerState); err != nil {
 		return r.degradeAndRetry(ctx, demand, "AlgorithmResponseInvalid", err.Error())
 	}
@@ -213,14 +190,14 @@ func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.
 		return ctrl.Result{}, err
 	}
 	log.Info("published platform NGG", "candidateCount", len(response.CandidateNodeGroups), "selectedGroup", response.CandidateNodeGroups[0].GroupID, "nodeCount", len(response.CandidateNodeGroups[0].Nodes))
-	// 联通协议要求持续刷新 timestamp/nodes；Node、Pod、NNT Watch 仍会提前触发。
-	return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	// 正常周期由独立RefreshScheduler统一安排；特殊等待/退避路径才返回调度提示。
+	return ctrl.Result{}, nil
 }
 
 // reconcilePlatformDemand handles the formal, cluster-scoped China Unicom
 // resource-pool contract. Unlike the legacy task mode it does not resolve a
 // VolcanoJob/Kubernetes Job: the NGD UID itself is the request identity.
-func (r *NodeGroupDemandReconciler) reconcilePlatformDemand(ctx context.Context, demand *unstructured.Unstructured) (ctrl.Result, error) {
+func (r *DemandProcessor) reconcilePlatformDemand(ctx context.Context, demand *unstructured.Unstructured) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("formalNGD", demand.GetName())
 	if r.ReconcileObserver != nil {
 		r.ReconcileObserver(string(demand.GetUID()), demand.GetGeneration(), time.Now())
@@ -280,6 +257,14 @@ func (r *NodeGroupDemandReconciler) reconcilePlatformDemand(ctx context.Context,
 	if err != nil {
 		return r.failPlatformDemand(ctx, demand, "AlgorithmRequestFailed", err.Error(), true)
 	}
+	current, err := r.demandStillCurrent(ctx, demand)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !current {
+		log.Info("discarded stale Algorithm result", "uid", demand.GetUID(), "generation", demand.GetGeneration())
+		return ctrl.Result{}, nil
+	}
 	if err := validateResponse(response, requestID, demand, demand.GetUID(), staticID, stateID, staticStatus.AlgorithmBootID, schedulerState); err != nil {
 		return r.failPlatformDemand(ctx, demand, "AlgorithmResponseInvalid", err.Error(), true)
 	}
@@ -307,7 +292,7 @@ func (r *NodeGroupDemandReconciler) reconcilePlatformDemand(ctx context.Context,
 		return ctrl.Result{}, err
 	}
 	log.Info("published formal platform NGG", "selectedGroup", selected.GroupID, "nodeCount", len(selected.Nodes))
-	return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	return ctrl.Result{}, nil
 }
 
 func validatePlatformDemandSpec(spec map[string]any) error {
@@ -331,15 +316,26 @@ func validatePlatformDemandSpec(spec map[string]any) error {
 	return nil
 }
 
-func (r *NodeGroupDemandReconciler) setPlatformDemandStatus(ctx context.Context, demand *unstructured.Unstructured, phase, grantRef string, count int64, message string) error {
+func (r *DemandProcessor) demandStillCurrent(ctx context.Context, demand *unstructured.Unstructured) (bool, error) {
+	latest := newUnstructured(demand.GroupVersionKind())
+	if err := r.Get(ctx, client.ObjectKeyFromObject(demand), latest); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("re-read NGD before publishing result: %w", err)
+	}
+	return latest.GetUID() == demand.GetUID() && latest.GetGeneration() == demand.GetGeneration(), nil
+}
+
+func (r *DemandProcessor) setPlatformDemandStatus(ctx context.Context, demand *unstructured.Unstructured, phase, grantRef string, count int64, message string) error {
 	status := map[string]any{
 		"phase": phase, "grantRef": grantRef, "resolvedNodeCount": count,
 		"lastUpdated": time.Now().UTC().Format(time.RFC3339Nano), "message": message,
 	}
-	return patchStatus(ctx, r.Client, demand, status)
+	return applyStatus(ctx, r.Client, demand, status)
 }
 
-func (r *NodeGroupDemandReconciler) failPlatformDemand(ctx context.Context, demand *unstructured.Unstructured, reason, message string, retry bool) (ctrl.Result, error) {
+func (r *DemandProcessor) failPlatformDemand(ctx context.Context, demand *unstructured.Unstructured, reason, message string, retry bool) (ctrl.Result, error) {
 	if err := r.setPlatformDemandStatus(ctx, demand, "Failed", "", 0, reason+": "+message); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -369,7 +365,7 @@ func grantPolicy(spec map[string]any) policyValues {
 	}
 }
 
-func (r *NodeGroupDemandReconciler) handleExisting(
+func (r *DemandProcessor) handleExisting(
 	ctx context.Context,
 	demand, grant *unstructured.Unstructured,
 	taskPods []corev1.Pod,
@@ -460,7 +456,7 @@ func (r *NodeGroupDemandReconciler) handleExisting(
 	return true, ctrl.Result{RequeueAfter: requeue}, nil
 }
 
-func (r *NodeGroupDemandReconciler) advanceGroup(ctx context.Context, demand, grant *unstructured.Unstructured, taskPods []corev1.Pod, now time.Time) (bool, ctrl.Result, error) {
+func (r *DemandProcessor) advanceGroup(ctx context.Context, demand, grant *unstructured.Unstructured, taskPods []corev1.Pod, now time.Time) (bool, ctrl.Result, error) {
 	if boundPodCount(taskPods) > 0 {
 		return false, ctrl.Result{}, nil
 	}
@@ -498,7 +494,7 @@ func (r *NodeGroupDemandReconciler) advanceGroup(ctx context.Context, demand, gr
 	return true, ctrl.Result{}, nil
 }
 
-func (r *NodeGroupDemandReconciler) getTask(ctx context.Context, namespace string, reference map[string]any) (*unstructured.Unstructured, error) {
+func (r *DemandProcessor) getTask(ctx context.Context, namespace string, reference map[string]any) (*unstructured.Unstructured, error) {
 	apiVersion := stringValue(reference, "apiVersion")
 	kind := stringValue(reference, "kind")
 	gv, err := schema.ParseGroupVersion(apiVersion)
@@ -512,37 +508,36 @@ func (r *NodeGroupDemandReconciler) getTask(ctx context.Context, namespace strin
 	return task, nil
 }
 
-func (r *NodeGroupDemandReconciler) upsertGrant(ctx context.Context, demand, existing *unstructured.Unstructured, spec map[string]any) (*unstructured.Unstructured, error) {
-	if existing == nil {
-		grant := newUnstructured(grantGVK)
-		demandRef := demand.GetName()
-		grantSourceName := demand.GetName()
-		if demand.GetNamespace() != "" {
-			demandRef = demand.GetNamespace() + "/" + demand.GetName()
-			grantSourceName = demand.GetNamespace() + "-" + demand.GetName()
-		}
-		grant.SetName(grantName(grantSourceName))
-		// Cluster-scoped NGG 不能 ownerReference 到 namespaced 旧 NGD；用 demandRef 和标签追溯。
-		grant.SetLabels(map[string]string{
-			grantGroup + "/demand-uid": shortHash(string(demand.GetUID())),
-			grantGroup + "/scheduler":  stringValue(spec, "schedulerName"),
-		})
-		grant.SetAnnotations(map[string]string{grantGroup + "/demand-ref": demandRef})
-		_ = unstructured.SetNestedMap(grant.Object, spec, "spec")
-		if err := r.Create(ctx, grant); err != nil {
-			return nil, fmt.Errorf("create NGG: %w", err)
-		}
-		return grant, nil
+func (r *DemandProcessor) upsertGrant(ctx context.Context, demand, _ *unstructured.Unstructured, spec map[string]any) (*unstructured.Unstructured, error) {
+	demandRef := demand.GetName()
+	grantSourceName := demand.GetName()
+	if demand.GetNamespace() != "" {
+		demandRef = demand.GetNamespace() + "/" + demand.GetName()
+		grantSourceName = demand.GetNamespace() + "-" + demand.GetName()
 	}
-	base := existing.DeepCopy()
-	_ = unstructured.SetNestedMap(existing.Object, spec, "spec")
-	if err := r.Patch(ctx, existing, client.MergeFrom(base)); err != nil {
-		return nil, fmt.Errorf("update NGG: %w", err)
+	grant := newUnstructured(grantGVK)
+	grant.SetName(grantName(grantSourceName))
+	grant.SetLabels(map[string]string{
+		grantGroup + "/demand-uid": shortHash(string(demand.GetUID())),
+		grantGroup + "/scheduler":  stringValue(spec, "schedulerName"),
+	})
+	grant.SetAnnotations(map[string]string{grantGroup + "/demand-ref": demandRef})
+	if demand.GetNamespace() == "" {
+		controller := true
+		grant.SetOwnerReferences([]metav1.OwnerReference{{
+			APIVersion: demand.GetAPIVersion(), Kind: demand.GetKind(), Name: demand.GetName(), UID: demand.GetUID(),
+			Controller: &controller,
+		}})
 	}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(existing), existing); err != nil {
+	_ = unstructured.SetNestedMap(grant.Object, spec, "spec")
+	if err := r.Apply(ctx, client.ApplyConfigurationFromUnstructured(grant), client.FieldOwner(prcSpecFieldManager)); err != nil {
+		return nil, fmt.Errorf("apply NGG spec: %w", err)
+	}
+	applied := newUnstructured(grantGVK)
+	if err := r.Get(ctx, client.ObjectKeyFromObject(grant), applied); err != nil {
 		return nil, err
 	}
-	return existing, nil
+	return applied, nil
 }
 
 // buildPlatformGrantSpec 将 Algorithm 排名第一的拓扑组转换为联通正式 NGG 契约。
@@ -632,7 +627,7 @@ func platformTopology(labels map[string]string) map[string]any {
 	return value
 }
 
-func (r *NodeGroupDemandReconciler) setPlatformGrantStatus(ctx context.Context, grant *unstructured.Unstructured, selected CandidateGroup, liveNodes []corev1.Node) error {
+func (r *DemandProcessor) setPlatformGrantStatus(ctx context.Context, grant *unstructured.Unstructured, selected CandidateGroup, liveNodes []corev1.Node) error {
 	allowed := map[string]struct{}{}
 	for _, node := range selected.Nodes {
 		allowed[node.NodeName] = struct{}{}
@@ -663,22 +658,16 @@ func (r *NodeGroupDemandReconciler) setPlatformGrantStatus(ctx context.Context, 
 		"phase":            "Active",
 		"resolvedCapacity": map[string]any{"nodes": int64(len(allowed)), "cpu": cpu.String(), "memory": memory.String()},
 	}
-	// status.consumer 由调度侧写入；PRC 更新自身字段时必须原样保留。
-	if consumer, found, _ := unstructured.NestedMap(grant.Object, "status", "consumer"); found {
-		status["consumer"] = consumer
-	}
-	return patchStatus(ctx, r.Client, grant, status)
+	// status.consumer由消费方的独立field manager维护；PRC的Apply对象不携带该字段。
+	return applyStatus(ctx, r.Client, grant, status)
 }
 
-func (r *NodeGroupDemandReconciler) setPlatformGrantReturned(ctx context.Context, grant *unstructured.Unstructured) error {
+func (r *DemandProcessor) setPlatformGrantReturned(ctx context.Context, grant *unstructured.Unstructured) error {
 	status := map[string]any{
 		"phase":            "Returned",
 		"resolvedCapacity": map[string]any{"nodes": int64(0), "cpu": "0", "memory": "0"},
 	}
-	if consumer, found, _ := unstructured.NestedMap(grant.Object, "status", "consumer"); found {
-		status["consumer"] = consumer
-	}
-	return patchStatus(ctx, r.Client, grant, status)
+	return applyStatus(ctx, r.Client, grant, status)
 }
 
 func buildGrantSpec(demand, task *unstructured.Unstructured, demandSpec map[string]any, response AlgorithmResponse, policy policyValues, revision int64, now time.Time) map[string]any {
@@ -774,7 +763,7 @@ func validateResponse(response AlgorithmResponse, requestID string, demand *unst
 	return nil
 }
 
-func (r *NodeGroupDemandReconciler) setGrantStatus(ctx context.Context, grant *unstructured.Unstructured, phase, state string, pods []corev1.Pod, attempt, reason, message string) error {
+func (r *DemandProcessor) setGrantStatus(ctx context.Context, grant *unstructured.Unstructured, phase, state string, pods []corev1.Pod, attempt, reason, message string) error {
 	active, _, _ := unstructured.NestedMap(grant.Object, "spec", "activeGroupRef")
 	groups, _, _ := unstructured.NestedSlice(grant.Object, "spec", "candidateNodeGroups")
 	activeNodes := int64(0)
@@ -793,10 +782,10 @@ func (r *NodeGroupDemandReconciler) setGrantStatus(ctx context.Context, grant *u
 		"boundPodCount": boundPodCount(pods), "attemptStartedAt": attempt,
 		"conditions": []any{condition(reason, message)},
 	}
-	return patchStatus(ctx, r.Client, grant, status)
+	return mergePatchStatus(ctx, r.Client, grant, status)
 }
 
-func (r *NodeGroupDemandReconciler) setDemandStatus(ctx context.Context, demand *unstructured.Unstructured, phase, reason, message string, grant *unstructured.Unstructured, nextRetry time.Time) error {
+func (r *DemandProcessor) setDemandStatus(ctx context.Context, demand *unstructured.Unstructured, phase, reason, message string, grant *unstructured.Unstructured, nextRetry time.Time) error {
 	status := map[string]any{
 		"phase": phase, "observedGeneration": demand.GetGeneration(),
 		"conditions": []any{condition(reason, message)}, "lastReconcileTime": time.Now().UTC().Format(time.RFC3339),
@@ -808,10 +797,10 @@ func (r *NodeGroupDemandReconciler) setDemandStatus(ctx context.Context, demand 
 	if !nextRetry.IsZero() {
 		status["nextRetryAt"] = nextRetry.UTC().Format(time.RFC3339)
 	}
-	return patchStatus(ctx, r.Client, demand, status)
+	return mergePatchStatus(ctx, r.Client, demand, status)
 }
 
-func (r *NodeGroupDemandReconciler) degradeAndRetry(ctx context.Context, demand *unstructured.Unstructured, reason, message string) (ctrl.Result, error) {
+func (r *DemandProcessor) degradeAndRetry(ctx context.Context, demand *unstructured.Unstructured, reason, message string) (ctrl.Result, error) {
 	next := time.Now().Add(defaultRetry)
 	if err := r.setDemandStatus(ctx, demand, "Degraded", reason, message, nil, next); err != nil {
 		return ctrl.Result{}, err
@@ -819,7 +808,7 @@ func (r *NodeGroupDemandReconciler) degradeAndRetry(ctx context.Context, demand 
 	return ctrl.Result{RequeueAfter: defaultRetry}, nil
 }
 
-func patchStatus(ctx context.Context, c client.Client, object *unstructured.Unstructured, status map[string]any) error {
+func mergePatchStatus(ctx context.Context, c client.Client, object *unstructured.Unstructured, status map[string]any) error {
 	base := object.DeepCopy()
 	if err := unstructured.SetNestedMap(object.Object, status, "status"); err != nil {
 		return err
@@ -828,6 +817,23 @@ func patchStatus(ctx context.Context, c client.Client, object *unstructured.Unst
 		return fmt.Errorf("patch %s/%s status: %w", object.GetKind(), object.GetName(), err)
 	}
 	return nil
+}
+
+// applyStatus sends only PRC-owned fields to the status subresource. In
+// particular status.consumer is intentionally absent so its consumer field
+// manager remains isolated from PRC refreshes.
+func applyStatus(ctx context.Context, c client.Client, object *unstructured.Unstructured, status map[string]any) error {
+	applyObject := newUnstructured(object.GroupVersionKind())
+	applyObject.SetName(object.GetName())
+	applyObject.SetNamespace(object.GetNamespace())
+	if err := unstructured.SetNestedMap(applyObject.Object, status, "status"); err != nil {
+		return err
+	}
+	return c.Status().Apply(
+		ctx,
+		client.ApplyConfigurationFromUnstructured(applyObject),
+		client.FieldOwner(prcStatusFieldManager),
+	)
 }
 
 func condition(reason, message string) map[string]any {
@@ -887,7 +893,7 @@ func boundPodCount(pods []corev1.Pod) int64 {
 	return count
 }
 
-func (r *NodeGroupDemandReconciler) httpClient() *http.Client {
+func (r *DemandProcessor) httpClient() *http.Client {
 	if r.HTTPClient != nil {
 		return r.HTTPClient
 	}

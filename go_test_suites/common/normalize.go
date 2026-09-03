@@ -8,7 +8,8 @@ import (
 
 var removedKeys = map[string]struct{}{
 	"resourceVersion": {}, "creationTimestamp": {}, "managedFields": {},
-	"timestamp": {}, "lastUpdated": {}, "capturedAt": {}, "capturedAtUnix": {},
+	"ownerReferences": {},
+	"timestamp":       {}, "lastUpdated": {}, "capturedAt": {}, "capturedAtUnix": {},
 	"metricSnapshotCapturedAt": {}, "timing": {}, "durationMs": {},
 }
 

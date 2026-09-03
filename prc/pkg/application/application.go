@@ -33,6 +33,8 @@ type Config struct {
 	LeaderElection         bool
 	LeaderElectionID       string
 	StaticResyncInterval   time.Duration
+	DemandRefreshInterval  time.Duration
+	MaxConcurrentRefreshes int
 
 	DebugAlgorithmTrace bool
 	AlgorithmRecorder   controller.AlgorithmExchangeRecorder
@@ -97,14 +99,28 @@ func New(config Config) (*Application, error) {
 		return nil, fmt.Errorf("setup Node static snapshot controller: %w", err)
 	}
 
-	demandReconciler := &controller.NodeGroupDemandReconciler{
+	processor := &controller.DemandProcessor{
 		Client: manager.GetClient(), Scheme: manager.GetScheme(), AlgorithmURL: config.AlgorithmURL,
 		ClusterID: config.ClusterID, HTTPClient: config.HTTPClient, StaticSnapshots: staticSnapshots,
 		DebugAlgorithmTrace: config.DebugAlgorithmTrace, AlgorithmRecorder: config.AlgorithmRecorder,
 		ReconcileObserver: config.ReconcileObserver,
 	}
+	refreshScheduler := controller.NewRefreshScheduler(0)
+	if err := manager.Add(refreshScheduler); err != nil {
+		return nil, fmt.Errorf("add Refresh Scheduler: %w", err)
+	}
+	demandReconciler := &controller.NodeGroupDemandReconciler{
+		Client: manager.GetClient(), Scheduler: refreshScheduler, Processor: processor,
+	}
 	if err := demandReconciler.SetupWithManager(manager); err != nil {
 		return nil, fmt.Errorf("setup NodeGroupDemand controller: %w", err)
+	}
+	refreshReconciler := &controller.RefreshReconciler{
+		Processor: processor, Scheduler: refreshScheduler,
+		RefreshInterval: config.DemandRefreshInterval, MaxConcurrent: config.MaxConcurrentRefreshes,
+	}
+	if err := refreshReconciler.SetupWithManager(manager); err != nil {
+		return nil, fmt.Errorf("setup NGD Refresh controller: %w", err)
 	}
 	if err := manager.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return nil, fmt.Errorf("add PRC health check: %w", err)
