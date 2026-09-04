@@ -41,7 +41,7 @@ class PipelineRunner:
                 trace["output"] = self._trace_output(plugin.stage, context)
                 context.pipeline_trace.append(trace)
 
-        if context.request.get("requestMode") == "resourcePool" and context.candidates:
+        if context.candidates:
             narrowest = min(int(group.get("topologyOrder", 0)) for group in context.candidates)
             context.candidates = [
                 group for group in context.candidates
@@ -50,12 +50,7 @@ class PipelineRunner:
             context.candidates.sort(key=lambda item: (-item["groupScore"], item["groupId"]))
 
         # 联通正式NGD没有候选组数量字段，资源池模式固定返回不超过3组。
-        max_groups = (
-            3
-            if context.request.get("requestMode") == "resourcePool"
-            else int(context.request.get("maxCandidateGroups", 3))
-        )
-        max_groups = max(1, min(3, max_groups))
+        max_groups = 3
         # SCORE 已稳定排序；这里只截断、清理内部字段并生成连续 rank。
         context.candidates = context.candidates[:max_groups]
         for rank, group in enumerate(context.candidates, start=1):

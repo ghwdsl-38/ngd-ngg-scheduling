@@ -1,13 +1,13 @@
-# 四组 Go Test 运行说明
+# Go Test运行说明
 
-本目录按《Go Test四组测试与本地Debug实施方案v1.3》实现。四组测试直接调用生产 Go 包，每组独立保存固定输入、预期输出和本次实际结果。
+本目录中的测试直接调用生产Go包，每组独立保存固定输入、预期输出和本次实际结果。Group1～Group5保留原有编号；Group7专门补充Bond主备/负载模式全链路。
 
-这套测试在本机进程中运行，不需要创建 Kind 集群，也不需要启动 Docker、Volcano 或外部 Prometheus：
+这套测试在本机进程中运行，不需要外部集群、容器运行时或外部 Prometheus：
 
 - 第一、二组不启动 Kubernetes；
-- 第三、四组通过 envtest 启动本地 `kube-apiserver` 和 `etcd`；
-- 第二、四组使用 Go Mock Prometheus，包含 Bearer Token 认证和正式 Prometheus HTTP 响应格式；
-- 第一、二、四组会由 Go Algorithm 启动真实 Python Worker。
+- 第三、四、五、七组通过envtest启动本地`kube-apiserver`和`etcd`；
+- 第二、四、五、七组使用带Bearer Token认证的Go Mock Prometheus；
+- 第一、二、四、五、七组由Go Algorithm启动真实Python Worker。
 
 ## 1. 最快运行方式
 
@@ -17,7 +17,7 @@
 cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
 ```
 
-串行运行全部四组：
+串行运行全部现有测试组：
 
 ```bash
 make go-test-all
@@ -25,7 +25,7 @@ make go-test-all
 
 `Makefile` 会自动加载 `scripts/go-test-env.sh`，所以使用上述 `make` 命令时不需要手动配置 Go、缓存和 envtest 路径。
 
-四组都出现 `PASS`，并且最后没有 `FAIL`，即表示测试全部通过。推荐向需求方演示时按第一组到第四组的顺序运行。
+所有组都出现`PASS`且最后没有`FAIL`，即表示测试全部通过。
 
 ## 2. 运行环境检查
 
@@ -58,7 +58,7 @@ test -x "$KUBEBUILDER_ASSETS/etcd"
 
 最后两个命令没有输出且退出码为 0，表示 envtest 二进制存在。正式测试统一设置 `GOMAXPROCS=2`，并使用 `go test -p=1`，避免共享服务器瞬时并发过高。
 
-## 3. 四组测试分别验证什么
+## 3. 各组分别验证什么
 
 | 组     | 验证内容                            | Algorithm                      | Kubernetes              |
 | ------ | ----------------------------------- | ------------------------------ | ----------------------- |
@@ -66,6 +66,8 @@ test -x "$KUBEBUILDER_ASSETS/etcd"
 | 第二组 | PRC快照/HTTP客户端调用完整Algorithm | 真实Go+Python，Mock Prometheus | 不启动                  |
 | 第三组 | PRC Watch NGD并生成正式NGG          | Mock Algorithm                 | envtest API Server+etcd |
 | 第四组 | PRC—Algorithm—NGG完整组件链路     | 真实Go+Python，Mock Prometheus | envtest API Server+etcd |
+| 第五组 | PRC周期刷新、修改与删除生命周期 | 真实Go+Python，Mock Prometheus | envtest API Server+etcd |
+| 第七组 | Bond主备/负载模式到NGG完整链路 | 真实Go+Python，Mock Prometheus | envtest API Server+etcd |
 
 各组更详细的输入、流程和断言见：
 
@@ -73,6 +75,8 @@ test -x "$KUBEBUILDER_ASSETS/etcd"
 - [第二组说明](group2_prc_algorithm/README.md)
 - [第三组说明](group3_prc_ngd_ngg/README.md)
 - [第四组说明](group4_full_real_algorithm/README.md)
+- [第五组说明](group5_prc_refresh_lifecycle/README.md)
+- [第七组说明](group7_bond_topology_flow/README.md)
 
 ## 4. 分组运行
 
@@ -116,15 +120,29 @@ NGD -> Kubernetes Watch -> PRC -> Go Algorithm
     -> PRC -> NGG + NGD/NGG Status
 ```
 
-本组验证到 NGG 生成，不启动 Volcano 或 kube-scheduler，因此不包含最终 Pod Bind。
+本组验证到 NGG 生成，不包含下游 Pod Bind。
 
-### 4.5 一次运行全部四组
+### 4.5 第五组：周期刷新生命周期
+
+```bash
+make go-test-group5
+```
+
+### 4.6 第七组：Bond拓扑完整链路
+
+```bash
+make go-test-group7
+```
+
+它分别验证Active-Backup只选择Active Slave，以及802.3ad选择全部Up Slave；随后使用真实PRC、Algorithm和Python生成正式NGG。
+
+### 4.7 一次运行全部组
 
 ```bash
 make go-test-all
 ```
 
-该目标按照第一、二、三、四组串行执行；任何一组失败，`make` 会以失败状态退出。
+该目标串行执行Topology Agent单测及Group1、2、3、4、5、7；任何一组失败，`make`会以失败状态退出。
 
 ## 5. 不通过 Makefile直接运行
 
@@ -141,6 +159,8 @@ go test -p=1 ./go_test_suites/group1_algorithm_worker -run '^TestGroup1_' -v -co
 go test -p=1 ./go_test_suites/group2_prc_algorithm -run '^TestGroup2_' -v -count=1
 go test -p=1 ./go_test_suites/group3_prc_ngd_ngg -run '^TestGroup3_' -v -count=1
 go test -p=1 ./go_test_suites/group4_full_real_algorithm -run '^TestGroup4_' -v -count=1
+go test -p=1 ./go_test_suites/group5_prc_refresh_lifecycle -run '^TestGroup5_' -v -count=1
+go test -p=1 ./go_test_suites/group7_bond_topology_flow -run '^TestGroup7_' -v -count=1
 ```
 
 参数含义：
@@ -176,6 +196,8 @@ ls -1dt go_test_suites/group1_algorithm_worker/results/* | head -1
 ls -1dt go_test_suites/group2_prc_algorithm/results/* | head -1
 ls -1dt go_test_suites/group3_prc_ngd_ngg/results/* | head -1
 ls -1dt go_test_suites/group4_full_real_algorithm/results/* | head -1
+ls -1dt go_test_suites/group5_prc_refresh_lifecycle/results/* | head -1
+ls -1dt go_test_suites/group7_bond_topology_flow/results/* | head -1
 ```
 
 以第一组为例，查看最新结果：
@@ -195,6 +217,8 @@ cat "$latest_result/comparison/diff.txt"
 | 第二组 | 静态/动态快照、`prometheus-requests.jsonl`、PRC HTTP记录、Algorithm响应和Go/Python JSONL |
 | 第三组 | `ngd-input.yaml`、PRC发给Mock Algorithm的请求、Mock响应、`ngg-raw.yaml`和Status        |
 | 第四组 | NGD、静态/动态数据、Prometheus请求、Go/Python JSONL、Algorithm结果、NGG和Status            |
+| 第五组 | 初次、周期刷新、更新、消费方字段保留、删除及全部Algorithm交换记录                         |
+| 第七组 | Bond/Mock LLDP输入、Node Leaf元数据、静态快照、Algorithm请求/响应及正式NGG              |
 
 `results/`是运行证据目录，不作为固定测试源码提交；`testdata/input/`和`testdata/expected/`才是可复现的固定基线。
 
@@ -214,6 +238,8 @@ cat "$latest_result/comparison/diff.txt"
 | 第二组 | PRC发送POST Allocate（静态和指标已Ready） | PRC收到并解析Allocate响应     |
 | 第三组 | PRC通过Watch观察到NGD并进入Reconcile      | NGG Active                    |
 | 第四组 | PRC通过Watch观察到NGD并进入Reconcile      | 真实Algorithm返回且NGG Active |
+| 第五组 | 各生命周期事件提交                        | 相应刷新、更新或删除完成       |
+| 第七组 | PRC通过Watch观察到NGD并进入Demand Processor | 真实Algorithm/Python返回且NGG Active |
 
 第三、四组在创建NGD前，由独立`NodeStaticSnapshotReconciler`完成静态快照构造、Hash计算和PUT，并等待Algorithm确认Ready；这些步骤不计入NGD业务时间。Prometheus同样在计时前由Algorithm独立读取并预热。任务Reconcile只读取已确认的`snapshotId`并发送Node动态状态。
 
@@ -235,6 +261,8 @@ cat "$latest_result/comparison/diff.txt"
    - `Debug Group2 - PRC calls Algorithm`
    - `Debug Group3 - PRC watches NGD with Mock Algorithm`
    - `Debug Group4 - Full component chain`
+   - `Debug Group5 - PRC refresh update delete`
+   - `Debug Group7 - Bond topology full flow`
 4. 在测试代码或生产 Go 代码中设置断点。
 5. 按 `F5`启动。
 
@@ -244,6 +272,7 @@ cat "$latest_result/comparison/diff.txt"
 - 第二组：`prc/pkg/controller/algorithm_client.go`，查看静态快照PUT和Allocate请求；
 - 第三组：`prc/pkg/controller/static_snapshot_controller.go`查看独立静态同步，`prc/pkg/controller/prc_controller.go`查看任务Reconcile、NGD转换和NGG创建；
 - 第四组：同时在上述 PRC、Algorithm代码处设断点，观察完整调用链。
+- 第七组：在`pkg/bond/discovery.go`、`pkg/topologyfacts/facts.go`、PRC静态快照及Algorithm拓扑解析处设断点。
 
 Delve只能单步调试 Go 主进程，不能直接进入子进程中的 Python 代码。Python 的真实输入输出可通过本次结果目录中的 `go-to-python-request.jsonl`、`python-to-go-response.jsonl`和pipeline trace查看。
 

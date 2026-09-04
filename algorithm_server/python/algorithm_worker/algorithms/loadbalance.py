@@ -105,7 +105,6 @@ class LoadBalanceAlgorithm:
             for uid, node in source_by_uid.items()
         }
 
-        resource_pool = context.request.get("requestMode") == "resourcePool"
         grouped_by_order: dict[int, list[dict[str, Any]]] = {}
         for group in context.node_groups:
             grouped_by_order.setdefault(
@@ -128,10 +127,9 @@ class LoadBalanceAlgorithm:
                         -item["score"], item["nodeName"], item["nodeUID"]
                     )
                 )
-                if resource_pool:
-                    nodes = self._select_resource_pool_nodes(context, nodes)
-                    if not nodes:
-                        continue
+                nodes = self._select_resource_pool_nodes(context, nodes)
+                if not nodes:
+                    continue
                 average = sum(node["score"] for node in nodes) / len(nodes)
                 selected_ids = {str(node["nodeUID"]) for node in nodes}
                 selected_sources = [
@@ -156,7 +154,7 @@ class LoadBalanceAlgorithm:
                 )
             candidates.extend(level_candidates)
             # NarrowestFit在当前层有任一可行组后即停止，不再处理更宽层级。
-            if resource_pool and level_candidates:
+            if level_candidates:
                 break
 
         candidates.sort(

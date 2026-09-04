@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
 	"time"
 
@@ -70,23 +71,24 @@ func decodeIdentifier(value []byte) string {
 	return strings.TrimSpace(string(value[1:]))
 }
 
-func receiveLLDP(allowed map[string]struct{}, timeout time.Duration) (lldpNeighbor, error) {
+func receiveLLDP(allowed map[string]struct{}, timeout time.Duration) ([]lldpNeighbor, error) {
 	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW, int(htons(ethernetProtocolLLDP)))
 	if err != nil {
-		return lldpNeighbor{}, fmt.Errorf("open LLDP raw socket: %w", err)
+		return nil, fmt.Errorf("open LLDP raw socket: %w", err)
 	}
 	defer unix.Close(fd)
 	deadline := time.Now().Add(timeout)
 	buffer := make([]byte, 65535)
+	observed := map[string]lldpNeighbor{}
 	for time.Now().Before(deadline) {
 		remaining := time.Until(deadline)
 		_ = unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &unix.Timeval{Sec: int64(remaining / time.Second), Usec: int64((remaining % time.Second) / time.Microsecond)})
 		count, address, err := unix.Recvfrom(fd, buffer, 0)
 		if err != nil {
 			if err == unix.EAGAIN || err == unix.EWOULDBLOCK {
-				return lldpNeighbor{}, fmt.Errorf("LLDP listen timeout")
+				break
 			}
-			return lldpNeighbor{}, err
+			return nil, err
 		}
 		link, ok := address.(*unix.SockaddrLinklayer)
 		if !ok {
@@ -102,10 +104,28 @@ func receiveLLDP(allowed map[string]struct{}, timeout time.Duration) (lldpNeighb
 			}
 		}
 		if neighbor, ok := parseLLDPFrame(buffer[:count], iface.Name); ok {
-			return neighbor, nil
+			observed[iface.Name] = neighbor
+			// Explicit/Bond discovery gives an exact interface set, so return as
+			// soon as every expected interface has produced a valid frame.
+			if len(allowed) == 0 || len(observed) == len(allowed) {
+				break
+			}
 		}
 	}
-	return lldpNeighbor{}, fmt.Errorf("LLDP listen timeout")
+	if len(observed) == 0 {
+		return nil, fmt.Errorf("LLDP listen timeout")
+	}
+	result := make([]lldpNeighbor, 0, len(observed))
+	for _, neighbor := range observed {
+		result = append(result, neighbor)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].LocalInterface == result[j].LocalInterface {
+			return result[i].switchID() < result[j].switchID()
+		}
+		return result[i].LocalInterface < result[j].LocalInterface
+	})
+	return result, nil
 }
 
 func htons(value uint16) uint16 { return value<<8 | value>>8 }

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -10,6 +11,31 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
+
+func TestBuildStaticSnapshotUsesNodeLeafAnnotationsWithoutNNTFallback(t *testing.T) {
+	leaves, _ := json.Marshal([]string{"leaf-b", "leaf-a"})
+	links := `[{"bond":"bond0","bondMode":"802.3ad","interface":"eth1","leafSwitchId":"leaf-b","active":true},{"bond":"bond0","bondMode":"802.3ad","interface":"eth0","leafSwitchId":"leaf-a","active":true}]`
+	node := corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name: "worker-dual", UID: "uid-dual",
+		Annotations: map[string]string{
+			"topology.demo.ngg.io/leaf-switch-ids": string(leaves),
+			"topology.demo.ngg.io/leaf-links":      links,
+		},
+	}}
+	_, raw, err := BuildStaticSnapshot("cluster-1", []corev1.Node{node})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := raw.(staticSnapshot)
+	if len(snapshot.Nodes) != 1 || len(snapshot.Nodes[0].Topology.LeafSwitchIDs) != 2 || snapshot.Nodes[0].Topology.LeafSwitchIDs[0] != "leaf-a" {
+		t.Fatalf("unexpected dual-Leaf snapshot: %#v", snapshot)
+	}
+
+	node.Annotations = nil
+	if _, _, err := BuildStaticSnapshot("cluster-1", []corev1.Node{node}); err == nil {
+		t.Fatal("Node without Leaf metadata must not fall back to NodeNetworkTopology")
+	}
+}
 
 func TestStaticSnapshotStateFailsClosedWhileNewSnapshotSyncs(t *testing.T) {
 	state := NewStaticSnapshotState()
@@ -57,5 +83,17 @@ func TestStaticNodeChangePredicateIgnoresHeartbeatOnlyUpdate(t *testing.T) {
 	allocatableChanged.Status.Allocatable[corev1.ResourceCPU] = resource.MustParse("16")
 	if !predicate.Update(event.UpdateEvent{ObjectOld: base, ObjectNew: allocatableChanged}) {
 		t.Fatal("Allocatable update must trigger snapshot synchronization")
+	}
+
+	leafLinksChanged := base.DeepCopy()
+	leafLinksChanged.Annotations = map[string]string{"topology.demo.ngg.io/leaf-switch-ids": `["leaf-a","leaf-b"]`}
+	if !predicate.Update(event.UpdateEvent{ObjectOld: base, ObjectNew: leafLinksChanged}) {
+		t.Fatal("Leaf connection annotation update must trigger snapshot synchronization")
+	}
+
+	observedAtOnly := base.DeepCopy()
+	observedAtOnly.Annotations = map[string]string{"topology.demo.ngg.io/observed-at": time.Now().UTC().Format(time.RFC3339)}
+	if predicate.Update(event.UpdateEvent{ObjectOld: base, ObjectNew: observedAtOnly}) {
+		t.Fatal("diagnostic observed-at update must not rebuild the static snapshot")
 	}
 }

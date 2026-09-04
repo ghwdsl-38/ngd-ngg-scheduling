@@ -8,7 +8,7 @@ Python 不启动 FastAPI，也不保存跨请求缓存。镜像入口是 Go 二�
 
 ```mermaid
 flowchart TB
-    K8S[Kubernetes API Server] -->|Node、Pod、NGD、NNT| PRC[PRC]
+    K8S[Kubernetes API Server] -->|Node、Pod、NGD| PRC[PRC]
     PRC -->|PUT：Node静态Hash快照| API[Go Algorithm API Server]
     PRC -->|POST：任务需求和Node动态状态| API
     PROM[Prometheus] -->|Go周期拉取CPU、内存和Node网络指标| API
@@ -87,7 +87,7 @@ algorithm_server/
 | `python/algorithm_worker/worker.py`                        | Python 进程入口。从 stdin 读 JSON Lines，构造单次`AllocationContext`，执行 Pipeline，向 stdout 返回 Top-3 或结构化错误。                                                    |
 | `python/algorithm_worker/pipeline.py`                      | 按固定顺序执行 requirement/topology/loadbalance，不读取NGD中的算法编排字段，最后稳定截取 Top-3。                                                                            |
 | `python/algorithm_worker/context.py`                       | 定义静态快照、指标快照和单次计算上下文；不保存跨请求状态。                                                                                                                    |
-| `python/algorithm_worker/models.py`                        | 定义三个算法阶段枚举及 Python 算法插件`Protocol`。                                                                                                                          |
+| `python/algorithm_worker/models.py`                        | 定义固定流水线的三个算法阶段枚举。                                                                                                                          |
 | `python/algorithm_worker/errors.py`                        | 定义输入、服务端算法参数和指标未就绪等结构化错误。                                                                                                                           |
 | `python/algorithm_worker/quantity.py`                      | 解析 Kubernetes CPU、内存和扩展资源 Quantity，计算 PodSet 最小资源需求并进行节点装箱检查。                                                                                    |
 | `python/algorithm_worker/services/node_view_builder.py`    | 合并 Node 静态属性、请求级占用状态和`nodeSelector`，生成本次算法使用的 Node 视图；复用只读静态子对象和已解析资源容量。                                                       |
@@ -144,7 +144,6 @@ loadbalance/v1 (SCORE)
 | `GET /internal/v1/cache/status`                 | 查看静态快照、Prometheus 和动态状态模式 |
 | `PUT /internal/v1/node-static-snapshots/{hash}` | 上传 Node 静态快照                      |
 | `POST /api/v1/allocate`                         | 新版候选组计算接口                      |
-| `POST /api/v1/node-groups/calculate`            | 旧 Demo 的兼容接口；当前 PRC 已使用新版接口 |
 
 静态快照路径中的 Hash 必须是对以下内容进行稳定 JSON 编码后得到的 SHA-256：
 
@@ -214,41 +213,36 @@ ALGORITHM_WORKER_EVIDENCE_DIR=/evidence
 
 四组Go Test会把证据目录显式注入`Application`，并在业务计时结束后完成其他文件写入。完整运行命令和结果目录见`go_test_suites/README.md`。
 
-### 5.2 整个 Kind Demo 中如何启动
+### 5.2 项目部署中如何启动
 
 ```text
-make algorithm / make deploy / make demo-prebuilt
+make algorithm / make deploy
         ↓
-scripts/04b-build-algorithm.sh       构建 v0.4.0 镜像并加载到 Kind
+scripts/04b-build-algorithm.sh       构建 v0.4.0 镜像
         ↓
 scripts/05a-deploy-algorithm.sh      应用 Deployment/Service 并滚动重启
         ↓
 config/manager/algorithm.yaml        在 ngd-ngg-system 启动 1 个 Pod
         ↓
-scripts/08-run-demo.sh               只检查/使用已部署 Server，不临时启动 Server
 ```
 
 - Deployment：`ngd-ngg-system/ngd-ngg-algorithm`
 - Service：`ngd-ngg-system/ngd-ngg-algorithm:8080`
 - PRC 访问地址：`http://ngd-ngg-algorithm.ngd-ngg-system.svc:8080`
 - 镜像配置：`config/manager/algorithm.yaml`
-- Demo 检查位置：`scripts/08-run-demo.sh` 开头的 Deployment、Service、rollout 和副本数检查
-
-`make run` 本身不部署 Algorithm；它要求先执行 `make algorithm`、`make deploy` 或 `make demo-prebuilt`。
 
 ### 5.3 当前是否已切换最新版
 
-当前源码、默认镜像变量、Deployment 和 1000 Node Demo 统一使用 `ngd-ngg-algorithm:v0.4.0`。但因为 Kind 使用本地镜像且 `imagePullPolicy=IfNotPresent`，不能只看 tag 判断是否最新；每次修改后应执行：
+当前源码、默认镜像变量、Deployment 和 1000 Node Demo 统一使用 `ngd-ngg-algorithm:v0.4.0`。每次修改后应重建镜像、推送到目标仓库并执行：
 
 ```bash
 make algorithm
 ```
 
-该命令会重建镜像、`kind load docker-image`、重启 Deployment 并等待 rollout。验证最新 Go+Python Worker 的标准是：
+该命令会重建镜像、重启 Deployment 并等待 rollout。验证最新 Go+Python Worker 的标准是：
 
 ```bash
-kubectl --context kind-volcano-ngd-ngg-v2-demo \
-  -n ngd-ngg-system logs deployment/ngd-ngg-algorithm --tail=20
+kubectl -n ngd-ngg-system logs deployment/ngd-ngg-algorithm --tail=20
 
 # 应出现：
 # Go Algorithm API Server listening on :8080; Python module=algorithm_worker.worker
@@ -267,7 +261,7 @@ docker run --rm --name ngd-ngg-algorithm-standalone \
   -p 18080:8080 \
   -e PROMETHEUS_URL= \
   -e TOPOLOGY_CONFIG_FILE=/etc/ngd-ngg/topology.yaml \
-  -v /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/config/topology/unicom-kind-topology.yaml:/etc/ngd-ngg/topology.yaml:ro \
+  -v /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/config/topology/unicom-huailai-102-sample.yaml:/etc/ngd-ngg/topology.yaml:ro \
   ngd-ngg-algorithm:v0.4.0
 ```
 
@@ -294,7 +288,7 @@ cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/algorithm_server/go
 PYTHONPATH=../python \
   ALGORITHM_LISTEN_ADDRESS=:18080 \
   PROMETHEUS_URL= \
-  TOPOLOGY_CONFIG_FILE=../../config/topology/unicom-kind-topology.yaml \
+  TOPOLOGY_CONFIG_FILE=../../config/topology/unicom-huailai-102-sample.yaml \
   /mnt/data0/tools/go/bin/go run ./cmd/algorithm-server
 ```
 
@@ -319,7 +313,7 @@ PYTHONPATH=../python \
 
 内置目录读取 CPU、内存及 node-exporter 可提供的 11 项网络指标。CPU/内存为必需项；可选网络查询失败时保留该轮快照并返回 coverage/warning，但不会仅因可选项缺失就把整份快照判为 degraded。比例值限制到 0～1，bytes/s、packets/s 等绝对值只限制为非负数。
 
-当前 Kind Demo 的 `PROMETHEUS_URL` 是 `http://prometheus.monitoring.svc.cluster.local:9090`。生产环境推荐把 Token 放入 Kubernetes Secret，再通过只读 Volume 挂载并设置 `PROMETHEUS_BEARER_TOKEN_FILE`，不要把 Token 写入日志或 ConfigMap。
+部署样例的 `PROMETHEUS_URL` 是 `http://prometheus.monitoring.svc.cluster.local:9090`。目标环境应改为实际地址，并推荐把 Token 放入 Kubernetes Secret，再通过只读 Volume挂载并设置`PROMETHEUS_BEARER_TOKEN_FILE`，不要把Token写入日志或ConfigMap。
 
 ## 7. 1000 节点独立演示
 

@@ -4,6 +4,8 @@ go 1.25.0
 
 require (
 	demo.ngg/algorithm-server v0.0.0
+	demo.ngg/topology-agent v0.0.0
+	github.com/go-logr/logr v1.4.3
 	k8s.io/api v0.35.3
 	k8s.io/apiextensions-apiserver v0.35.0
 	k8s.io/apimachinery v0.35.3
@@ -21,7 +23,6 @@ require (
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/swag v0.23.0 // indirect
@@ -65,5 +66,7 @@ require (
 )
 
 replace demo.ngg/algorithm-server => ../algorithm_server/go
+
+replace demo.ngg/topology-agent => ../topology_agent
 
 replace scheduling.demo.ngg.io/prc => ../prc

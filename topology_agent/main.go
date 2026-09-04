@@ -19,14 +19,18 @@ func main() {
 }
 
 func newCommand() *cobra.Command {
-	var mode, interfaces string
-	var listenSeconds float64
-	command := &cobra.Command{Use: "topology-agent", Short: "Collect Node-to-Leaf LLDP and persist a three-level topology in Node labels", RunE: func(_ *cobra.Command, _ []string) error {
+	var interfaces, kubeconfig, kubeContext, sysClassNet string
+	var listenSeconds, resyncSeconds float64
+	command := &cobra.Command{Use: "topology-agent", Short: "Collect Node-to-Leaf LLDP facts and persist them in Node metadata", RunE: func(_ *cobra.Command, _ []string) error {
 		nodeName := os.Getenv("NODE_NAME")
 		if nodeName == "" {
 			return fmt.Errorf("NODE_NAME is required")
 		}
-		client, err := inClusterClient()
+		config, err := loadKubernetesConfig(kubeconfig, kubeContext)
+		if err != nil {
+			return err
+		}
+		client, err := newKubeClient(config)
 		if err != nil {
 			return err
 		}
@@ -38,11 +42,18 @@ func newCommand() *cobra.Command {
 		}
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
-		agent := &topologyAgent{client: client, nodeName: nodeName, mode: mode, interfaces: allowed, listen: time.Duration(listenSeconds * float64(time.Second))}
+		agent := &topologyAgent{
+			client: client, nodeName: nodeName, interfaces: allowed,
+			listen: time.Duration(listenSeconds * float64(time.Second)),
+			resync: time.Duration(resyncSeconds * float64(time.Second)), sysClassNet: sysClassNet,
+		}
 		return agent.run(ctx)
 	}}
-	command.Flags().StringVar(&mode, "mode", valueOr(os.Getenv("COLLECTION_MODE"), "Simulated"), "Simulated or LLDP")
 	command.Flags().StringVar(&interfaces, "interfaces", os.Getenv("LLDP_INTERFACES"), "comma-separated LLDP interfaces")
+	command.Flags().StringVar(&kubeconfig, "kubeconfig", os.Getenv("KUBECONFIG"), "path to kubeconfig; defaults to in-cluster configuration")
+	command.Flags().StringVar(&kubeContext, "kube-context", "", "optional context in kubeconfig")
+	command.Flags().StringVar(&sysClassNet, "sys-class-net", "/sys/class/net", "sysfs network class path used for Bond discovery")
 	command.Flags().Float64Var(&listenSeconds, "listen-seconds", 35, "real LLDP listen timeout")
+	command.Flags().Float64Var(&resyncSeconds, "resync-seconds", 30, "seconds between Bond and LLDP topology probes")
 	return command
 }

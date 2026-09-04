@@ -73,9 +73,9 @@ func TestGroup3Scale3000(t *testing.T) {
 	if err := staticReconciler.SetupWithManager(manager); err != nil {
 		t.Fatal(err)
 	}
-	reconciler := &controller.NodeGroupDemandReconciler{
-		Client: manager.GetClient(), Scheme: manager.GetScheme(), AlgorithmURL: mock.server.URL,
-		ClusterID: scale.ClusterID, HTTPClient: mock.server.Client(), StaticSnapshots: staticSnapshots, DebugAlgorithmTrace: false,
+	processor := &controller.DemandProcessor{
+		Client: manager.GetClient(), AlgorithmURL: mock.server.URL,
+		HTTPClient: mock.server.Client(), StaticSnapshots: staticSnapshots, DebugAlgorithmTrace: false,
 		ReconcileObserver: func(_ string, _ int64, at time.Time) {
 			select {
 			case observed <- at:
@@ -83,7 +83,15 @@ func TestGroup3Scale3000(t *testing.T) {
 			}
 		},
 	}
+	scheduler := controller.NewRefreshScheduler(0)
+	if err := manager.Add(scheduler); err != nil {
+		t.Fatal(err)
+	}
+	reconciler := &controller.NodeGroupDemandReconciler{Client: manager.GetClient(), Scheduler: scheduler, Processor: processor}
 	if err := reconciler.SetupWithManager(manager); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&controller.RefreshReconciler{Processor: processor, Scheduler: scheduler, RefreshInterval: time.Hour}).SetupWithManager(manager); err != nil {
 		t.Fatal(err)
 	}
 	managerContext, managerCancel := context.WithCancel(context.Background())

@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/rest"
 	"scheduling.demo.ngg.io/prc/pkg/controller"
 	ctrl "sigs.k8s.io/controller-runtime"
+	controllerconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
@@ -35,6 +36,9 @@ type Config struct {
 	StaticResyncInterval   time.Duration
 	DemandRefreshInterval  time.Duration
 	MaxConcurrentRefreshes int
+	// SkipControllerNameValidation is intended for tests that create more than
+	// one complete Application sequentially in the same Go process.
+	SkipControllerNameValidation bool
 
 	DebugAlgorithmTrace bool
 	AlgorithmRecorder   controller.AlgorithmExchangeRecorder
@@ -67,7 +71,7 @@ func New(config Config) (*Application, error) {
 		config.HealthProbeBindAddress = "0"
 	}
 	if config.LeaderElectionID == "" {
-		config.LeaderElectionID = "ngd-ngg-prc.scheduling.demo.ngg.io"
+		config.LeaderElectionID = "ngd-ngg-prc.scheduling.platform.example.io"
 	}
 
 	scheme := config.Scheme
@@ -78,12 +82,14 @@ func New(config Config) (*Application, error) {
 		}
 	}
 
+	skipNameValidation := config.SkipControllerNameValidation
 	manager, err := ctrl.NewManager(config.KubernetesConfig, ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsserver.Options{BindAddress: config.MetricsBindAddress},
 		HealthProbeBindAddress: config.HealthProbeBindAddress,
 		LeaderElection:         config.LeaderElection,
 		LeaderElectionID:       config.LeaderElectionID,
+		Controller:             controllerconfig.Controller{SkipNameValidation: &skipNameValidation},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create PRC manager: %w", err)
@@ -100,8 +106,8 @@ func New(config Config) (*Application, error) {
 	}
 
 	processor := &controller.DemandProcessor{
-		Client: manager.GetClient(), Scheme: manager.GetScheme(), AlgorithmURL: config.AlgorithmURL,
-		ClusterID: config.ClusterID, HTTPClient: config.HTTPClient, StaticSnapshots: staticSnapshots,
+		Client: manager.GetClient(), AlgorithmURL: config.AlgorithmURL,
+		HTTPClient: config.HTTPClient, StaticSnapshots: staticSnapshots,
 		DebugAlgorithmTrace: config.DebugAlgorithmTrace, AlgorithmRecorder: config.AlgorithmRecorder,
 		ReconcileObserver: config.ReconcileObserver,
 	}

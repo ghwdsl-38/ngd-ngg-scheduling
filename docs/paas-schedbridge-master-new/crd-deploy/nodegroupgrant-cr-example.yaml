@@ -1,0 +1,88 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupGrant
+metadata:
+  name: ngg-spark-zone-a
+  labels:
+    scheduling.platform.example.io/scheduler: volcano
+    scheduling.platform.example.io/demandRef: spark-zone-a-demand
+spec:
+  schedulerName: volcano
+  version: "v1"
+  timestamp: "2026-07-29T10:30:00Z"
+  source: normal
+  demandRef: spark-zone-a-demand
+  nodes:
+  - name: node-01
+    score: 85
+    resources:
+      cpuAvailable: "8000m"
+      memoryAvailable: "32Gi"
+      throughput5mAvg: "9Gbps"
+    topology:
+      dataCenter: dc-bj-1
+      room: room-01
+      convergenceSwitch: 10.0.1.1
+      accessSwitch: 10.0.1.10
+      borderSwitch: 10.0.1.20
+      spineSwitch: 10.0.1.30
+      leafSwitch: 10.0.1.40
+      subnet: 10.0.1.0/24
+      rack: rack-01
+      hops: 2
+      networkReachable:
+      - ozone
+      - shuffle
+  - name: node-02
+    score: 72
+    resources:
+      cpuAvailable: "5000m"
+      memoryAvailable: "20Gi"
+      throughput5mAvg: "6Gbps"
+    topology:
+      dataCenter: dc-bj-1
+      room: room-01
+      convergenceSwitch: 10.0.1.1
+      accessSwitch: 10.0.1.10
+      borderSwitch: 10.0.1.20
+      spineSwitch: 10.0.1.30
+      leafSwitch: 10.0.1.40
+      subnet: 10.0.1.0/24
+      rack: rack-01
+      hops: 2
+      networkReachable:
+      - ozone
+      - shuffle
+  - name: node-03
+    score: 68
+    resources:
+      cpuAvailable: "4000m"
+      memoryAvailable: "16Gi"
+      throughput5mAvg: "5Gbps"
+    topology:
+      dataCenter: dc-bj-1
+      room: room-02
+      convergenceSwitch: 10.0.1.1
+      accessSwitch: 10.0.1.11
+      borderSwitch: 10.0.1.21
+      spineSwitch: 10.0.1.31
+      leafSwitch: 10.0.1.41
+      subnet: 10.0.1.0/24
+      rack: rack-02
+      hops: 3
+      networkReachable:
+      - ozone
+status:
+  phase: Active
+  resolvedCapacity:
+    nodes: 3
+    cpu: "17000m"
+    memory: "68Gi"
+  consumer:
+    acceptedGeneration: 5
+    used:
+      cpu: "7200m"
+      memory: "28Gi"
+    drain:
+      requestId: ""
+      remainingPods: 0
+      blockers: []

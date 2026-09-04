@@ -28,7 +28,7 @@ func TestGroup2Scale3000(t *testing.T) {
 	targets, samples, warmups := benchmarkParameters(t)
 	runDirectory := scale.NewRunDirectory(t, currentDirectory(t))
 	ctx := context.Background()
-	staticID, staticBody, err := controller.BuildStaticSnapshot(scale.ClusterID, fixture.Nodes, nil)
+	staticID, staticBody, err := controller.BuildStaticSnapshot(scale.ClusterID, fixture.Nodes)
 	if err != nil {
 		t.Fatal(err)
 	}

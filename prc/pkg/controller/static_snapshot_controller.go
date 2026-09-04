@@ -11,7 +11,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -103,7 +102,7 @@ func (s *StaticSnapshotState) WaitForReady(ctx context.Context) (StaticSnapshotS
 	}
 }
 
-// NodeStaticSnapshotReconciler监听Node和拓扑变化，并独立维护Algorithm静态缓存。
+// NodeStaticSnapshotReconciler只监听Node静态信息变化，并独立维护Algorithm静态缓存。
 type NodeStaticSnapshotReconciler struct {
 	client.Client
 	AlgorithmURL      string
@@ -114,7 +113,7 @@ type NodeStaticSnapshotReconciler struct {
 	ResyncInterval    time.Duration
 }
 
-// SetupWithManager把所有Node/拓扑事件折叠成同一个集群级Reconcile Key。
+// SetupWithManager把所有Node事件折叠成同一个集群级Reconcile Key。
 func (r *NodeStaticSnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.State == nil {
 		return fmt.Errorf("StaticSnapshotState is required")
@@ -122,14 +121,12 @@ func (r *NodeStaticSnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error 
 	if r.ResyncInterval <= 0 {
 		r.ResyncInterval = defaultStaticResync
 	}
-	topology := newUnstructured(topologyGVK)
 	singleton := handler.EnqueueRequestsFromMapFunc(func(context.Context, client.Object) []reconcile.Request {
 		return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: staticSnapshotSingletonName}}}
 	})
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(staticSnapshotControllerName).
 		Watches(&corev1.Node{}, singleton, builder.WithPredicates(staticNodeChangePredicate())).
-		Watches(topology, singleton).
 		Complete(r)
 }
 
@@ -147,6 +144,7 @@ func staticNodeChangePredicate() predicate.Predicate {
 			}
 			return oldNode.UID != newNode.UID ||
 				!reflect.DeepEqual(oldNode.Labels, newNode.Labels) ||
+				staticTopologyAnnotationsChanged(oldNode.Annotations, newNode.Annotations) ||
 				!reflect.DeepEqual(oldNode.Status.Allocatable, newNode.Status.Allocatable)
 		},
 	}
@@ -164,13 +162,7 @@ func (r *NodeStaticSnapshotReconciler) Reconcile(ctx context.Context, _ ctrl.Req
 		r.State.failed(err, now)
 		return ctrl.Result{RequeueAfter: r.ResyncInterval}, nil
 	}
-	topologies := &unstructured.UnstructuredList{}
-	topologies.SetGroupVersionKind(topologyList)
-	if err := r.List(ctx, topologies); err != nil {
-		r.State.failed(err, now)
-		return ctrl.Result{}, fmt.Errorf("list topology objects for static snapshot: %w", err)
-	}
-	staticID, staticBody, err := buildStaticSnapshot(r.ClusterID, nodes.Items, topologies.Items)
+	staticID, staticBody, err := buildStaticSnapshot(r.ClusterID, nodes.Items)
 	if err != nil {
 		r.State.failed(err, now)
 		return ctrl.Result{RequeueAfter: r.ResyncInterval}, nil
@@ -203,6 +195,18 @@ func (r *NodeStaticSnapshotReconciler) Reconcile(ctx context.Context, _ ctrl.Req
 	}
 	r.State.confirmed(staticID, ack.AlgorithmBootID, len(nodes.Items), now)
 	return ctrl.Result{RequeueAfter: r.ResyncInterval}, nil
+}
+
+func staticTopologyAnnotationsChanged(oldAnnotations, newAnnotations map[string]string) bool {
+	for _, key := range []string{
+		"topology.demo.ngg.io/leaf-switch-ids",
+		"topology.demo.ngg.io/leaf-links",
+	} {
+		if oldAnnotations[key] != newAnnotations[key] {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *NodeStaticSnapshotReconciler) httpClient() *http.Client {

@@ -1,0 +1,16 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  name: ngd-10nodes-room-spine
+  labels:
+    app.kubernetes.io/name: batch-job
+    scheduling.platform.example.io/scheduler: volcano
+spec:
+  schedulerName: volcano
+  topologyLabels:
+    topology.kubernetes.io/room: requiredSame          # 同一机房（任意）
+    topology.kubernetes.io/spine-switch: requiredSame  # 同一 Spine 交换机（任意）
+  maxNodes: 10
+  minResources:
+    cpu: "100"
+    memory: 400Gi

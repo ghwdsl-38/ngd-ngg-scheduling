@@ -1,0 +1,168 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: nodegroupdemands.scheduling.platform.example.io
+spec:
+  group: scheduling.platform.example.io
+  names:
+    kind: NodeGroupDemand
+    plural: nodegroupdemands
+    singular: nodegroupdemand
+    shortNames:
+    - ngd
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    subresources:
+      status: {}
+    schema:
+      openAPIV3Schema:
+        type: object
+        required: [spec]
+        properties:
+          spec:
+            type: object
+            required: [schedulerName]
+            properties:
+              schedulerName:
+                type: string
+                description: |
+                  目标调度器名称。PRC 根据 schedulerName 确定为哪个调度器创建 NGG。
+                  例如 "volcano"。
+              nodeSelector:
+                type: object
+                description: |
+                  节点筛选条件，与 K8s LabelSelector 语义一致。
+                  PRC 遍历集群 Node，仅匹配的节点进入候选集。
+                properties:
+                  matchLabels:
+                    type: object
+                    additionalProperties:
+                      type: string
+                  matchExpressions:
+                    type: array
+                    items:
+                      type: object
+                      required: [key, operator]
+                      properties:
+                        key:
+                          type: string
+                        operator:
+                          type: string
+                          enum: [In, NotIn, Exists, DoesNotExist]
+                        values:
+                          type: array
+                          items:
+                            type: string
+              topologyLabels:
+                type: object
+                description: |
+                  拓扑标签（可选），与 K8s LabelSelector 语义一致。
+                  用于表达同数据中心/同机房/同汇聚/同接入/Border/Spine/Leaf 交换机等拓扑硬性约束，
+                  PRC 据此筛选拓扑位置一致的节点。
+                  key 统一使用 topology.kubernetes.io/ 前缀。
+                  value 语义：
+                  - 具体标识：指定位置，候选节点必须位于该拓扑位置。
+                  - "requiredSame"：同一位置（任意），PRC 挑选一个分组，候选集节点全部落在同一分组内。
+                additionalProperties:
+                  type: string
+              maxNodes:
+                type: integer
+                minimum: 1
+                description: |
+                  候选节点数量上限（可选）。
+              quota:
+                type: object
+                description: |
+                  资源配额上限（可选）。
+                properties:
+                  cpu:
+                    type: string
+                  memory:
+                    type: string
+              minThroughput:
+                type: string
+                description: |
+                  最低吞吐量要求（按 5 分钟平均水平计算）。
+                  不满足的节点被过滤，不进入候选集。
+              crossClusterAffinity:
+                type: object
+                description: |
+                  跨集群互访 IP 亲和约束（可选）。
+                  PRC 根据 IP 列表反查汇聚层，筛选同汇聚层的节点。
+                properties:
+                  ipList:
+                    type: array
+                    items:
+                      type: string
+                  enforce:
+                    type: boolean
+                    default: false
+                    description: 是否强制与互访实例同汇聚层。
+              intraClusterAffinity:
+                type: object
+                description: |
+                  本集群互访 IP 亲和约束（可选）。
+                  强制与指定 IP 列表同汇聚层，用于扩容场景。
+                properties:
+                  ipList:
+                    type: array
+                    items:
+                      type: string
+              minResources:
+                type: object
+                description: |
+                  节点组最小资源保障（可选）。
+                  PRC 校验候选集总资源是否满足，不足则 NGD status.phase=Failed。
+                properties:
+                  cpu:
+                    type: string
+                  memory:
+                    type: string
+              networkReachability:
+                type: object
+                description: |
+                  外部存储集群网络互通要求（可选）。
+                  PRC 据此筛选能与指定存储集群网络互通的节点。
+                properties:
+                  targets:
+                    type: array
+                    items:
+                      type: string
+                    description: |
+                      外部存储集群标识列表，如 ["ozone", "shuffle"]。
+              preferredSubnet:
+                type: string
+                description: |
+                  子网偏好（可选，软性）。
+                  优先调度到该子网的节点，但不作为硬性过滤条件。
+          status:
+            type: object
+            properties:
+              phase:
+                type: string
+                enum: [Pending, Fulfilled, Updating, Failed]
+                description: |
+                  - Pending: PRC 尚未处理
+                  - Fulfilled: 已创建/更新对应 NGG，需求已满足
+                  - Updating: 需求变更后正在重新处理
+                  - Failed: 处理失败（如筛选条件无匹配节点）
+              grantRef:
+                type: string
+                description: |
+                  PRC 为该需求创建的 NodeGroupGrant CR 名称。
+                  A 可通过此引用查看授权详情。
+              resolvedNodeCount:
+                type: integer
+                description: |
+                  实际解析到的候选节点数。
+                  可能小于 maxNodes（集群中匹配节点不足）。
+              lastUpdated:
+                type: string
+                format: date-time
+                description: PRC 最后一次处理该需求的时间。
+              message:
+                type: string
+                description: 人类可读的状态信息（如失败原因）。

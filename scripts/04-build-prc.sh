@@ -22,6 +22,3 @@ docker image inspect "${PRC_IMAGE}" --format '{{.Id}} {{.RepoTags}}' |
   tee "${RESULTS_DIR}/prc-image.txt"
 docker save "${PRC_IMAGE}" -o "${IMAGES_DIR}/ngd-ngg-prc-v0.3.0.tar"
 chmod 0644 "${IMAGES_DIR}/ngd-ngg-prc-v0.3.0.tar"
-if kind get clusters 2>/dev/null | grep -Fxq "${CLUSTER_NAME}"; then
-  kind load docker-image "${PRC_IMAGE}" --name "${CLUSTER_NAME}"
-fi

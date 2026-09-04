@@ -1,0 +1,50 @@
+package topologyfacts
+
+import (
+	"testing"
+	"time"
+)
+
+func TestBuildNodeMetadataPersistsOnlyDirectLeafFacts(t *testing.T) {
+	observed, labels, annotations, err := BuildNodeMetadata(Observation{
+		Source: "LLDP",
+		Links:  []Link{{Interface: "eth0", LeafSwitchID: "leaf-a", RemotePortID: "Ethernet1", Active: true}},
+	}, time.Unix(0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observed.LeafSwitchIDs) != 1 || observed.LeafSwitchIDs[0] != "leaf-a" {
+		t.Fatalf("unexpected Leaf set: %#v", observed.LeafSwitchIDs)
+	}
+	if labels[Prefix+"leaf-switch"] != "leaf-a" || labels[Prefix+"leaf-count"] != "1" {
+		t.Fatalf("unexpected Node labels: %#v", labels)
+	}
+	if annotations[Prefix+"source"] != "LLDP" {
+		t.Fatalf("unexpected Node annotations: %#v", annotations)
+	}
+	for _, forbidden := range []string{"border-switch", "spine-switch", "data-center", "region"} {
+		if _, exists := labels[Prefix+forbidden]; exists {
+			t.Fatalf("upper topology %s must remain in Algorithm configuration", forbidden)
+		}
+	}
+}
+
+func TestNormalizeCreatesStableDualLeafIdentity(t *testing.T) {
+	first, err := Normalize(Observation{Links: []Link{
+		{Interface: "eth1", LeafSwitchID: "leaf-b", Active: true},
+		{Interface: "eth0", LeafSwitchID: "leaf-a", Active: true},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Normalize(Observation{Links: []Link{
+		{Interface: "eth0", LeafSwitchID: "leaf-a", Active: true},
+		{Interface: "eth1", LeafSwitchID: "leaf-b", Active: true},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if LeafSetID(first.LeafSwitchIDs) != LeafSetID(second.LeafSwitchIDs) {
+		t.Fatalf("input order changed Leaf set identity: first=%v second=%v", first.LeafSwitchIDs, second.LeafSwitchIDs)
+	}
+}

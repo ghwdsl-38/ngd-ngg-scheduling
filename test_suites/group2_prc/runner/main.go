@@ -363,11 +363,15 @@ func main() {
 		State: staticSnapshots, AlgorithmRecorder: algorithmRecorder,
 	}
 	must(staticReconciler.SetupWithManager(mgr))
-	reconciler := &controller.NodeGroupDemandReconciler{
-		Client: mgr.GetClient(), Scheme: scheme, AlgorithmURL: algorithmURL, ClusterID: "envtest-3000",
+	processor := &controller.DemandProcessor{
+		Client: mgr.GetClient(), AlgorithmURL: algorithmURL,
 		StaticSnapshots: staticSnapshots, AlgorithmRecorder: algorithmRecorder, DebugAlgorithmTrace: false, ReconcileObserver: watches.observe,
 	}
+	scheduler := controller.NewRefreshScheduler(0)
+	must(mgr.Add(scheduler))
+	reconciler := &controller.NodeGroupDemandReconciler{Client: mgr.GetClient(), Scheduler: scheduler, Processor: processor}
 	must(reconciler.SetupWithManager(mgr))
+	must((&controller.RefreshReconciler{Processor: processor, Scheduler: scheduler, RefreshInterval: time.Hour}).SetupWithManager(mgr))
 	go func() {
 		if err := mgr.Start(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "PRC manager stopped: %v\n", err)

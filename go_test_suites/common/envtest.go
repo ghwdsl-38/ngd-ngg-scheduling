@@ -28,7 +28,7 @@ type TestEnvironment struct {
 	Scheme      *runtime.Scheme
 }
 
-// StartEnvTest安装联通正式NGD/NGG CRD及PRC拓扑兼容CRD。
+// StartEnvTest安装联通正式NGD/NGG CRD。
 func StartEnvTest(t *testing.T) *TestEnvironment {
 	t.Helper()
 	ctrl.SetLogger(logr.Discard())
@@ -36,8 +36,6 @@ func StartEnvTest(t *testing.T) *TestEnvironment {
 	paths := []string{
 		filepath.Join(root, "docs", "paas-schedbridge-master", "crd-deploy", "nodegroupdemand-crd.yaml"),
 		filepath.Join(root, "docs", "paas-schedbridge-master", "crd-deploy", "nodegroupgrant-crd.yaml"),
-		filepath.Join(root, "config", "crd", "nodegroupdemand.yaml"),
-		filepath.Join(root, "config", "crd", "nodenetworktopology.yaml"),
 	}
 	crds := make([]*extensionsv1.CustomResourceDefinition, 0, len(paths))
 	for _, path := range paths {

@@ -1,4 +1,0 @@
-FROM alpine:3.23
-COPY vc-scheduler /vc-scheduler
-ENTRYPOINT ["/vc-scheduler"]
-

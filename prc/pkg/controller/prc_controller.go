@@ -2,10 +2,8 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -22,33 +20,21 @@ import (
 )
 
 const (
-	demandGroup           = "scheduling.demo.ngg.io"
 	grantGroup            = "scheduling.platform.example.io"
 	version               = "v1alpha1"
 	demandKind            = "NodeGroupDemand"
 	grantKind             = "NodeGroupGrant"
-	topologyKind          = "NodeNetworkTopology"
-	demandAnnotation      = "scheduling.demo.ngg.io/node-group-demand"
 	defaultRetry          = 10 * time.Second
-	defaultTaskPoll       = 5 * time.Second
-	defaultPodPoll        = 2 * time.Second
-	maxAlgorithmBodyBytes = 4 << 20
 	prcSpecFieldManager   = "ngd-ngg-prc-spec"
 	prcStatusFieldManager = "ngd-ngg-prc-status"
 )
 
 var (
-	demandGVK          = schema.GroupVersionKind{Group: demandGroup, Version: version, Kind: demandKind}
-	demandList         = schema.GroupVersionKind{Group: demandGroup, Version: version, Kind: demandKind + "List"}
 	platformDemandGVK  = schema.GroupVersionKind{Group: grantGroup, Version: version, Kind: demandKind}
 	platformDemandList = schema.GroupVersionKind{
 		Group: grantGroup, Version: version, Kind: demandKind + "List",
 	}
-	grantGVK     = schema.GroupVersionKind{Group: grantGroup, Version: version, Kind: grantKind}
-	topologyGVK  = schema.GroupVersionKind{Group: demandGroup, Version: version, Kind: topologyKind}
-	topologyList = schema.GroupVersionKind{
-		Group: demandGroup, Version: version, Kind: topologyKind + "List",
-	}
+	grantGVK = schema.GroupVersionKind{Group: grantGroup, Version: version, Kind: grantKind}
 )
 
 // DemandProcessor executes one complete NGD business calculation. It is shared
@@ -56,9 +42,7 @@ var (
 // NGG and status with identical semantics.
 type DemandProcessor struct {
 	client.Client
-	Scheme       *runtime.Scheme
 	AlgorithmURL string
-	ClusterID    string
 	HTTPClient   *http.Client
 	// StaticSnapshots由独立NodeStaticSnapshotReconciler维护；任务Reconcile只读取已确认身份。
 	StaticSnapshots *StaticSnapshotState
@@ -73,130 +57,15 @@ type DemandProcessor struct {
 // Process executes one refresh. RequeueAfter is returned as a scheduling hint
 // to RefreshScheduler and is never returned to the NGD event controller.
 func (r *DemandProcessor) Process(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("ngd", request.NamespacedName)
-	formal := request.Namespace == ""
-	demandType := demandGVK
-	if formal {
-		demandType = platformDemandGVK
-	}
-	demand := newUnstructured(demandType)
+	demand := newUnstructured(platformDemandGVK)
 	if err := r.Get(ctx, request.NamespacedName, demand); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if formal {
-		return r.reconcilePlatformDemand(ctx, demand)
-	}
-
-	nodes := &corev1.NodeList{}
-	if err := r.List(ctx, nodes); err != nil {
-		return ctrl.Result{}, fmt.Errorf("list Nodes: %w", err)
-	}
-	pods := &corev1.PodList{}
-	if err := r.List(ctx, pods); err != nil {
-		return ctrl.Result{}, fmt.Errorf("list Pods: %w", err)
-	}
-	staticStatus, ready := r.StaticSnapshots.Current()
-	if !ready {
-		return r.degradeAndRetry(ctx, demand, "StaticSnapshotNotReady", "waiting for independent Node static snapshot synchronization")
-	}
-	staticID := staticStatus.SnapshotID
-	stateID, stateCapturedAt, schedulerState, err := buildSchedulerState(nodes.Items, pods.Items)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	spec, _, _ := unstructured.NestedMap(demand.Object, "spec")
-	taskRef := mapValue(spec, "taskRef")
-	task, err := r.getTask(ctx, request.Namespace, taskRef)
-	if apierrors.IsNotFound(err) {
-		if statusErr := r.setDemandStatus(ctx, demand, "Pending", "TaskNotFound", "waiting for referenced workload", nil, time.Now().Add(defaultTaskPoll)); statusErr != nil {
-			return ctrl.Result{}, statusErr
-		}
-		return ctrl.Result{RequeueAfter: defaultTaskPoll}, nil
-	}
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	requestedUID := stringValue(taskRef, "uid")
-	if requestedUID != "" && requestedUID != string(task.GetUID()) {
-		return r.degradeAndRetry(ctx, demand, "TaskUIDMismatch", "taskRef.uid does not match the live workload UID")
-	}
-
-	algorithm := AlgorithmClient{BaseURL: strings.TrimRight(r.AlgorithmURL, "/"), Client: r.httpClient(), Recorder: r.AlgorithmRecorder}
-	grant := newUnstructured(grantGVK)
-	// 联通 NGG 是 Cluster-scoped；名称带上来源 Namespace，避免不同租户同名 NGD 冲突。
-	grantKey := types.NamespacedName{Name: grantName(request.Namespace + "-" + request.Name)}
-	grantErr := r.Get(ctx, grantKey, grant)
-	if grantErr != nil && !apierrors.IsNotFound(grantErr) {
-		return ctrl.Result{}, grantErr
-	}
-	var existing *unstructured.Unstructured
-	if grantErr == nil {
-		existing = grant
-	}
-
-	policy := grantPolicy(spec)
-
-	requestID := fmt.Sprintf("%s-generation-%d-state-%s", demand.GetUID(), demand.GetGeneration(), shortHash(stateID))
-	algorithmRequest := map[string]any{
-		"requestId": requestID, "taskUID": string(task.GetUID()), "ngdUID": string(demand.GetUID()),
-		"ngdGeneration": demand.GetGeneration(), "nodeStaticSnapshotId": staticID,
-		"schedulerStateSnapshotId": stateID, "schedulerStateCapturedAt": stateCapturedAt,
-		"podSets": spec["podSets"], "nodeRequirements": mapOrEmpty(spec, "nodeRequirements"),
-		"topologyRequirement": mapOrDefault(spec, "topologyRequirement", map[string]any{"level": "leafGroup", "mode": "same"}),
-		"maxCandidateGroups":  policy.MaxCandidateGroups,
-		"schedulerState":      schedulerState,
-	}
-	response, err := algorithm.calculate(ctx, algorithmRequest, time.Duration(policy.AlgorithmTimeoutSeconds)*time.Second)
-	if err != nil {
-		return r.degradeAndRetry(ctx, demand, "AlgorithmRequestFailed", err.Error())
-	}
-	current, err := r.demandStillCurrent(ctx, demand)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if !current {
-		log.Info("discarded stale Algorithm result", "uid", demand.GetUID(), "generation", demand.GetGeneration())
-		return ctrl.Result{}, nil
-	}
-	if err := validateResponse(response, requestID, demand, task.GetUID(), staticID, stateID, staticStatus.AlgorithmBootID, schedulerState); err != nil {
-		return r.degradeAndRetry(ctx, demand, "AlgorithmResponseInvalid", err.Error())
-	}
-
-	if len(response.CandidateNodeGroups) == 0 {
-		if existing != nil {
-			if err := r.setPlatformGrantReturned(ctx, existing); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		if err := r.setDemandStatus(ctx, demand, "Unsatisfied", "NoFeasibleGroup", "candidateGroups=0", nil, time.Time{}); err != nil {
-			return ctrl.Result{}, err
-		}
-		log.Info("Algorithm returned no feasible group")
-		return ctrl.Result{}, nil
-	}
-
-	now := time.Now().UTC()
-	desiredSpec := buildPlatformGrantSpec(demand, spec, response, nodes.Items, now)
-	applied, err := r.upsertGrant(ctx, demand, existing, desiredSpec)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if err := r.setPlatformGrantStatus(ctx, applied, response.CandidateNodeGroups[0], nodes.Items); err != nil {
-		return ctrl.Result{}, err
-	}
-	message := fmt.Sprintf("selectedGroup=%s candidates=%d nodes=%d", response.CandidateNodeGroups[0].GroupID, len(response.CandidateNodeGroups), len(response.CandidateNodeGroups[0].Nodes))
-	if err := r.setDemandStatus(ctx, demand, "Fulfilled", "GrantPublished", message, applied, time.Time{}); err != nil {
-		return ctrl.Result{}, err
-	}
-	log.Info("published platform NGG", "candidateCount", len(response.CandidateNodeGroups), "selectedGroup", response.CandidateNodeGroups[0].GroupID, "nodeCount", len(response.CandidateNodeGroups[0].Nodes))
-	// 正常周期由独立RefreshScheduler统一安排；特殊等待/退避路径才返回调度提示。
-	return ctrl.Result{}, nil
+	return r.reconcilePlatformDemand(ctx, demand)
 }
 
 // reconcilePlatformDemand handles the formal, cluster-scoped China Unicom
-// resource-pool contract. Unlike the legacy task mode it does not resolve a
-// VolcanoJob/Kubernetes Job: the NGD UID itself is the request identity.
+// resource-pool contract. The NGD UID itself is the request identity.
 func (r *DemandProcessor) reconcilePlatformDemand(ctx context.Context, demand *unstructured.Unstructured) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("formalNGD", demand.GetName())
 	if r.ReconcileObserver != nil {
@@ -252,8 +121,7 @@ func (r *DemandProcessor) reconcilePlatformDemand(ctx context.Context, demand *u
 	if r.DebugAlgorithmTrace {
 		algorithmRequest["debugTrace"] = true
 	}
-	policy := grantPolicy(spec)
-	response, err := algorithm.calculate(ctx, algorithmRequest, time.Duration(policy.AlgorithmTimeoutSeconds)*time.Second)
+	response, err := algorithm.calculate(ctx, algorithmRequest, algorithmTimeout(spec))
 	if err != nil {
 		return r.failPlatformDemand(ctx, demand, "AlgorithmRequestFailed", err.Error(), true)
 	}
@@ -279,8 +147,8 @@ func (r *DemandProcessor) reconcilePlatformDemand(ctx context.Context, demand *u
 
 	selected := response.CandidateNodeGroups[0]
 	now := time.Now().UTC()
-	desiredSpec := buildPlatformGrantSpec(demand, spec, response, nodes.Items, now)
-	applied, err := r.upsertGrant(ctx, demand, existing, desiredSpec)
+	desiredSpec := buildPlatformGrantSpec(demand, spec, response, now)
+	applied, err := r.upsertGrant(ctx, demand, desiredSpec)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -345,176 +213,18 @@ func (r *DemandProcessor) failPlatformDemand(ctx context.Context, demand *unstru
 	return ctrl.Result{}, nil
 }
 
-type policyValues struct {
-	TTLSeconds                 int64
-	RefreshBeforeSeconds       int64
-	AlgorithmTimeoutSeconds    int64
-	MaxCandidateGroups         int64
-	GroupAttemptTimeoutSeconds int64
-}
-
-func grantPolicy(spec map[string]any) policyValues {
+func algorithmTimeout(spec map[string]any) time.Duration {
 	policy := mapValue(spec, "grantPolicy")
-	legacy := mapValue(spec, "candidatePolicy")
-	return policyValues{
-		TTLSeconds:                 intOr(policy, "ttlSeconds", intOr(legacy, "grantTTLSeconds", 600)),
-		RefreshBeforeSeconds:       intOr(policy, "refreshBeforeSeconds", 120),
-		AlgorithmTimeoutSeconds:    intOr(policy, "algorithmTimeoutSeconds", 5),
-		MaxCandidateGroups:         clamp(intOr(policy, "maxCandidateGroups", 3), 1, 3),
-		GroupAttemptTimeoutSeconds: intOr(policy, "groupAttemptTimeoutSeconds", 30),
+	seconds, _, _ := unstructured.NestedInt64(policy, "algorithmTimeoutSeconds")
+	if seconds <= 0 {
+		seconds = 5
 	}
+	return time.Duration(seconds) * time.Second
 }
 
-func (r *DemandProcessor) handleExisting(
-	ctx context.Context,
-	demand, grant *unstructured.Unstructured,
-	taskPods []corev1.Pod,
-	nodes []corev1.Node,
-	staticID, stateID string,
-	policy policyValues,
-) (bool, ctrl.Result, error) {
-	phase := nestedString(grant.Object, "status", "phase")
-	activeState := nestedString(grant.Object, "status", "activeGroupState")
-	bound := boundPodCount(taskPods)
-	now := time.Now().UTC()
-
-	if phase == "Inactive" && activeState == "Exhausted" {
-		dataStatic := nestedString(grant.Object, "spec", "dataVersions", "nodeStaticSnapshotId")
-		dataState := nestedString(grant.Object, "spec", "dataVersions", "schedulerStateSnapshotId")
-		if dataStatic != staticID || dataState != stateID {
-			return false, ctrl.Result{}, nil
-		}
-		// Fail closed and remain quiescent while Kubernetes/topology content is
-		// unchanged. Node, Pod and NNT watches enqueue the NGD; only a changed
-		// content hash causes a new Algorithm calculation.
-		return true, ctrl.Result{}, nil
-	}
-	if phase != "Active" {
-		return false, ctrl.Result{}, nil
-	}
-
-	invalid := activeGroupInvalid(grant, nodes)
-	if activeState == "Locked" || bound > 0 {
-		reason := "ActiveGroupLocked"
-		message := fmt.Sprintf("boundPodCount=%d", bound)
-		demandPhase := "Fulfilled"
-		if invalid {
-			reason = "LockedGroupDegraded"
-			message = fmt.Sprintf("boundPodCount=%d; active group contains unavailable Node", bound)
-			demandPhase = "Degraded"
-		}
-		if err := r.setGrantStatus(ctx, grant, "Active", "Locked", taskPods, nestedString(grant.Object, "status", "attemptStartedAt"), reason, message); err != nil {
-			return true, ctrl.Result{}, err
-		}
-		if err := r.setDemandStatus(ctx, demand, demandPhase, reason, message, grant, time.Time{}); err != nil {
-			return true, ctrl.Result{}, err
-		}
-		return true, ctrl.Result{}, nil
-	}
-
-	dataStatic := nestedString(grant.Object, "spec", "dataVersions", "nodeStaticSnapshotId")
-	dataState := nestedString(grant.Object, "spec", "dataVersions", "schedulerStateSnapshotId")
-	validUntil := parseTime(nestedString(grant.Object, "spec", "validUntil"))
-	refreshAt := validUntil.Add(-time.Duration(policy.RefreshBeforeSeconds) * time.Second)
-	if invalid || dataStatic != staticID || dataState != stateID || (!validUntil.IsZero() && !now.Before(refreshAt)) {
-		return false, ctrl.Result{}, nil
-	}
-
-	nonterminal := 0
-	for i := range taskPods {
-		if taskPods[i].Status.Phase != corev1.PodSucceeded && taskPods[i].Status.Phase != corev1.PodFailed {
-			nonterminal++
-		}
-	}
-	attemptStarted := parseTime(nestedString(grant.Object, "status", "attemptStartedAt"))
-	if nonterminal == 0 {
-		attemptStarted = time.Time{}
-	} else if attemptStarted.IsZero() {
-		attemptStarted = now
-	}
-	timeout := time.Duration(policy.GroupAttemptTimeoutSeconds) * time.Second
-	if !attemptStarted.IsZero() && now.Sub(attemptStarted) >= timeout {
-		return r.advanceGroup(ctx, demand, grant, taskPods, now)
-	}
-	attemptText := ""
-	message := "waitingForTaskPods"
-	requeue := defaultPodPoll
-	if !attemptStarted.IsZero() {
-		attemptText = attemptStarted.Format(time.RFC3339)
-		message = fmt.Sprintf("waitingForBind timeoutSeconds=%d", policy.GroupAttemptTimeoutSeconds)
-		remaining := timeout - now.Sub(attemptStarted)
-		if remaining > 0 && remaining < requeue {
-			requeue = remaining
-		}
-	}
-	if err := r.setGrantStatus(ctx, grant, "Active", "Trying", taskPods, attemptText, "ActiveGroupTrying", message); err != nil {
-		return true, ctrl.Result{}, err
-	}
-	if err := r.setDemandStatus(ctx, demand, "Fulfilled", "ActiveGroupTrying", message, grant, time.Time{}); err != nil {
-		return true, ctrl.Result{}, err
-	}
-	return true, ctrl.Result{RequeueAfter: requeue}, nil
-}
-
-func (r *DemandProcessor) advanceGroup(ctx context.Context, demand, grant *unstructured.Unstructured, taskPods []corev1.Pod, now time.Time) (bool, ctrl.Result, error) {
-	if boundPodCount(taskPods) > 0 {
-		return false, ctrl.Result{}, nil
-	}
-	groups, _, _ := unstructured.NestedSlice(grant.Object, "spec", "candidateNodeGroups")
-	activeRank := nestedInt64(grant.Object, "spec", "activeGroupRef", "rank")
-	if activeRank < int64(len(groups)) {
-		next, _ := groups[activeRank].(map[string]any)
-		base := grant.DeepCopy()
-		_ = unstructured.SetNestedMap(grant.Object, map[string]any{"rank": activeRank + 1, "groupId": stringValue(next, "groupId")}, "spec", "activeGroupRef")
-		_ = unstructured.SetNestedField(grant.Object, nestedInt64(grant.Object, "spec", "revision")+1, "spec", "revision")
-		_ = unstructured.SetNestedField(grant.Object, now.Format(time.RFC3339), "spec", "generatedAt")
-		if err := r.Patch(ctx, grant, client.MergeFrom(base)); err != nil {
-			return true, ctrl.Result{}, err
-		}
-		if err := r.Get(ctx, client.ObjectKeyFromObject(grant), grant); err != nil {
-			return true, ctrl.Result{}, err
-		}
-		message := fmt.Sprintf("advancedToRank=%d", activeRank+1)
-		if err := r.setGrantStatus(ctx, grant, "Active", "Trying", taskPods, now.Format(time.RFC3339), "ActiveGroupAdvanced", message); err != nil {
-			return true, ctrl.Result{}, err
-		}
-		if err := r.setDemandStatus(ctx, demand, "Fulfilled", "ActiveGroupAdvanced", message, grant, time.Time{}); err != nil {
-			return true, ctrl.Result{}, err
-		}
-		ctrl.LoggerFrom(ctx).Info("advanced active group", "rank", activeRank+1, "group", stringValue(next, "groupId"))
-		return true, ctrl.Result{RequeueAfter: defaultPodPoll}, nil
-	}
-	message := fmt.Sprintf("attemptedGroups=%d", len(groups))
-	if err := r.setGrantStatus(ctx, grant, "Inactive", "Exhausted", taskPods, nestedString(grant.Object, "status", "attemptStartedAt"), "CandidateGroupsExhausted", message); err != nil {
-		return true, ctrl.Result{}, err
-	}
-	if err := r.setDemandStatus(ctx, demand, "Unsatisfied", "CandidateGroupsExhausted", message, grant, time.Time{}); err != nil {
-		return true, ctrl.Result{}, err
-	}
-	return true, ctrl.Result{}, nil
-}
-
-func (r *DemandProcessor) getTask(ctx context.Context, namespace string, reference map[string]any) (*unstructured.Unstructured, error) {
-	apiVersion := stringValue(reference, "apiVersion")
-	kind := stringValue(reference, "kind")
-	gv, err := schema.ParseGroupVersion(apiVersion)
-	if err != nil {
-		return nil, fmt.Errorf("parse task apiVersion: %w", err)
-	}
-	task := newUnstructured(gv.WithKind(kind))
-	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: stringValue(reference, "name")}, task); err != nil {
-		return nil, err
-	}
-	return task, nil
-}
-
-func (r *DemandProcessor) upsertGrant(ctx context.Context, demand, _ *unstructured.Unstructured, spec map[string]any) (*unstructured.Unstructured, error) {
+func (r *DemandProcessor) upsertGrant(ctx context.Context, demand *unstructured.Unstructured, spec map[string]any) (*unstructured.Unstructured, error) {
 	demandRef := demand.GetName()
 	grantSourceName := demand.GetName()
-	if demand.GetNamespace() != "" {
-		demandRef = demand.GetNamespace() + "/" + demand.GetName()
-		grantSourceName = demand.GetNamespace() + "-" + demand.GetName()
-	}
 	grant := newUnstructured(grantGVK)
 	grant.SetName(grantName(grantSourceName))
 	grant.SetLabels(map[string]string{
@@ -522,13 +232,12 @@ func (r *DemandProcessor) upsertGrant(ctx context.Context, demand, _ *unstructur
 		grantGroup + "/scheduler":  stringValue(spec, "schedulerName"),
 	})
 	grant.SetAnnotations(map[string]string{grantGroup + "/demand-ref": demandRef})
-	if demand.GetNamespace() == "" {
-		controller := true
-		grant.SetOwnerReferences([]metav1.OwnerReference{{
-			APIVersion: demand.GetAPIVersion(), Kind: demand.GetKind(), Name: demand.GetName(), UID: demand.GetUID(),
-			Controller: &controller,
-		}})
-	}
+	controller := true
+	grant.SetOwnerReferences([]metav1.OwnerReference{{
+
+		APIVersion: demand.GetAPIVersion(), Kind: demand.GetKind(), Name: demand.GetName(), UID: demand.GetUID(),
+		Controller: &controller,
+	}})
 	_ = unstructured.SetNestedMap(grant.Object, spec, "spec")
 	if err := r.Apply(ctx, client.ApplyConfigurationFromUnstructured(grant), client.FieldOwner(prcSpecFieldManager)); err != nil {
 		return nil, fmt.Errorf("apply NGG spec: %w", err)
@@ -542,12 +251,8 @@ func (r *DemandProcessor) upsertGrant(ctx context.Context, demand, _ *unstructur
 
 // buildPlatformGrantSpec 将 Algorithm 排名第一的拓扑组转换为联通正式 NGG 契约。
 // PRC 不重新排序、不修改正常模式分数；降级/关闭负载感知时按契约使用中性分 50。
-func buildPlatformGrantSpec(demand *unstructured.Unstructured, demandSpec map[string]any, response AlgorithmResponse, liveNodes []corev1.Node, now time.Time) map[string]any {
+func buildPlatformGrantSpec(demand *unstructured.Unstructured, demandSpec map[string]any, response AlgorithmResponse, now time.Time) map[string]any {
 	selected := response.CandidateNodeGroups[0]
-	byName := make(map[string]*corev1.Node, len(liveNodes))
-	for i := range liveNodes {
-		byName[liveNodes[i].Name] = &liveNodes[i]
-	}
 	source := "normal"
 	if response.MetricSnapshotID == "metrics-disabled" {
 		source = "disabled"
@@ -570,11 +275,6 @@ func buildPlatformGrantSpec(demand *unstructured.Unstructured, demandSpec map[st
 		}
 		if topology := platformCandidateTopology(candidate.Topology); len(topology) > 0 {
 			item["topology"] = topology
-		} else if node := byName[candidate.NodeName]; node != nil {
-			// 兼容旧Algorithm响应；新链路应始终使用Algorithm解析出的上层拓扑。
-			if topology := platformTopology(node.Labels); len(topology) > 0 {
-				item["topology"] = topology
-			}
 		}
 		items = append(items, item)
 	}
@@ -582,14 +282,10 @@ func buildPlatformGrantSpec(demand *unstructured.Unstructured, demandSpec map[st
 	if timestamp == "" {
 		timestamp = now.Format(time.RFC3339Nano)
 	}
-	demandRef := demand.GetName()
-	if demand.GetNamespace() != "" {
-		demandRef = demand.GetNamespace() + "/" + demand.GetName()
-	}
 	return map[string]any{
 		"schedulerName": stringValue(demandSpec, "schedulerName"),
 		"version":       "v1", "timestamp": timestamp, "source": source,
-		"demandRef": demandRef,
+		"demandRef": demand.GetName(),
 		"nodes":     items,
 	}
 }
@@ -604,24 +300,6 @@ func platformCandidateTopology(topology map[string]any) map[string]any {
 	for target, source := range fields {
 		if item := stringValue(topology, source); item != "" {
 			value[target] = item
-		}
-	}
-	return value
-}
-
-func platformTopology(labels map[string]string) map[string]any {
-	const demoPrefix = "topology.demo.ngg.io/"
-	value := map[string]any{}
-	fields := map[string]string{
-		"dataCenter":        labels["topology.kubernetes.io/region"],
-		"convergenceSwitch": labels[demoPrefix+"border-switch"],
-		"accessSwitch":      labels[demoPrefix+"leaf-switch"],
-		"subnet":            labels[demoPrefix+"subnet"],
-		"rack":              labels["topology.kubernetes.io/rack"],
-	}
-	for name, item := range fields {
-		if item != "" {
-			value[name] = item
 		}
 	}
 	return value
@@ -668,38 +346,6 @@ func (r *DemandProcessor) setPlatformGrantReturned(ctx context.Context, grant *u
 		"resolvedCapacity": map[string]any{"nodes": int64(0), "cpu": "0", "memory": "0"},
 	}
 	return applyStatus(ctx, r.Client, grant, status)
-}
-
-func buildGrantSpec(demand, task *unstructured.Unstructured, demandSpec map[string]any, response AlgorithmResponse, policy policyValues, revision int64, now time.Time) map[string]any {
-	groups := make([]any, 0, len(response.CandidateNodeGroups))
-	for _, group := range response.CandidateNodeGroups {
-		nodes := make([]any, 0, len(group.Nodes))
-		for _, node := range group.Nodes {
-			nodes = append(nodes, map[string]any{"name": node.NodeName, "uid": node.NodeUID, "score": node.Score})
-		}
-		groups = append(groups, map[string]any{
-			"rank": group.Rank, "groupId": group.GroupID, "topologyLevel": group.TopologyLevel,
-			"groupScore": group.GroupScore, "nodes": nodes,
-		})
-	}
-	taskRef := mapValue(demandSpec, "taskRef")
-	spec := map[string]any{
-		"demandRef":     map[string]any{"name": demand.GetName(), "uid": string(demand.GetUID()), "generation": demand.GetGeneration()},
-		"taskRef":       map[string]any{"apiVersion": stringValue(taskRef, "apiVersion"), "kind": stringValue(taskRef, "kind"), "name": task.GetName(), "uid": string(task.GetUID())},
-		"schedulerName": stringValue(demandSpec, "schedulerName"), "source": "prc-algorithm",
-		"candidateNodeGroups": groups,
-		"groupAttemptPolicy":  map[string]any{"timeoutSeconds": policy.GroupAttemptTimeoutSeconds, "lockAfterFirstBind": true},
-		"dataVersions": map[string]any{
-			"algorithmBootId": response.AlgorithmBootID, "nodeStaticSnapshotId": response.NodeStaticSnapshotID,
-			"schedulerStateSnapshotId": response.SchedulerStateSnapshotID, "metricSnapshotId": response.MetricSnapshotID,
-		},
-		"revision": revision, "generatedAt": now.Format(time.RFC3339),
-		"validUntil": now.Add(time.Duration(policy.TTLSeconds) * time.Second).Format(time.RFC3339),
-	}
-	if len(response.CandidateNodeGroups) > 0 {
-		spec["activeGroupRef"] = map[string]any{"rank": int64(1), "groupId": response.CandidateNodeGroups[0].GroupID}
-	}
-	return spec
 }
 
 func validateResponse(response AlgorithmResponse, requestID string, demand *unstructured.Unstructured, taskUID types.UID, staticID, stateID, bootID string, state []schedulerNodeState) error {
@@ -763,62 +409,6 @@ func validateResponse(response AlgorithmResponse, requestID string, demand *unst
 	return nil
 }
 
-func (r *DemandProcessor) setGrantStatus(ctx context.Context, grant *unstructured.Unstructured, phase, state string, pods []corev1.Pod, attempt, reason, message string) error {
-	active, _, _ := unstructured.NestedMap(grant.Object, "spec", "activeGroupRef")
-	groups, _, _ := unstructured.NestedSlice(grant.Object, "spec", "candidateNodeGroups")
-	activeNodes := int64(0)
-	for _, raw := range groups {
-		item, _ := raw.(map[string]any)
-		if stringValue(item, "groupId") == stringValue(active, "groupId") && intValue(item, "rank") == intValue(active, "rank") {
-			nodes, _ := item["nodes"].([]any)
-			activeNodes = int64(len(nodes))
-		}
-	}
-	status := map[string]any{
-		"phase": phase, "observedGeneration": grant.GetGeneration(),
-		"observedRevision": nestedInt64(grant.Object, "spec", "revision"),
-		"activeGroupState": state, "activeGroupId": stringValue(active, "groupId"),
-		"activeGroupRank": intValue(active, "rank"), "activeNodeCount": activeNodes,
-		"boundPodCount": boundPodCount(pods), "attemptStartedAt": attempt,
-		"conditions": []any{condition(reason, message)},
-	}
-	return mergePatchStatus(ctx, r.Client, grant, status)
-}
-
-func (r *DemandProcessor) setDemandStatus(ctx context.Context, demand *unstructured.Unstructured, phase, reason, message string, grant *unstructured.Unstructured, nextRetry time.Time) error {
-	status := map[string]any{
-		"phase": phase, "observedGeneration": demand.GetGeneration(),
-		"conditions": []any{condition(reason, message)}, "lastReconcileTime": time.Now().UTC().Format(time.RFC3339),
-	}
-	if grant != nil {
-		status["grantRef"] = map[string]any{"name": grant.GetName(), "uid": string(grant.GetUID()), "revision": nestedInt64(grant.Object, "spec", "revision")}
-		status["taskUID"] = nestedString(grant.Object, "spec", "taskRef", "uid")
-	}
-	if !nextRetry.IsZero() {
-		status["nextRetryAt"] = nextRetry.UTC().Format(time.RFC3339)
-	}
-	return mergePatchStatus(ctx, r.Client, demand, status)
-}
-
-func (r *DemandProcessor) degradeAndRetry(ctx context.Context, demand *unstructured.Unstructured, reason, message string) (ctrl.Result, error) {
-	next := time.Now().Add(defaultRetry)
-	if err := r.setDemandStatus(ctx, demand, "Degraded", reason, message, nil, next); err != nil {
-		return ctrl.Result{}, err
-	}
-	return ctrl.Result{RequeueAfter: defaultRetry}, nil
-}
-
-func mergePatchStatus(ctx context.Context, c client.Client, object *unstructured.Unstructured, status map[string]any) error {
-	base := object.DeepCopy()
-	if err := unstructured.SetNestedMap(object.Object, status, "status"); err != nil {
-		return err
-	}
-	if err := c.Status().Patch(ctx, object, client.MergeFrom(base)); err != nil {
-		return fmt.Errorf("patch %s/%s status: %w", object.GetKind(), object.GetName(), err)
-	}
-	return nil
-}
-
 // applyStatus sends only PRC-owned fields to the status subresource. In
 // particular status.consumer is intentionally absent so its consumer field
 // manager remains isolated from PRC refreshes.
@@ -834,63 +424,6 @@ func applyStatus(ctx context.Context, c client.Client, object *unstructured.Unst
 		client.ApplyConfigurationFromUnstructured(applyObject),
 		client.FieldOwner(prcStatusFieldManager),
 	)
-}
-
-func condition(reason, message string) map[string]any {
-	return map[string]any{"type": "Ready", "status": "True", "reason": reason, "message": message, "lastTransitionTime": time.Now().UTC().Format(time.RFC3339)}
-}
-
-func grantMatches(grant, demand *unstructured.Unstructured, taskUID types.UID) bool {
-	return nestedString(grant.Object, "spec", "demandRef", "uid") == string(demand.GetUID()) &&
-		nestedInt64(grant.Object, "spec", "demandRef", "generation") == demand.GetGeneration() &&
-		nestedString(grant.Object, "spec", "taskRef", "uid") == string(taskUID)
-}
-
-func activeGroupInvalid(grant *unstructured.Unstructured, nodes []corev1.Node) bool {
-	allowed := activeGroupNodes(grant)
-	if len(allowed) == 0 {
-		return true
-	}
-	live := map[string]*corev1.Node{}
-	for i := range nodes {
-		live[nodes[i].Name] = &nodes[i]
-	}
-	for name, uid := range allowed {
-		node := live[name]
-		if node == nil || node.UID != uid || !nodeReady(node) || node.Spec.Unschedulable {
-			return true
-		}
-	}
-	return false
-}
-
-func activeGroupNodes(grant *unstructured.Unstructured) map[string]types.UID {
-	activeID := nestedString(grant.Object, "spec", "activeGroupRef", "groupId")
-	activeRank := nestedInt64(grant.Object, "spec", "activeGroupRef", "rank")
-	groups, _, _ := unstructured.NestedSlice(grant.Object, "spec", "candidateNodeGroups")
-	result := map[string]types.UID{}
-	for _, raw := range groups {
-		item, _ := raw.(map[string]any)
-		if stringValue(item, "groupId") != activeID || intValue(item, "rank") != activeRank {
-			continue
-		}
-		nodes, _ := item["nodes"].([]any)
-		for _, rawNode := range nodes {
-			node, _ := rawNode.(map[string]any)
-			result[stringValue(node, "name")] = types.UID(stringValue(node, "uid"))
-		}
-	}
-	return result
-}
-
-func boundPodCount(pods []corev1.Pod) int64 {
-	var count int64
-	for i := range pods {
-		if pods[i].Spec.NodeName != "" {
-			count++
-		}
-	}
-	return count
 }
 
 func (r *DemandProcessor) httpClient() *http.Client {
@@ -922,16 +455,6 @@ func shortHash(value string) string {
 	return value
 }
 
-func nestedString(object map[string]any, fields ...string) string {
-	value, _, _ := unstructured.NestedString(object, fields...)
-	return value
-}
-
-func nestedInt64(object map[string]any, fields ...string) int64 {
-	value, _, _ := unstructured.NestedInt64(object, fields...)
-	return value
-}
-
 func mapValue(object map[string]any, key string) map[string]any {
 	value, _ := object[key].(map[string]any)
 	if value == nil {
@@ -942,74 +465,7 @@ func mapValue(object map[string]any, key string) map[string]any {
 
 func mapOrEmpty(object map[string]any, key string) map[string]any { return mapValue(object, key) }
 
-func mapOrDefault(object map[string]any, key string, fallback map[string]any) map[string]any {
-	value := mapValue(object, key)
-	if len(value) == 0 {
-		return fallback
-	}
-	return value
-}
-
-func sliceOrEmpty(object map[string]any, key string) []any {
-	value, _ := object[key].([]any)
-	if value == nil {
-		return []any{}
-	}
-	return value
-}
-
 func stringValue(object map[string]any, key string) string {
 	value, _ := object[key].(string)
 	return value
 }
-
-func intValue(object map[string]any, key string) int64 {
-	switch value := object[key].(type) {
-	case int64:
-		return value
-	case int:
-		return int64(value)
-	case float64:
-		return int64(value)
-	case json.Number:
-		result, _ := value.Int64()
-		return result
-	default:
-		return 0
-	}
-}
-
-func intOr(object map[string]any, key string, fallback int64) int64 {
-	if value := intValue(object, key); value != 0 {
-		return value
-	}
-	return fallback
-}
-
-func clamp(value, minimum, maximum int64) int64 {
-	if value < minimum {
-		return minimum
-	}
-	if value > maximum {
-		return maximum
-	}
-	return value
-}
-
-func parseTime(value string) time.Time {
-	result, _ := time.Parse(time.RFC3339, value)
-	return result
-}
-
-// Stable key helper used by tests and logging.
-func sortedNodeNames(nodes map[string]types.UID) []string {
-	result := make([]string, 0, len(nodes))
-	for name := range nodes {
-		result = append(result, name)
-	}
-	sort.Strings(result)
-	return result
-}
-
-var _ = demandAnnotation
-var _ = maxAlgorithmBodyBytes

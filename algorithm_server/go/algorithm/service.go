@@ -17,7 +17,7 @@ type service struct {
 	worker   calculator
 }
 
-func (s *service) allocate(ctx context.Context, request map[string]any, legacy bool) (map[string]any, *apiError) {
+func (s *service) allocate(ctx context.Context, request map[string]any) (map[string]any, *apiError) {
 	// 请求必须引用已经由 PRC PUT 到本进程中的静态快照。
 	requestID := stringValue(request["requestId"])
 	for _, field := range []string{"requestId", "taskUID", "ngdUID", "nodeStaticSnapshotId"} {
@@ -49,17 +49,6 @@ func (s *service) allocate(ctx context.Context, request map[string]any, legacy b
 		return nil, workerErr
 	}
 	groups := result.CandidateNodeGroups
-	if legacy {
-		for _, group := range groups {
-			if stringValue(group["topologyLevel"]) == "leafSwitch" {
-				group["topologyLevel"] = "leafGroup"
-			}
-			id := stringValue(group["groupId"])
-			id = strings.TrimPrefix(id, "leaf:")
-			id = strings.TrimPrefix(id, "border:")
-			group["groupId"] = strings.TrimPrefix(id, "core:")
-		}
-	}
 	metricID := "metrics-disabled"
 	metricCapturedAt := ""
 	if s.metrics.enabled() {

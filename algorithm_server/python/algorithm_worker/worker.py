@@ -14,7 +14,6 @@ from typing import Any
 from .context import AllocationContext, MetricSnapshot, StaticNodeSnapshot
 from .errors import AlgorithmError, InvalidRequest
 from .pipeline import PipelineRunner
-from .quantity import pod_set_minimums
 
 
 class AlgorithmWorker:
@@ -55,12 +54,10 @@ class AlgorithmWorker:
 
         # 正式资源池 NGD 没有 PodSet。maxNodes 是候选节点数量上限，不是
         # 必须节点数；minResources/quota 由固定流水线直接读取 NGD 处理。
-        if request.get("requestMode") == "resourcePool":
-            if not isinstance(request.get("ngd"), dict):
-                raise InvalidRequest("resourcePool request requires the original ngd spec")
-            minimums = []
-        else:
-            minimums = pod_set_minimums(request.get("podSets", []))
+        if request.get("requestMode") != "resourcePool" or not isinstance(
+            request.get("ngd"), dict
+        ):
+            raise InvalidRequest("worker requires a resourcePool request with original ngd spec")
 
         context = AllocationContext(
             request=request,
@@ -69,7 +66,7 @@ class AlgorithmWorker:
             metrics_degraded=bool(payload.get("metricsDegraded", True)),
             # Go 的 nil slice 会编码为 JSON null；把 null 和缺失都统一成空列表。
             warnings=[str(item) for item in (payload.get("warnings") or [])],
-            pod_minimums=minimums,
+            pod_minimums=[],
         )
         candidates = self.pipeline.run(context)
         result = {"candidateNodeGroups": candidates}

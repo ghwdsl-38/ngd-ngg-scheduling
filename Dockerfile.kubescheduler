@@ -1,4 +1,0 @@
-FROM scratch
-COPY build/ngg-scheduler /usr/local/bin/ngg-scheduler
-USER 65532:65532
-ENTRYPOINT ["/usr/local/bin/ngg-scheduler"]

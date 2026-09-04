@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -62,16 +63,25 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 		latencies := []float64{4, 2.5, 1.5, 0.8}
 		bandwidth := bandwidths[(leafNumber-1)%len(bandwidths)]
 		latency := latencies[(leafNumber-1)%len(latencies)]
+		leafIDs := []any{leaf}
+		links := []any{map[string]any{
+			"bondMode": "direct", "interface": "eth0", "leafSwitchId": leaf, "active": true,
+		}}
+		leafIDsJSON, _ := json.Marshal([]string{leaf})
+		linksJSON, _ := json.Marshal(links)
 		labels := map[string]string{
 			"tests.ngg.io/worker":              "true",
 			"topology.demo.ngg.io/leaf-switch": leaf,
+			"topology.demo.ngg.io/leaf-set-id": leafSetShortID([]string{leaf}),
+			"topology.demo.ngg.io/leaf-count":  "1",
 		}
-		topology := map[string]any{"leafSwitchId": leaf, "switchId": leaf}
+		topology := map[string]any{"leafSwitchId": leaf, "leafSwitchIds": leafIDs, "switchId": leaf, "links": links}
 		resolvedTopology := map[string]any{
 			"regionId": "CN-NORTH", "locationId": "HB-HL", "dataCenterId": "HB-HL-DC1",
 			"roomId": "HB-HL-DC1-102", "borderDomainId": borderDomain,
 			"borderSwitchIds": borders, "spineDomainId": "", "spineSwitchIds": []any{},
-			"leafSwitchId": leaf, "switchId": leaf, "peerLeafSwitchIds": []any{},
+			"leafSwitchId": leaf, "leafSwitchIds": leafIDs, "switchId": leaf,
+			"leafDomainId": leaf, "leafDomainSwitchIds": leafIDs, "peerLeafSwitchIds": []any{},
 			"bandwidthGbps": bandwidth, "latencyMillis": latency,
 		}
 		staticNode := map[string]any{
@@ -116,10 +126,17 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 			corev1.ResourceName("nvidia.com/gpu"): resource.MustParse("4"),
 		}
 		nodes = append(nodes, corev1.Node{
-			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Node"},
-			ObjectMeta: metav1.ObjectMeta{Name: name, UID: types.UID(uid), Labels: labels, CreationTimestamp: metav1.NewTime(time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC))},
-			Spec:       corev1.NodeSpec{Unschedulable: inUse},
-			Status:     corev1.NodeStatus{Capacity: allocatable.DeepCopy(), Allocatable: allocatable.DeepCopy(), Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}},
+			TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"},
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name, UID: types.UID(uid), Labels: labels,
+				Annotations: map[string]string{
+					"topology.demo.ngg.io/leaf-switch-ids": string(leafIDsJSON),
+					"topology.demo.ngg.io/leaf-links":      string(linksJSON),
+				},
+				CreationTimestamp: metav1.NewTime(time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)),
+			},
+			Spec:   corev1.NodeSpec{Unschedulable: inUse},
+			Status: corev1.NodeStatus{Capacity: allocatable.DeepCopy(), Allocatable: allocatable.DeepCopy(), Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}},
 		})
 		if number%100 == 1 {
 			pods = append(pods, corev1.Pod{
@@ -173,6 +190,13 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 		"spec":     ngdSpec,
 	}}
 	return &Fixture{NodeCount: nodeCount, StaticSnapshot: static, ResolvedSnapshot: resolvedStatic, StaticSnapshotID: snapshotID, TopologyConfig: topologyConfig, NodeUsageStates: states, Metrics: metrics, Allocation: allocation, WorkerPayload: workerPayload, Nodes: nodes, Pods: pods, Demand: demand}, nil
+}
+
+func leafSetShortID(leaves []string) string {
+	copyOfLeaves := append([]string(nil), leaves...)
+	sort.Strings(copyOfLeaves)
+	sum := sha256.Sum256([]byte(strings.Join(copyOfLeaves, "\x00")))
+	return hex.EncodeToString(sum[:6])
 }
 
 // buildTopologyConfig生成与联通样例同构的独立配置：机房下每个Leaf包含

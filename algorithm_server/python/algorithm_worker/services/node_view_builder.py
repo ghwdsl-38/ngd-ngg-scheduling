@@ -6,7 +6,7 @@ from typing import Any
 
 from ..context import AllocationContext
 from ..errors import InvalidRequest
-from ..quantity import fits, parse_resources, subtract
+from ..quantity import parse_resources, subtract
 
 
 class NodeViewBuilder:
@@ -18,19 +18,10 @@ class NodeViewBuilder:
     ) -> list[dict[str, Any]]:
         """依次排除占用节点、标签不匹配节点和单 Pod 资源不足节点。"""
 
-        resource_pool = context.request.get("requestMode") == "resourcePool"
-        ngd = context.request.get("ngd", {}) if resource_pool else {}
-        if resource_pool and not isinstance(ngd, dict):
-            raise InvalidRequest("ngd must be an object in resourcePool mode")
-        requirements = context.request.get("nodeRequirements", {})
-        selector = requirements.get("nodeSelector", {})
-        if not isinstance(selector, dict):
-            raise InvalidRequest("nodeRequirements.nodeSelector must be an object")
-        label_selector = (
-            ngd.get("nodeSelector", {})
-            if resource_pool
-            else requirements.get("labelSelector", {})
-        )
+        ngd = context.request.get("ngd", {})
+        if not isinstance(ngd, dict):
+            raise InvalidRequest("ngd must be an object")
+        label_selector = ngd.get("nodeSelector", {})
         if not isinstance(label_selector, dict):
             raise InvalidRequest("nodeRequirements.labelSelector must be an object")
         match_labels = label_selector.get("matchLabels", {})
@@ -49,8 +40,6 @@ class NodeViewBuilder:
             if bool(state.get("inUse", False)):
                 continue
             labels = node.get("labels", {})
-            if not all(labels.get(key) == value for key, value in selector.items()):
-                continue
             if not all(labels.get(key) == value for key, value in match_labels.items()):
                 continue
             if not self._matches_expressions(labels, expressions):
@@ -62,11 +51,6 @@ class NodeViewBuilder:
                     f"nodeUsageStates[{uid}].requestedResources must be an object"
                 )
             available = subtract(capacity, parse_resources(requested_raw))
-            if context.pod_minimums and not any(
-                fits(available, request)
-                for _, _, request in context.pod_minimums
-            ):
-                continue
             # 静态快照在一次计算中只读；这里只增加动态可用资源字段，浅拷贝
             # 顶层字典即可，避免为每次请求深拷贝所有标签和拓扑子对象。
             view = dict(node)

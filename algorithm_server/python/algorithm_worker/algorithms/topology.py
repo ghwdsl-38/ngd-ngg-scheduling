@@ -7,7 +7,6 @@ from typing import Any
 from ..context import AllocationContext
 from ..errors import InvalidAlgorithmParameters
 from ..models import AlgorithmStage
-from ..quantity import can_place_minimums
 
 
 class TopologyAlgorithm:
@@ -19,7 +18,11 @@ class TopologyAlgorithm:
 
     # SPINE 可以为空；为空时该层不会产生候选组，算法自然继续到 Border Domain。
     LEVELS = [
-        {"name": "leafSwitch", "field": "leafSwitchId", "groupPrefix": "leaf"},
+        {
+            "name": "leafDomain",
+            "field": "leafDomainId",
+            "groupPrefix": "leaf-domain",
+        },
         {
             "name": "spineDomain",
             "field": "spineDomainId",
@@ -51,8 +54,6 @@ class TopologyAlgorithm:
         context: AllocationContext,
         parameters: dict[str, Any],
     ) -> dict[str, Any]:
-        resource_pool = context.request.get("requestMode") == "resourcePool"
-
         # 资源池模式先生成各层候选；评分阶段会从最窄层开始，找到首个可满足
         # NGD 资源需求的层级后停止。这样 Leaf 不够时可以上升到 Border Domain。
         all_groups: list[dict[str, Any]] = []
@@ -63,13 +64,9 @@ class TopologyAlgorithm:
                 str(level["name"]),
                 str(level["groupPrefix"]),
                 order,
-                context.pod_minimums,
             )
-            if resource_pool:
-                all_groups.extend(groups)
-            elif groups:
-                return {"node_groups": groups}
-        return {"node_groups": all_groups if resource_pool else []}
+            all_groups.extend(groups)
+        return {"node_groups": all_groups}
 
     @staticmethod
     def _group(
@@ -78,7 +75,6 @@ class TopologyAlgorithm:
         level: str,
         prefix: str,
         topology_order: int,
-        minimums: list[tuple[str, int, dict[str, int]]],
     ) -> list[dict[str, Any]]:
         grouped: dict[str, list[dict[str, Any]]] = {}
         for node in nodes:
@@ -92,13 +88,12 @@ class TopologyAlgorithm:
                 grouped[raw_id],
                 key=lambda item: (str(item["nodeName"]), str(item["nodeUID"])),
             )
-            if not minimums or can_place_minimums(group_nodes, minimums):
-                result.append(
-                    {
-                        "groupId": f"{prefix}:{raw_id}",
-                        "topologyLevel": level,
-                        "topologyOrder": topology_order,
-                        "nodes": group_nodes,
-                    }
-                )
+            result.append(
+                {
+                    "groupId": f"{prefix}:{raw_id}",
+                    "topologyLevel": level,
+                    "topologyOrder": topology_order,
+                    "nodes": group_nodes,
+                }
+            )
         return result

@@ -21,7 +21,7 @@ spec:
         - name: http
           containerPort: 8080
         env:
-        # 当前 Demo 使用 monitoring 命名空间中的轻量 Prometheus。
+        # 按目标环境修改为实际Prometheus Service地址。
         - name: PROMETHEUS_URL
           value: http://prometheus.monitoring.svc.cluster.local:9090
         - name: PROMETHEUS_REFRESH_SECONDS

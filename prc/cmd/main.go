@@ -22,7 +22,7 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	algorithmURL := env("ALGORITHM_URL", "http://ngd-ngg-algorithm.ngd-ngg-system.svc:8080")
-	clusterID := env("CLUSTER_ID", "volcano-ngd-ngg-v2-demo")
+	clusterID := env("CLUSTER_ID", "default-cluster")
 	app, err := prcapp.New(prcapp.Config{
 		KubernetesConfig: ctrl.GetConfigOrDie(), AlgorithmURL: algorithmURL, ClusterID: clusterID,
 		MetricsBindAddress: metricsAddr, HealthProbeBindAddress: probeAddr, LeaderElection: leaderElection,

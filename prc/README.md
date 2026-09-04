@@ -27,7 +27,7 @@ Kubernetes Watch/Reconcile + Algorithm HTTP调用
 |---|---|
 | `cmd/main.go` | 正式进程入口；只读取参数、创建`Application`并运行。 |
 | `pkg/application/application.go` | 完整PRC组装和生命周期边界；注册全部Controller并统一提供启动与Ready等待。 |
-| `pkg/controller/static_snapshot_controller.go` | 独立Watch Node/拓扑，构造内容Hash静态快照并通过HTTP PUT同步给Algorithm。 |
+| `pkg/controller/static_snapshot_controller.go` | 只Watch Node的容量、Label和Leaf Annotation，构造内容Hash静态快照并通过HTTP PUT同步给Algorithm。 |
 | `pkg/controller/refresh_controller.go` | NGD事件入口和独立刷新Controller；后者使用controller-runtime原生队列、并发Worker及错误重试。 |
 | `pkg/controller/refresh_scheduler.go` | 维护每个NGD的下一次执行时间，只向Refresh Controller发送GenericEvent，不自行实现Worker Pool。 |
 | `pkg/controller/prc_controller.go` | `DemandProcessor`业务实现：读取Node动态状态、调用Algorithm、通过SSA创建或更新正式NGG。 |

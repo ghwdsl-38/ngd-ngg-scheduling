@@ -22,7 +22,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-006",
+            "leafDomainSwitchIds": [
+              "leaf-006"
+            ],
             "leafSwitchId": "leaf-006",
+            "leafSwitchIds": [
+              "leaf-006"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -49,7 +56,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-012",
+            "leafDomainSwitchIds": [
+              "leaf-012"
+            ],
             "leafSwitchId": "leaf-012",
+            "leafSwitchIds": [
+              "leaf-012"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -76,7 +90,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 4,
+            "leafDomainId": "leaf-005",
+            "leafDomainSwitchIds": [
+              "leaf-005"
+            ],
             "leafSwitchId": "leaf-005",
+            "leafSwitchIds": [
+              "leaf-005"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -103,7 +124,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-002",
+            "leafDomainSwitchIds": [
+              "leaf-002"
+            ],
             "leafSwitchId": "leaf-002",
+            "leafSwitchIds": [
+              "leaf-002"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -130,7 +158,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-004",
+            "leafDomainSwitchIds": [
+              "leaf-004"
+            ],
             "leafSwitchId": "leaf-004",
+            "leafSwitchIds": [
+              "leaf-004"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -157,7 +192,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-006",
+            "leafDomainSwitchIds": [
+              "leaf-006"
+            ],
             "leafSwitchId": "leaf-006",
+            "leafSwitchIds": [
+              "leaf-006"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -184,7 +226,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 4,
+            "leafDomainId": "leaf-009",
+            "leafDomainSwitchIds": [
+              "leaf-009"
+            ],
             "leafSwitchId": "leaf-009",
+            "leafSwitchIds": [
+              "leaf-009"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -211,7 +260,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-010",
+            "leafDomainSwitchIds": [
+              "leaf-010"
+            ],
             "leafSwitchId": "leaf-010",
+            "leafSwitchIds": [
+              "leaf-010"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -238,7 +294,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-012",
+            "leafDomainSwitchIds": [
+              "leaf-012"
+            ],
             "leafSwitchId": "leaf-012",
+            "leafSwitchIds": [
+              "leaf-012"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -265,7 +328,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 4,
+            "leafDomainId": "leaf-001",
+            "leafDomainSwitchIds": [
+              "leaf-001"
+            ],
             "leafSwitchId": "leaf-001",
+            "leafSwitchIds": [
+              "leaf-001"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -292,7 +362,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-004",
+            "leafDomainSwitchIds": [
+              "leaf-004"
+            ],
             "leafSwitchId": "leaf-004",
+            "leafSwitchIds": [
+              "leaf-004"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -319,7 +396,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-008",
+            "leafDomainSwitchIds": [
+              "leaf-008"
+            ],
             "leafSwitchId": "leaf-008",
+            "leafSwitchIds": [
+              "leaf-008"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -346,7 +430,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-012",
+            "leafDomainSwitchIds": [
+              "leaf-012"
+            ],
             "leafSwitchId": "leaf-012",
+            "leafSwitchIds": [
+              "leaf-012"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -373,7 +464,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-002",
+            "leafDomainSwitchIds": [
+              "leaf-002"
+            ],
             "leafSwitchId": "leaf-002",
+            "leafSwitchIds": [
+              "leaf-002"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -400,7 +498,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 1.5,
+            "leafDomainId": "leaf-003",
+            "leafDomainSwitchIds": [
+              "leaf-003"
+            ],
             "leafSwitchId": "leaf-003",
+            "leafSwitchIds": [
+              "leaf-003"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -435,7 +540,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-042",
+            "leafDomainSwitchIds": [
+              "leaf-042"
+            ],
             "leafSwitchId": "leaf-042",
+            "leafSwitchIds": [
+              "leaf-042"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -462,7 +574,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-050",
+            "leafDomainSwitchIds": [
+              "leaf-050"
+            ],
             "leafSwitchId": "leaf-050",
+            "leafSwitchIds": [
+              "leaf-050"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -489,7 +608,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-040",
+            "leafDomainSwitchIds": [
+              "leaf-040"
+            ],
             "leafSwitchId": "leaf-040",
+            "leafSwitchIds": [
+              "leaf-040"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -516,7 +642,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-040",
+            "leafDomainSwitchIds": [
+              "leaf-040"
+            ],
             "leafSwitchId": "leaf-040",
+            "leafSwitchIds": [
+              "leaf-040"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -543,7 +676,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-042",
+            "leafDomainSwitchIds": [
+              "leaf-042"
+            ],
             "leafSwitchId": "leaf-042",
+            "leafSwitchIds": [
+              "leaf-042"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -570,7 +710,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-046",
+            "leafDomainSwitchIds": [
+              "leaf-046"
+            ],
             "leafSwitchId": "leaf-046",
+            "leafSwitchIds": [
+              "leaf-046"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -597,7 +744,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-048",
+            "leafDomainSwitchIds": [
+              "leaf-048"
+            ],
             "leafSwitchId": "leaf-048",
+            "leafSwitchIds": [
+              "leaf-048"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -624,7 +778,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-050",
+            "leafDomainSwitchIds": [
+              "leaf-050"
+            ],
             "leafSwitchId": "leaf-050",
+            "leafSwitchIds": [
+              "leaf-050"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -651,7 +812,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-042",
+            "leafDomainSwitchIds": [
+              "leaf-042"
+            ],
             "leafSwitchId": "leaf-042",
+            "leafSwitchIds": [
+              "leaf-042"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -678,7 +846,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-044",
+            "leafDomainSwitchIds": [
+              "leaf-044"
+            ],
             "leafSwitchId": "leaf-044",
+            "leafSwitchIds": [
+              "leaf-044"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -705,7 +880,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-050",
+            "leafDomainSwitchIds": [
+              "leaf-050"
+            ],
             "leafSwitchId": "leaf-050",
+            "leafSwitchIds": [
+              "leaf-050"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -732,7 +914,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-040",
+            "leafDomainSwitchIds": [
+              "leaf-040"
+            ],
             "leafSwitchId": "leaf-040",
+            "leafSwitchIds": [
+              "leaf-040"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -759,7 +948,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 1.5,
+            "leafDomainId": "leaf-043",
+            "leafDomainSwitchIds": [
+              "leaf-043"
+            ],
             "leafSwitchId": "leaf-043",
+            "leafSwitchIds": [
+              "leaf-043"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -786,7 +982,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-044",
+            "leafDomainSwitchIds": [
+              "leaf-044"
+            ],
             "leafSwitchId": "leaf-044",
+            "leafSwitchIds": [
+              "leaf-044"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -813,7 +1016,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-046",
+            "leafDomainSwitchIds": [
+              "leaf-046"
+            ],
             "leafSwitchId": "leaf-046",
+            "leafSwitchIds": [
+              "leaf-046"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -848,7 +1058,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-030",
+            "leafDomainSwitchIds": [
+              "leaf-030"
+            ],
             "leafSwitchId": "leaf-030",
+            "leafSwitchIds": [
+              "leaf-030"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -875,7 +1092,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-032",
+            "leafDomainSwitchIds": [
+              "leaf-032"
+            ],
             "leafSwitchId": "leaf-032",
+            "leafSwitchIds": [
+              "leaf-032"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -902,7 +1126,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-026",
+            "leafDomainSwitchIds": [
+              "leaf-026"
+            ],
             "leafSwitchId": "leaf-026",
+            "leafSwitchIds": [
+              "leaf-026"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -929,7 +1160,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-032",
+            "leafDomainSwitchIds": [
+              "leaf-032"
+            ],
             "leafSwitchId": "leaf-032",
+            "leafSwitchIds": [
+              "leaf-032"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -956,7 +1194,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-034",
+            "leafDomainSwitchIds": [
+              "leaf-034"
+            ],
             "leafSwitchId": "leaf-034",
+            "leafSwitchIds": [
+              "leaf-034"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -983,7 +1228,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-036",
+            "leafDomainSwitchIds": [
+              "leaf-036"
+            ],
             "leafSwitchId": "leaf-036",
+            "leafSwitchIds": [
+              "leaf-036"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -1010,7 +1262,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-038",
+            "leafDomainSwitchIds": [
+              "leaf-038"
+            ],
             "leafSwitchId": "leaf-038",
+            "leafSwitchIds": [
+              "leaf-038"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -1037,7 +1296,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-026",
+            "leafDomainSwitchIds": [
+              "leaf-026"
+            ],
             "leafSwitchId": "leaf-026",
+            "leafSwitchIds": [
+              "leaf-026"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -1064,7 +1330,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-028",
+            "leafDomainSwitchIds": [
+              "leaf-028"
+            ],
             "leafSwitchId": "leaf-028",
+            "leafSwitchIds": [
+              "leaf-028"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -1091,7 +1364,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-030",
+            "leafDomainSwitchIds": [
+              "leaf-030"
+            ],
             "leafSwitchId": "leaf-030",
+            "leafSwitchIds": [
+              "leaf-030"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -1118,7 +1398,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 1.5,
+            "leafDomainId": "leaf-031",
+            "leafDomainSwitchIds": [
+              "leaf-031"
+            ],
             "leafSwitchId": "leaf-031",
+            "leafSwitchIds": [
+              "leaf-031"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -1145,7 +1432,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-036",
+            "leafDomainSwitchIds": [
+              "leaf-036"
+            ],
             "leafSwitchId": "leaf-036",
+            "leafSwitchIds": [
+              "leaf-036"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -1172,7 +1466,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 1.5,
+            "leafDomainId": "leaf-027",
+            "leafDomainSwitchIds": [
+              "leaf-027"
+            ],
             "leafSwitchId": "leaf-027",
+            "leafSwitchIds": [
+              "leaf-027"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -1199,7 +1500,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 2.5,
+            "leafDomainId": "leaf-030",
+            "leafDomainSwitchIds": [
+              "leaf-030"
+            ],
             "leafSwitchId": "leaf-030",
+            "leafSwitchIds": [
+              "leaf-030"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -1226,7 +1534,14 @@
             ],
             "dataCenterId": "HB-HL-DC1",
             "latencyMillis": 0.8,
+            "leafDomainId": "leaf-032",
+            "leafDomainSwitchIds": [
+              "leaf-032"
+            ],
             "leafSwitchId": "leaf-032",
+            "leafSwitchIds": [
+              "leaf-032"
+            ],
             "locationId": "HB-HL",
             "peerLeafSwitchIds": [],
             "regionId": "CN-NORTH",
@@ -6620,7 +6935,7 @@
         "groupCount": 58,
         "groups": [
           {
-            "groupId": "leaf:leaf-001",
+            "groupId": "leaf-domain:leaf-001",
             "nodeCount": 14,
             "nodes": [
               {
@@ -6680,10 +6995,10 @@
                 "nodeUID": "uid:worker-0020"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-002",
+            "groupId": "leaf-domain:leaf-002",
             "nodeCount": 13,
             "nodes": [
               {
@@ -6739,10 +7054,10 @@
                 "nodeUID": "uid:worker-0040"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-003",
+            "groupId": "leaf-domain:leaf-003",
             "nodeCount": 13,
             "nodes": [
               {
@@ -6798,10 +7113,10 @@
                 "nodeUID": "uid:worker-0059"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-004",
+            "groupId": "leaf-domain:leaf-004",
             "nodeCount": 14,
             "nodes": [
               {
@@ -6861,10 +7176,10 @@
                 "nodeUID": "uid:worker-0080"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-005",
+            "groupId": "leaf-domain:leaf-005",
             "nodeCount": 13,
             "nodes": [
               {
@@ -6920,10 +7235,10 @@
                 "nodeUID": "uid:worker-0100"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-006",
+            "groupId": "leaf-domain:leaf-006",
             "nodeCount": 13,
             "nodes": [
               {
@@ -6979,10 +7294,10 @@
                 "nodeUID": "uid:worker-0119"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-007",
+            "groupId": "leaf-domain:leaf-007",
             "nodeCount": 14,
             "nodes": [
               {
@@ -7042,10 +7357,10 @@
                 "nodeUID": "uid:worker-0140"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-008",
+            "groupId": "leaf-domain:leaf-008",
             "nodeCount": 13,
             "nodes": [
               {
@@ -7101,10 +7416,10 @@
                 "nodeUID": "uid:worker-0160"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-009",
+            "groupId": "leaf-domain:leaf-009",
             "nodeCount": 13,
             "nodes": [
               {
@@ -7160,10 +7475,10 @@
                 "nodeUID": "uid:worker-0179"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-010",
+            "groupId": "leaf-domain:leaf-010",
             "nodeCount": 14,
             "nodes": [
               {
@@ -7223,10 +7538,10 @@
                 "nodeUID": "uid:worker-0200"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-011",
+            "groupId": "leaf-domain:leaf-011",
             "nodeCount": 13,
             "nodes": [
               {
@@ -7282,10 +7597,10 @@
                 "nodeUID": "uid:worker-0220"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-012",
+            "groupId": "leaf-domain:leaf-012",
             "nodeCount": 13,
             "nodes": [
               {
@@ -7341,10 +7656,10 @@
                 "nodeUID": "uid:worker-0239"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-013",
+            "groupId": "leaf-domain:leaf-013",
             "nodeCount": 14,
             "nodes": [
               {
@@ -7404,10 +7719,10 @@
                 "nodeUID": "uid:worker-0260"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-014",
+            "groupId": "leaf-domain:leaf-014",
             "nodeCount": 13,
             "nodes": [
               {
@@ -7463,10 +7778,10 @@
                 "nodeUID": "uid:worker-0280"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-015",
+            "groupId": "leaf-domain:leaf-015",
             "nodeCount": 13,
             "nodes": [
               {
@@ -7522,10 +7837,10 @@
                 "nodeUID": "uid:worker-0299"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-016",
+            "groupId": "leaf-domain:leaf-016",
             "nodeCount": 14,
             "nodes": [
               {
@@ -7585,10 +7900,10 @@
                 "nodeUID": "uid:worker-0320"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-017",
+            "groupId": "leaf-domain:leaf-017",
             "nodeCount": 13,
             "nodes": [
               {
@@ -7644,10 +7959,10 @@
                 "nodeUID": "uid:worker-0340"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-018",
+            "groupId": "leaf-domain:leaf-018",
             "nodeCount": 13,
             "nodes": [
               {
@@ -7703,10 +8018,10 @@
                 "nodeUID": "uid:worker-0359"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-019",
+            "groupId": "leaf-domain:leaf-019",
             "nodeCount": 14,
             "nodes": [
               {
@@ -7766,10 +8081,10 @@
                 "nodeUID": "uid:worker-0380"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-020",
+            "groupId": "leaf-domain:leaf-020",
             "nodeCount": 13,
             "nodes": [
               {
@@ -7825,10 +8140,10 @@
                 "nodeUID": "uid:worker-0400"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-021",
+            "groupId": "leaf-domain:leaf-021",
             "nodeCount": 13,
             "nodes": [
               {
@@ -7884,10 +8199,10 @@
                 "nodeUID": "uid:worker-0419"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-022",
+            "groupId": "leaf-domain:leaf-022",
             "nodeCount": 14,
             "nodes": [
               {
@@ -7947,10 +8262,10 @@
                 "nodeUID": "uid:worker-0440"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-023",
+            "groupId": "leaf-domain:leaf-023",
             "nodeCount": 13,
             "nodes": [
               {
@@ -8006,10 +8321,10 @@
                 "nodeUID": "uid:worker-0460"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-024",
+            "groupId": "leaf-domain:leaf-024",
             "nodeCount": 13,
             "nodes": [
               {
@@ -8065,10 +8380,10 @@
                 "nodeUID": "uid:worker-0479"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-025",
+            "groupId": "leaf-domain:leaf-025",
             "nodeCount": 14,
             "nodes": [
               {
@@ -8128,10 +8443,10 @@
                 "nodeUID": "uid:worker-0500"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-026",
+            "groupId": "leaf-domain:leaf-026",
             "nodeCount": 13,
             "nodes": [
               {
@@ -8187,10 +8502,10 @@
                 "nodeUID": "uid:worker-0520"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-027",
+            "groupId": "leaf-domain:leaf-027",
             "nodeCount": 13,
             "nodes": [
               {
@@ -8246,10 +8561,10 @@
                 "nodeUID": "uid:worker-0539"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-028",
+            "groupId": "leaf-domain:leaf-028",
             "nodeCount": 14,
             "nodes": [
               {
@@ -8309,10 +8624,10 @@
                 "nodeUID": "uid:worker-0560"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-029",
+            "groupId": "leaf-domain:leaf-029",
             "nodeCount": 13,
             "nodes": [
               {
@@ -8368,10 +8683,10 @@
                 "nodeUID": "uid:worker-0580"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-030",
+            "groupId": "leaf-domain:leaf-030",
             "nodeCount": 13,
             "nodes": [
               {
@@ -8427,10 +8742,10 @@
                 "nodeUID": "uid:worker-0599"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-031",
+            "groupId": "leaf-domain:leaf-031",
             "nodeCount": 14,
             "nodes": [
               {
@@ -8490,10 +8805,10 @@
                 "nodeUID": "uid:worker-0620"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-032",
+            "groupId": "leaf-domain:leaf-032",
             "nodeCount": 13,
             "nodes": [
               {
@@ -8549,10 +8864,10 @@
                 "nodeUID": "uid:worker-0640"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-033",
+            "groupId": "leaf-domain:leaf-033",
             "nodeCount": 13,
             "nodes": [
               {
@@ -8608,10 +8923,10 @@
                 "nodeUID": "uid:worker-0659"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-034",
+            "groupId": "leaf-domain:leaf-034",
             "nodeCount": 14,
             "nodes": [
               {
@@ -8671,10 +8986,10 @@
                 "nodeUID": "uid:worker-0680"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-035",
+            "groupId": "leaf-domain:leaf-035",
             "nodeCount": 13,
             "nodes": [
               {
@@ -8730,10 +9045,10 @@
                 "nodeUID": "uid:worker-0700"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-036",
+            "groupId": "leaf-domain:leaf-036",
             "nodeCount": 13,
             "nodes": [
               {
@@ -8789,10 +9104,10 @@
                 "nodeUID": "uid:worker-0719"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-037",
+            "groupId": "leaf-domain:leaf-037",
             "nodeCount": 14,
             "nodes": [
               {
@@ -8852,10 +9167,10 @@
                 "nodeUID": "uid:worker-0740"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-038",
+            "groupId": "leaf-domain:leaf-038",
             "nodeCount": 13,
             "nodes": [
               {
@@ -8911,10 +9226,10 @@
                 "nodeUID": "uid:worker-0760"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-039",
+            "groupId": "leaf-domain:leaf-039",
             "nodeCount": 13,
             "nodes": [
               {
@@ -8970,10 +9285,10 @@
                 "nodeUID": "uid:worker-0779"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-040",
+            "groupId": "leaf-domain:leaf-040",
             "nodeCount": 14,
             "nodes": [
               {
@@ -9033,10 +9348,10 @@
                 "nodeUID": "uid:worker-0800"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-041",
+            "groupId": "leaf-domain:leaf-041",
             "nodeCount": 13,
             "nodes": [
               {
@@ -9092,10 +9407,10 @@
                 "nodeUID": "uid:worker-0820"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-042",
+            "groupId": "leaf-domain:leaf-042",
             "nodeCount": 13,
             "nodes": [
               {
@@ -9151,10 +9466,10 @@
                 "nodeUID": "uid:worker-0839"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-043",
+            "groupId": "leaf-domain:leaf-043",
             "nodeCount": 14,
             "nodes": [
               {
@@ -9214,10 +9529,10 @@
                 "nodeUID": "uid:worker-0860"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-044",
+            "groupId": "leaf-domain:leaf-044",
             "nodeCount": 13,
             "nodes": [
               {
@@ -9273,10 +9588,10 @@
                 "nodeUID": "uid:worker-0880"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-045",
+            "groupId": "leaf-domain:leaf-045",
             "nodeCount": 13,
             "nodes": [
               {
@@ -9332,10 +9647,10 @@
                 "nodeUID": "uid:worker-0899"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-046",
+            "groupId": "leaf-domain:leaf-046",
             "nodeCount": 14,
             "nodes": [
               {
@@ -9395,10 +9710,10 @@
                 "nodeUID": "uid:worker-0920"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-047",
+            "groupId": "leaf-domain:leaf-047",
             "nodeCount": 13,
             "nodes": [
               {
@@ -9454,10 +9769,10 @@
                 "nodeUID": "uid:worker-0940"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-048",
+            "groupId": "leaf-domain:leaf-048",
             "nodeCount": 13,
             "nodes": [
               {
@@ -9513,10 +9828,10 @@
                 "nodeUID": "uid:worker-0959"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-049",
+            "groupId": "leaf-domain:leaf-049",
             "nodeCount": 14,
             "nodes": [
               {
@@ -9576,10 +9891,10 @@
                 "nodeUID": "uid:worker-0980"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-050",
+            "groupId": "leaf-domain:leaf-050",
             "nodeCount": 13,
             "nodes": [
               {
@@ -9635,7 +9950,7 @@
                 "nodeUID": "uid:worker-1000"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
             "groupId": "border-domain:HB-HL-DC1-102-BORDER-DOMAIN-01",
@@ -23043,7 +23358,7 @@
       "input": {
         "groups": [
           {
-            "groupId": "leaf:leaf-001",
+            "groupId": "leaf-domain:leaf-001",
             "nodeCount": 14,
             "nodes": [
               {
@@ -23103,10 +23418,10 @@
                 "nodeUID": "uid:worker-0020"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-002",
+            "groupId": "leaf-domain:leaf-002",
             "nodeCount": 13,
             "nodes": [
               {
@@ -23162,10 +23477,10 @@
                 "nodeUID": "uid:worker-0040"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-003",
+            "groupId": "leaf-domain:leaf-003",
             "nodeCount": 13,
             "nodes": [
               {
@@ -23221,10 +23536,10 @@
                 "nodeUID": "uid:worker-0059"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-004",
+            "groupId": "leaf-domain:leaf-004",
             "nodeCount": 14,
             "nodes": [
               {
@@ -23284,10 +23599,10 @@
                 "nodeUID": "uid:worker-0080"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-005",
+            "groupId": "leaf-domain:leaf-005",
             "nodeCount": 13,
             "nodes": [
               {
@@ -23343,10 +23658,10 @@
                 "nodeUID": "uid:worker-0100"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-006",
+            "groupId": "leaf-domain:leaf-006",
             "nodeCount": 13,
             "nodes": [
               {
@@ -23402,10 +23717,10 @@
                 "nodeUID": "uid:worker-0119"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-007",
+            "groupId": "leaf-domain:leaf-007",
             "nodeCount": 14,
             "nodes": [
               {
@@ -23465,10 +23780,10 @@
                 "nodeUID": "uid:worker-0140"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-008",
+            "groupId": "leaf-domain:leaf-008",
             "nodeCount": 13,
             "nodes": [
               {
@@ -23524,10 +23839,10 @@
                 "nodeUID": "uid:worker-0160"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-009",
+            "groupId": "leaf-domain:leaf-009",
             "nodeCount": 13,
             "nodes": [
               {
@@ -23583,10 +23898,10 @@
                 "nodeUID": "uid:worker-0179"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-010",
+            "groupId": "leaf-domain:leaf-010",
             "nodeCount": 14,
             "nodes": [
               {
@@ -23646,10 +23961,10 @@
                 "nodeUID": "uid:worker-0200"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-011",
+            "groupId": "leaf-domain:leaf-011",
             "nodeCount": 13,
             "nodes": [
               {
@@ -23705,10 +24020,10 @@
                 "nodeUID": "uid:worker-0220"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-012",
+            "groupId": "leaf-domain:leaf-012",
             "nodeCount": 13,
             "nodes": [
               {
@@ -23764,10 +24079,10 @@
                 "nodeUID": "uid:worker-0239"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-013",
+            "groupId": "leaf-domain:leaf-013",
             "nodeCount": 14,
             "nodes": [
               {
@@ -23827,10 +24142,10 @@
                 "nodeUID": "uid:worker-0260"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-014",
+            "groupId": "leaf-domain:leaf-014",
             "nodeCount": 13,
             "nodes": [
               {
@@ -23886,10 +24201,10 @@
                 "nodeUID": "uid:worker-0280"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-015",
+            "groupId": "leaf-domain:leaf-015",
             "nodeCount": 13,
             "nodes": [
               {
@@ -23945,10 +24260,10 @@
                 "nodeUID": "uid:worker-0299"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-016",
+            "groupId": "leaf-domain:leaf-016",
             "nodeCount": 14,
             "nodes": [
               {
@@ -24008,10 +24323,10 @@
                 "nodeUID": "uid:worker-0320"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-017",
+            "groupId": "leaf-domain:leaf-017",
             "nodeCount": 13,
             "nodes": [
               {
@@ -24067,10 +24382,10 @@
                 "nodeUID": "uid:worker-0340"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-018",
+            "groupId": "leaf-domain:leaf-018",
             "nodeCount": 13,
             "nodes": [
               {
@@ -24126,10 +24441,10 @@
                 "nodeUID": "uid:worker-0359"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-019",
+            "groupId": "leaf-domain:leaf-019",
             "nodeCount": 14,
             "nodes": [
               {
@@ -24189,10 +24504,10 @@
                 "nodeUID": "uid:worker-0380"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-020",
+            "groupId": "leaf-domain:leaf-020",
             "nodeCount": 13,
             "nodes": [
               {
@@ -24248,10 +24563,10 @@
                 "nodeUID": "uid:worker-0400"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-021",
+            "groupId": "leaf-domain:leaf-021",
             "nodeCount": 13,
             "nodes": [
               {
@@ -24307,10 +24622,10 @@
                 "nodeUID": "uid:worker-0419"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-022",
+            "groupId": "leaf-domain:leaf-022",
             "nodeCount": 14,
             "nodes": [
               {
@@ -24370,10 +24685,10 @@
                 "nodeUID": "uid:worker-0440"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-023",
+            "groupId": "leaf-domain:leaf-023",
             "nodeCount": 13,
             "nodes": [
               {
@@ -24429,10 +24744,10 @@
                 "nodeUID": "uid:worker-0460"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-024",
+            "groupId": "leaf-domain:leaf-024",
             "nodeCount": 13,
             "nodes": [
               {
@@ -24488,10 +24803,10 @@
                 "nodeUID": "uid:worker-0479"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-025",
+            "groupId": "leaf-domain:leaf-025",
             "nodeCount": 14,
             "nodes": [
               {
@@ -24551,10 +24866,10 @@
                 "nodeUID": "uid:worker-0500"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-026",
+            "groupId": "leaf-domain:leaf-026",
             "nodeCount": 13,
             "nodes": [
               {
@@ -24610,10 +24925,10 @@
                 "nodeUID": "uid:worker-0520"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-027",
+            "groupId": "leaf-domain:leaf-027",
             "nodeCount": 13,
             "nodes": [
               {
@@ -24669,10 +24984,10 @@
                 "nodeUID": "uid:worker-0539"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-028",
+            "groupId": "leaf-domain:leaf-028",
             "nodeCount": 14,
             "nodes": [
               {
@@ -24732,10 +25047,10 @@
                 "nodeUID": "uid:worker-0560"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-029",
+            "groupId": "leaf-domain:leaf-029",
             "nodeCount": 13,
             "nodes": [
               {
@@ -24791,10 +25106,10 @@
                 "nodeUID": "uid:worker-0580"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-030",
+            "groupId": "leaf-domain:leaf-030",
             "nodeCount": 13,
             "nodes": [
               {
@@ -24850,10 +25165,10 @@
                 "nodeUID": "uid:worker-0599"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-031",
+            "groupId": "leaf-domain:leaf-031",
             "nodeCount": 14,
             "nodes": [
               {
@@ -24913,10 +25228,10 @@
                 "nodeUID": "uid:worker-0620"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-032",
+            "groupId": "leaf-domain:leaf-032",
             "nodeCount": 13,
             "nodes": [
               {
@@ -24972,10 +25287,10 @@
                 "nodeUID": "uid:worker-0640"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-033",
+            "groupId": "leaf-domain:leaf-033",
             "nodeCount": 13,
             "nodes": [
               {
@@ -25031,10 +25346,10 @@
                 "nodeUID": "uid:worker-0659"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-034",
+            "groupId": "leaf-domain:leaf-034",
             "nodeCount": 14,
             "nodes": [
               {
@@ -25094,10 +25409,10 @@
                 "nodeUID": "uid:worker-0680"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-035",
+            "groupId": "leaf-domain:leaf-035",
             "nodeCount": 13,
             "nodes": [
               {
@@ -25153,10 +25468,10 @@
                 "nodeUID": "uid:worker-0700"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-036",
+            "groupId": "leaf-domain:leaf-036",
             "nodeCount": 13,
             "nodes": [
               {
@@ -25212,10 +25527,10 @@
                 "nodeUID": "uid:worker-0719"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-037",
+            "groupId": "leaf-domain:leaf-037",
             "nodeCount": 14,
             "nodes": [
               {
@@ -25275,10 +25590,10 @@
                 "nodeUID": "uid:worker-0740"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-038",
+            "groupId": "leaf-domain:leaf-038",
             "nodeCount": 13,
             "nodes": [
               {
@@ -25334,10 +25649,10 @@
                 "nodeUID": "uid:worker-0760"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-039",
+            "groupId": "leaf-domain:leaf-039",
             "nodeCount": 13,
             "nodes": [
               {
@@ -25393,10 +25708,10 @@
                 "nodeUID": "uid:worker-0779"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-040",
+            "groupId": "leaf-domain:leaf-040",
             "nodeCount": 14,
             "nodes": [
               {
@@ -25456,10 +25771,10 @@
                 "nodeUID": "uid:worker-0800"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-041",
+            "groupId": "leaf-domain:leaf-041",
             "nodeCount": 13,
             "nodes": [
               {
@@ -25515,10 +25830,10 @@
                 "nodeUID": "uid:worker-0820"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-042",
+            "groupId": "leaf-domain:leaf-042",
             "nodeCount": 13,
             "nodes": [
               {
@@ -25574,10 +25889,10 @@
                 "nodeUID": "uid:worker-0839"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-043",
+            "groupId": "leaf-domain:leaf-043",
             "nodeCount": 14,
             "nodes": [
               {
@@ -25637,10 +25952,10 @@
                 "nodeUID": "uid:worker-0860"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-044",
+            "groupId": "leaf-domain:leaf-044",
             "nodeCount": 13,
             "nodes": [
               {
@@ -25696,10 +26011,10 @@
                 "nodeUID": "uid:worker-0880"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-045",
+            "groupId": "leaf-domain:leaf-045",
             "nodeCount": 13,
             "nodes": [
               {
@@ -25755,10 +26070,10 @@
                 "nodeUID": "uid:worker-0899"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-046",
+            "groupId": "leaf-domain:leaf-046",
             "nodeCount": 14,
             "nodes": [
               {
@@ -25818,10 +26133,10 @@
                 "nodeUID": "uid:worker-0920"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-047",
+            "groupId": "leaf-domain:leaf-047",
             "nodeCount": 13,
             "nodes": [
               {
@@ -25877,10 +26192,10 @@
                 "nodeUID": "uid:worker-0940"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-048",
+            "groupId": "leaf-domain:leaf-048",
             "nodeCount": 13,
             "nodes": [
               {
@@ -25936,10 +26251,10 @@
                 "nodeUID": "uid:worker-0959"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-049",
+            "groupId": "leaf-domain:leaf-049",
             "nodeCount": 14,
             "nodes": [
               {
@@ -25999,10 +26314,10 @@
                 "nodeUID": "uid:worker-0980"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
-            "groupId": "leaf:leaf-050",
+            "groupId": "leaf-domain:leaf-050",
             "nodeCount": 13,
             "nodes": [
               {
@@ -26058,7 +26373,7 @@
                 "nodeUID": "uid:worker-1000"
               }
             ],
-            "topologyLevel": "leafSwitch"
+            "topologyLevel": "leafDomain"
           },
           {
             "groupId": "border-domain:HB-HL-DC1-102-BORDER-DOMAIN-01",

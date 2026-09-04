@@ -199,11 +199,10 @@ func registerRoutes(mux *http.ServeMux, app *service) {
 		}
 		writeJSON(w, 200, map[string]any{"accepted": true, "snapshotId": snapshot.SnapshotID, "acceptedSnapshotId": snapshot.SnapshotID, "algorithmBootId": app.bootID, "bootId": app.bootID, "nodeCount": len(snapshot.Nodes), "checksum": snapshot.SnapshotID})
 	})
-	mux.HandleFunc("POST /api/v1/allocate", calculateHandler(app, false))
-	mux.HandleFunc("POST /api/v1/node-groups/calculate", calculateHandler(app, true))
+	mux.HandleFunc("POST /api/v1/allocate", calculateHandler(app))
 }
 
-func calculateHandler(app *service, legacy bool) http.HandlerFunc {
+func calculateHandler(app *service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		acceptedAt := time.Now()
 		body, apiErr := decodeBody(r)
@@ -211,7 +210,7 @@ func calculateHandler(app *service, legacy bool) http.HandlerFunc {
 			writeAPIError(w, apiErr)
 			return
 		}
-		response, apiErr := app.allocate(r.Context(), body, legacy)
+		response, apiErr := app.allocate(r.Context(), body)
 		if apiErr != nil {
 			writeAPIError(w, apiErr)
 			return

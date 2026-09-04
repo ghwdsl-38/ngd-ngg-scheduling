@@ -289,20 +289,22 @@ flowchart TB
 
 Agent 作为 DaemonSet 运行在每个 Worker：
 
-1. 启动时读取本 Node；
-2. 如果 Leaf Label 已存在，直接恢复到内存，不重复采集；
-3. `Simulated` 模式从种子 Annotation 获取 Leaf；
-4. `LLDP` 模式通过 EtherType `0x88CC` 监听真实 LLDP 帧，取得 Node→Leaf；
-5. 只 Patch `leaf-switch` Label，以及采集来源、接口、端口和时间 Annotation；
-6. Watch 当前 Node，Node 变化后重新 Reconcile。
+1. 通过Kubeconfig或In-Cluster配置创建client-go客户端并读取本Node；
+2. 从Node Annotation恢复上次有效观测，作为采集失败时的保留值；
+3. 识别Bond模式：Active-Backup只选Active Slave，负载模式选择全部Up Slave；
+4. `Simulated`模式读取种子Annotation，`LLDP`模式监听`0x88CC`帧；
+5. 规范化最多两个Leaf和链路明细，内容变化时才Patch自身Node；
+6. 每30秒独立重新探测，以发现主备切换、链路Down和邻居变化。
 
 关键 Node Label：
 
 ```text
-topology.demo.ngg.io/leaf-switch
+topology.demo.ngg.io/leaf-set-id
+topology.demo.ngg.io/leaf-count
+topology.demo.ngg.io/leaf-switch        # 仅单Leaf兼容字段
 ```
 
-Border、Spine、Leaf互联端口和 Region/Location/DataCenter/Room 均不写 Node。
+完整Leaf列表和物理链路分别保存在`leaf-switch-ids`、`leaf-links` Annotation。Border、Spine、Leaf互联端口和Region/Location/DataCenter/Room均不写Node。
 Algorithm 启动时从 `TOPOLOGY_CONFIG_FILE` 加载并校验独立 YAML；联通原始样例
 见 `config/topology/unicom-huailai-102-sample.yaml`。
 
@@ -310,8 +312,7 @@ Algorithm 启动时从 `TOPOLOGY_CONFIG_FILE` 加载并校验独立 YAML；联�
 
 ### 5.3 PRC 如何取得拓扑
 
-PRC 静态 Controller 从 Kubernetes API 列出 Node，读取 `leaf-switch` Label；
-若 Label 不存在，才回退读取旧 `NodeNetworkTopology`（NNT）CR 中的直连交换机。
+PRC静态Controller从Kubernetes API列出Node，优先读取`leaf-switch-ids` Annotation，并兼容单值`leaf-switch` Label。缺少Leaf元数据的Node不会再回退读取`NodeNetworkTopology`。
 
 静态快照包含：
 
@@ -319,13 +320,13 @@ PRC 静态 Controller 从 Kubernetes API 列出 Node，读取 `leaf-switch` Labe
 - Node 创建时间；
 - `status.allocatable`；
 - Node Labels；
-- `leafSwitchId`（同时兼容填充 `switchId`）；
-- 固定静态协议版本 `node-leaf-v1`。
+- `leafSwitchIds`和物理链路列表（同时兼容填充单值`leafSwitchId`/`switchId`）；
+- 固定静态协议版本 `node-leaf-set-v2`。
 
 PRC 对规范化后的完整快照计算 SHA-256 内容 Hash。内容不变时 snapshot ID 不变，不使用进程内自增版本号。
 
-Algorithm 收到请求后用 Leaf 查询自身拓扑缓存，补齐 Region、Location、
-DataCenter、Room、Border Domain、可选 Spine、带宽和时延。拓扑配置本身另算
+Algorithm收到请求后先把单/双Leaf解析成唯一Leaf Domain，再补齐Region、Location、
+DataCenter、Room、Border Domain、可选Spine、带宽和时延。拓扑配置本身另算
 `topologySnapshotId`，不会混入 PRC 的 Node 静态快照 Hash。
 
 ## 6. PRC 实现
@@ -356,7 +357,7 @@ Application.Start(ctx)
 
 职责：
 
-1. Watch Node 和旧 NNT；
+1. 只Watch Node容量、Label和Leaf Annotation；
 2. 构造规范化静态快照；
 3. 计算内容 Hash；
 4. 查询 Algorithm 当前 Boot ID 和缓存状态；
@@ -369,15 +370,7 @@ Application.Start(ctx)
 
 代码：`prc/pkg/controller/prc_controller.go`。
 
-当前 Watch 来源包括：
-
-- 正式 NGD 的 generation 变化；
-- 旧版 NGD 的 generation 变化；
-- Node 变化；
-- Pod 变化；
-- NNT 变化。
-
-Node、Pod 或 NNT 变化会把全部 NGD 重新加入队列。
+当前事件Controller只Watch正式/旧版NGD的创建、generation变化和删除。Node、Pod不直接触发任务Reconcile，而是在独立15秒刷新到期后由Demand Processor重新读取；NNT不再注册或Watch。Node静态字段变化只触发Static Snapshot Controller同步新的内容Hash。
 
 正式 NGD 的处理过程：
 
@@ -892,7 +885,7 @@ curl http://127.0.0.1:8080/internal/v1/cache/status
 
 Kind 演示输出位于 `results/`，主要包括：
 
-- `results/generated-ngg-v2/`：导出的 NGD、NGG、带拓扑 Label 的 Node 和旧 NNT；
+- `results/generated-ngg-v2/`：导出的NGD、NGG、带Leaf元数据的Node和调度证据；
 - `results/algorithm-calculation-result.txt`：Algorithm 候选组和快照身份；
 - `results/topology-placement.txt`：Volcano Pod 最终落点；
 - `results/kubernetes-fail-closed.txt`：缺少 NGG 时的 Pending 证据；
@@ -965,7 +958,7 @@ Algorithm `/readyz` 只表示 HTTP 服务可用，不表示静态快照就绪。
 | `ngg_consumer/formalgrant/grant.go` | 正式扁平NGG校验与合并核心 |
 | `plugin/nodegroupgrant/nodegroupgrant.go` | 旧版NGG Volcano插件 |
 | `plugin/kubescheduler/nodegroupgrant/plugin.go` | 旧版NGG kube-scheduler Filter插件 |
-| `config/crd/` | 旧版NGD/NGG、正式NGG、NNT CRD |
+| `config/crd/` | Demo NGD/NGG及正式NGG CRD；NNT文件仅为历史定义，当前不安装 |
 | `config/manager/` | PRC、Algorithm、LLDP Agent部署清单 |
 | `config/rbac/` | 各组件ServiceAccount/权限 |
 | `config/volcano/` | Volcano插件配置 |

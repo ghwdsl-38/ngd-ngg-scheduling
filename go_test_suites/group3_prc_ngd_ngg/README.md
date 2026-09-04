@@ -16,7 +16,7 @@ envtest启动真实本地`kube-apiserver`和`etcd`，不是fake client。测试�
 
 - 联通`nodegroupdemand-crd.yaml`；
 - 联通`nodegroupgrant-crd.yaml`；
-- PRC兼容Watch需要的旧NGD和NodeNetworkTopology CRD。
+- PRC兼容所需的旧版NGD CRD；当前静态快照只Watch Node，不安装或读取NodeNetworkTopology。
 
 1000个Node只是API对象，测试先创建Node，再通过Status子资源写入Allocatable和Ready状态。Mock Algorithm只代替算法边界：它实现静态快照PUT/状态查询和Allocate接口，记录PRC请求，并按确定规则返回一个包含3个具体Node的候选组。
 

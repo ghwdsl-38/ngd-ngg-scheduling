@@ -93,12 +93,32 @@ func TestUnicomTopologyResolvesLeafOnlyNodesIntoBorderDomain(t *testing.T) {
 		if topology["spineDomainId"] != "" {
 			t.Fatalf("empty SPINE must remain empty: %#v", topology)
 		}
+		if topology["leafDomainId"] == "" {
+			t.Fatalf("Leaf Domain must be resolved: %#v", topology)
+		}
+	}
+	first := resolved.Nodes[0]["topology"].(map[string]any)["leafDomainId"]
+	second := resolved.Nodes[1]["topology"].(map[string]any)["leafDomainId"]
+	if first != second {
+		t.Fatalf("peer Leaves must share one Leaf Domain: first=%v second=%v", first, second)
+	}
+
+	dualNode := map[string]any{
+		"nodeName": "worker-dual", "nodeUID": "uid-dual",
+		"topology": map[string]any{"leafSwitchIds": []string{leaves[1], leaves[0]}},
+	}
+	dualResolved, warnings, err := cache.resolve(staticSnapshot{Nodes: []map[string]any{dualNode}})
+	if err != nil || len(warnings) != 0 || len(dualResolved.Nodes) != 1 {
+		t.Fatalf("resolve dual-Leaf Node: nodes=%d warnings=%v err=%v", len(dualResolved.Nodes), warnings, err)
+	}
+	dualTopology := dualResolved.Nodes[0]["topology"].(map[string]any)
+	if dualTopology["leafDomainId"] != first {
+		t.Fatalf("dual-Leaf Node domain=%v, want %v", dualTopology["leafDomainId"], first)
 	}
 }
 
 func TestRepositoryTopologyConfigurationsAreValid(t *testing.T) {
 	for _, path := range []string{
-		"../../../config/topology/unicom-kind-topology.yaml",
 		"../../../config/topology/unicom-huailai-102-sample.yaml",
 	} {
 		raw, err := os.ReadFile(path)

@@ -20,14 +20,14 @@ spec:
       dnsPolicy: ClusterFirstWithHostNet
       terminationGracePeriodSeconds: 5
       serviceAccountName: lldp-agent
-      nodeSelector:
-        demo.ngg/worker: "true"
       containers:
       - name: lldp-agent
         image: ngd-ngg-lldp-agent:v0.2.0
         imagePullPolicy: IfNotPresent
         args:
-        - --mode=Simulated
+        - --listen-seconds=35
+        - --resync-seconds=30
+        - --sys-class-net=/host-sys-class-net
         env:
         - name: NODE_NAME
           valueFrom:
@@ -46,3 +46,12 @@ spec:
           capabilities:
             drop: ["ALL"]
             add: ["NET_RAW"]
+        volumeMounts:
+        - name: host-sys-class-net
+          mountPath: /host-sys-class-net
+          readOnly: true
+      volumes:
+      - name: host-sys-class-net
+        hostPath:
+          path: /sys/class/net
+          type: Directory

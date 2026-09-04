@@ -1,8 +1,8 @@
 # LLDP 采集 Kubeconfig 与双 Leaf 逻辑域改造设计 v1.0
 
 > 日期：2026-09-03  
-> 文档性质：待实施修改方案  
-> 当前状态：只完成设计，尚未修改代码  
+> 文档性质：设计与当前实现说明
+> 当前状态：核心改造已实现并完成单元/集成回归
 > 适用范围：LLDP Agent、PRC静态快照、Algorithm Server拓扑解析与相关测试
 
 ## 1. 背景与本次目标
@@ -37,7 +37,7 @@ PRC入口使用`ctrl.GetConfigOrDie()`，已经支持：
   → ~/.kube/config
 ```
 
-LLDP Agent当前在`topology_agent/main.go`中固定调用`inClusterClient()`，并在`topology_agent/kube.go`中手动读取：
+改造前LLDP Agent在`topology_agent/main.go`中固定调用`inClusterClient()`，并在`topology_agent/kube.go`中手动读取：
 
 ```text
 KUBERNETES_SERVICE_HOST
@@ -46,11 +46,11 @@ KUBERNETES_SERVICE_PORT_HTTPS
 /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
 ```
 
-因此当前LLDP Agent只能使用In-Cluster配置，尚不支持Kubeconfig。
+当前实现已替换为client-go标准配置加载和Node客户端，同时支持Kubeconfig与In-Cluster。
 
 ### 2.2 单Leaf模型
 
-当前链路只支持一个Leaf：
+改造前链路只支持一个Leaf：
 
 ```text
 receiveLLDP()返回第一个邻居
@@ -70,18 +70,18 @@ receiveLLDP()返回第一个邻居
 }
 ```
 
-无法表达一个负载均衡Bond同时连接Leaf-A和Leaf-B。
+当前实现通过`leafSwitchIds`和`leaf-links`表达一个负载均衡Bond同时连接Leaf-A和Leaf-B。
 
 ### 2.3 缺少持续链路探测
 
-当前Agent发现Node已经存在Leaf Label后会直接恢复缓存并返回，因此不能及时发现：
+改造前Agent发现Node已经存在Leaf Label后会直接恢复缓存并返回，因此不能及时发现：
 
 - Active-Backup主备切换；
 - Slave链路Down；
 - Bond成员变化；
 - Leaf邻居变化。
 
-新实现必须将“启动时从Node恢复上次结果”和“运行期间持续采集”拆开。
+当前实现已按30秒周期持续采集，并仅在有效内容变化时Patch Node。
 
 ---
 
@@ -210,7 +210,7 @@ automountServiceAccountToken: false
 
 生产Kubeconfig中的API Server地址必须能够从所有Worker访问，不能使用只对配置生成机器有效的`127.0.0.1`地址。
 
-Kubeconfig身份只授予Node的`get/list/watch/patch`权限，不使用管理员Kubeconfig。
+Kubeconfig身份只授予Node的`get/patch`权限，不使用管理员Kubeconfig。Agent按`NODE_NAME`只读取和更新自身Node。
 
 ---
 
@@ -592,29 +592,31 @@ Bond active_slave变化
 
 ---
 
-## 12. 代码修改计划
+## 12. 已完成的代码修改
 
-| 文件/目录 | 计划修改 |
+| 文件/目录 | 已实现内容 |
 |---|---|
 | `topology_agent/main.go` | 增加Kubeconfig/Context参数，装配配置加载器、Bond探测器和多接口采集器 |
 | `topology_agent/kube_config.go` | 新增Kubeconfig/In-Cluster标准加载逻辑 |
-| `topology_agent/kube.go` | 使用client-go完成Node Get/Watch/Patch |
-| `topology_agent/bond.go` | 新增Bond模式、Slave、Active Slave、链路状态读取 |
+| `topology_agent/kube.go` | 使用client-go完成自身Node Get/Patch |
+| `topology_agent/pkg/bond/discovery.go` | Bond模式、Slave、Active Slave及链路状态读取，供正式Agent和Group7共用 |
+| `topology_agent/pkg/topologyfacts/facts.go` | Leaf集合规范化、内容Hash及Node Label/Annotation生成，供正式Agent和Group7共用 |
 | `topology_agent/lldp.go` | 单邻居返回改为多接口邻居收集 |
 | `topology_agent/agent.go` | 选择有效接口、生成Leaf链路集合、周期探测和变更去重 |
-| `config/manager/lldp-agent.yaml` | 增加可选Kubeconfig Secret、宿主机Bond信息只读挂载和采集周期参数 |
+| `config/manager/lldp-agent.yaml` | 保持默认In-Cluster模拟部署并增加采集周期参数 |
+| `config/manager/lldp-agent-kubeconfig-patch.yaml` | 新增Kubeconfig Secret挂载和纯Kubeconfig运行覆盖 |
 | `config/manager/lldp-agent-real-patch.yaml` | 删除当前未注册的`--topology-config`参数，保留真实LLDP参数 |
 | `prc/pkg/controller/snapshot.go` | 单Leaf静态模型升级为Leaf集合与链路列表，保留旧字段兼容 |
 | `prc/pkg/controller/static_snapshot_controller.go` | Node拓扑字段变化后同步新的静态快照Hash |
 | `algorithm_server/go/algorithm/cache.go` | 接收、规范化并校验`leafSwitchIds` |
 | `algorithm_server/go/algorithm/topology.go` | 从上层配置构建Leaf Domain并补齐完整拓扑 |
 | `algorithm_server/python/algorithm_worker/algorithms/topology.py` | 最窄分组层由Leaf Switch改为Leaf Domain |
-| `go_test_suites/common/fixture.go` | 增加单网卡、Active-Backup和802.3ad双Leaf模拟数据 |
-| Group1～Group5 | 更新协议输入、预期输出、Hash和拓扑断言 |
+| `go_test_suites/common/fixture.go` | 为规模Fixture增加Leaf集合、链路和解析后Leaf Domain字段 |
+| Group1～Group5 | 更新协议输入、预期输出和Hash并完成回归 |
 
 ---
 
-## 13. 测试计划
+## 13. 测试与结果
 
 ### 13.1 Kubernetes连接测试
 
@@ -623,7 +625,7 @@ Bond active_slave变化
 3. `KUBECONFIG`环境变量可用；
 4. Kubeconfig Context选择正确；
 5. Kubeconfig路径错误或Context不存在时启动失败；
-6. Mock Kubernetes API验证认证头、Node Get/Watch/Patch；
+6. Kubernetes客户端使用官方client-go完成Node Get/Patch；
 7. Agent只能更新`NODE_NAME`指定的Node；
 8. DaemonSet关闭ServiceAccount自动挂载后仍能通过Kubeconfig运行。
 
@@ -651,29 +653,13 @@ Bond active_slave变化
 8. 非对称Peer配置启动校验失败；
 9. 旧单`leafSwitchId`快照仍能兼容解析。
 
-### 13.4 集成测试数据
+### 13.4 当前测试数据边界
 
-1000/3000 Node Fixture按比例混合：
+1000/3000 Node规模Fixture继续使用确定性的单Leaf分布，但协议数据已经升级为`leafSwitchIds`、链路列表和解析后的Leaf Domain。这样保持既有性能结果可比较。
 
-```text
-单网卡Node
-Active-Backup Node
-802.3ad双Leaf Node
-单Slave Down Node
-发生主备切换的Node
-拓扑配置冲突Node
-```
+联通式双Leaf场景由专门单元测试覆盖：使用联通长交换机名称、对称`LEAF` Peer关系、共同Border Domain及一个同时上报两个Leaf的Node，验证该Node只解析到一个Leaf Domain且不重复计数。Bond测试使用临时sysfs目录分别覆盖Active-Backup、负载模式和Down Slave。
 
-Group4验证一次完整计算，Group5增加：
-
-```text
-Bond/Leaf变化
-  → Node静态字段变化
-  → 静态快照Hash变化
-  → Algorithm重新加载
-  → 周期计算使用新快照
-  → NGG仍保持Node不重复
-```
+Group1～Group5用于原有主链路回归。新增Group7分别模拟Active-Backup和802.3ad，复用正式Bond探测与Node元数据生成代码，再贯通envtest、真实PRC、真实Go Algorithm、Mock Prometheus和Python Worker，验证最终正式NGG。物理联调后可再增加“真实主备切换→Node Annotation变化→快照Hash变化”的用例。
 
 ---
 
@@ -692,7 +678,7 @@ Bond/Leaf变化
 9. 一个Node在同一候选组中只出现一次，资源不重复统计；
 10. 非法跨域双Leaf故障关闭并提供明确错误；
 11. 原有单Leaf数据在兼容期内仍可运行；
-12. Group1～Group5及新增Bond/Kubeconfig测试全部通过。
+12. Group1～Group5、Group7及新增Bond/Kubeconfig测试全部通过。
 
 ---
 

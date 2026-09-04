@@ -40,7 +40,7 @@ flowchart TB
     REFRESH -->|原生WorkQueue、去重、Worker、限速重试| PROCESSOR[Demand Processor]
 
     API -->|每次计算读取Node和Pod动态状态| PROCESSOR
-    API -->|独立Watch Node和NodeNetworkTopology| STATIC[Static Snapshot Controller]
+    API -->|独立Watch Node静态字段| STATIC[Static Snapshot Controller]
     STATIC -->|HTTP PUT静态快照| ALG[Algorithm Server]
     STATIC -->|提供已确认snapshotId| PROCESSOR
 
@@ -57,7 +57,7 @@ flowchart TB
 
 这里有两条互相独立的数据链：
 
-- 静态快照链：Node/拓扑发生变化后，由 Static Snapshot Controller 独立同步给 Algorithm；
+- 静态快照链：Node容量、Label或Leaf Annotation变化后，由Static Snapshot Controller独立同步给Algorithm；
 - 任务计算链：NGD 到达或周期到期后，PRC 只发送完整 NGD、Node/Pod 动态状态和已确认的静态快照 ID。
 
 Prometheus 指标不经过 PRC，由 Algorithm Server 自己定时读取并缓存。
@@ -74,7 +74,7 @@ Prometheus 指标不经过 PRC，由 Algorithm Server 自己定时读取并缓�
 | Refresh Controller | `prc/pkg/controller/refresh_controller.go` | 接收GenericEvent，用原生队列和Worker执行一次DemandProcessor |
 | Refresh Scheduler | `prc/pkg/controller/refresh_scheduler.go` | 保存UID/generation、定时器和执行取消函数；负责立即或延时发事件 |
 | Demand Processor | `prc/pkg/controller/prc_controller.go` | 完成一次NGD计算，构造算法请求，校验响应，写NGG和NGD Status |
-| 静态快照控制器 | `prc/pkg/controller/static_snapshot_controller.go` | 独立读取Node/NodeNetworkTopology，构造内容Hash快照并PUT给Algorithm |
+| 静态快照控制器 | `prc/pkg/controller/static_snapshot_controller.go` | 只读取Node及其Leaf元数据，构造内容Hash快照并PUT给Algorithm；不读取NNT |
 | 静态快照共享状态 | `prc/pkg/controller/snapshot.go` | 保存Algorithm已经确认的snapshotId及Ready状态 |
 | Algorithm HTTP客户端 | `prc/pkg/controller/algorithm_client.go` | 调用静态快照和任务计算HTTP接口，并记录调试交换数据 |
 | PRC RBAC | `config/rbac/prc.yaml` | 定义PRC读取Node/Pod/NGD、写Status、创建更新删除NGG等权限 |

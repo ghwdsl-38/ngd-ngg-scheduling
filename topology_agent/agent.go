@@ -2,106 +2,105 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"log"
-	"strings"
-	"sync"
 	"time"
+
+	"demo.ngg/topology-agent/pkg/topologyfacts"
 )
 
-const labelPrefix = "topology.demo.ngg.io/"
+const labelPrefix = topologyfacts.Prefix
 
-type observation struct {
-	LeafSwitchID   string
-	LocalInterface string
-	RemotePortID   string
-	Source         string
-}
+type leafLink = topologyfacts.Link
+type observation = topologyfacts.Observation
 
 type topologyAgent struct {
-	client     *kubeClient
-	nodeName   string
-	mode       string
-	interfaces map[string]struct{}
-	listen     time.Duration
-	mu         sync.RWMutex
-	current    *observation
+	client      *kubeClient
+	nodeName    string
+	interfaces  map[string]struct{}
+	listen      time.Duration
+	resync      time.Duration
+	sysClassNet string
 }
 
+// run deliberately probes Linux Bond/LLDP state on its own cadence. A Node
+// watch cannot reveal a network failover that has not yet changed Node data.
 func (a *topologyAgent) run(ctx context.Context) error {
+	if a.resync <= 0 {
+		a.resync = 30 * time.Second
+	}
+	if a.sysClassNet == "" {
+		a.sysClassNet = "/sys/class/net"
+	}
 	for ctx.Err() == nil {
 		node, err := a.client.getNode(ctx, a.nodeName)
 		if err != nil {
 			log.Printf("get Node: %v", err)
-			if !wait(ctx, 5*time.Second) {
-				break
-			}
-			continue
-		}
-		if err := a.reconcile(ctx, node); err != nil {
+		} else if err := a.reconcile(ctx, node); err != nil {
+			// Keep the last persisted topology when a collection window fails.
 			log.Printf("reconcile Node %s: %v", a.nodeName, err)
 		}
-		err = a.client.watchNode(ctx, a.nodeName, node.Metadata.ResourceVersion, func(updated nodeObject) error { return a.reconcile(ctx, updated) })
-		if err != nil && ctx.Err() == nil {
-			log.Printf("watch Node %s: %v", a.nodeName, err)
+		if !wait(ctx, a.resync) {
+			break
 		}
 	}
 	return ctx.Err()
 }
 
 func (a *topologyAgent) reconcile(ctx context.Context, node nodeObject) error {
-	if restored, ok := observationFromLabels(node.Metadata.Labels, node.Metadata.Annotations); ok {
-		a.mu.Lock()
-		a.current = &restored
-		a.mu.Unlock()
-		return nil
-	}
-	var observed observation
-	var err error
-	if strings.EqualFold(a.mode, "Simulated") {
-		leaf := node.Metadata.Annotations[labelPrefix+"simulated-leaf-switch"]
-		if leaf == "" {
-			return fmt.Errorf("simulated seed annotation %ssimulated-leaf-switch is missing", labelPrefix)
-		}
-		observed.LeafSwitchID = leaf
-		observed.LocalInterface = valueOr(node.Metadata.Labels[labelPrefix+"local-interface"], "eth0")
-		observed.RemotePortID = node.Metadata.Annotations[labelPrefix+"remote-port"]
-		observed.Source = "SimulatedLLDP"
-	} else {
-		var neighbor lldpNeighbor
-		neighbor, err = receiveLLDP(a.interfaces, a.listen)
-		if err == nil {
-			observed.LeafSwitchID = neighbor.switchID()
-			observed.LocalInterface, observed.RemotePortID, observed.Source = neighbor.LocalInterface, neighbor.PortID, "LLDP"
-		}
-	}
+	observed, err := a.collect()
 	if err != nil {
 		return err
 	}
-	labels := map[string]string{
-		labelPrefix + "leaf-switch": observed.LeafSwitchID,
+	observed, labels, annotations, err := topologyfacts.BuildNodeMetadata(observed, time.Now())
+	if err != nil {
+		return err
 	}
-	annotations := map[string]string{labelPrefix + "source": observed.Source, labelPrefix + "local-interface": observed.LocalInterface, labelPrefix + "remote-port": observed.RemotePortID, labelPrefix + "observed-at": time.Now().UTC().Format(time.RFC3339)}
+	leavesJSON, _ := json.Marshal(observed.LeafSwitchIDs)
+	linksJSON, _ := json.Marshal(observed.Links)
+	setID := topologyfacts.LeafSetID(observed.LeafSwitchIDs)
+	if node.Metadata.Labels[labelPrefix+"leaf-set-id"] == setID &&
+		node.Metadata.Annotations[labelPrefix+"leaf-switch-ids"] == string(leavesJSON) &&
+		node.Metadata.Annotations[labelPrefix+"leaf-links"] == string(linksJSON) &&
+		node.Metadata.Annotations[labelPrefix+"source"] == observed.Source {
+		return nil
+	}
+
 	if err := a.client.patchNode(ctx, a.nodeName, labels, annotations); err != nil {
 		return err
 	}
-	a.mu.Lock()
-	a.current = &observed
-	a.mu.Unlock()
-	log.Printf("node=%s source=%s leaf=%s", a.nodeName, observed.Source, observed.LeafSwitchID)
+	log.Printf("node=%s source=%s leafSet=%s leaves=%v", a.nodeName, observed.Source, setID, observed.LeafSwitchIDs)
 	return nil
 }
 
-func observationFromLabels(labels, annotations map[string]string) (observation, bool) {
-	result := observation{LeafSwitchID: labels[labelPrefix+"leaf-switch"], Source: annotations[labelPrefix+"source"], LocalInterface: annotations[labelPrefix+"local-interface"], RemotePortID: annotations[labelPrefix+"remote-port"]}
-	return result, result.LeafSwitchID != ""
-}
-func valueOr(value, fallback string) string {
-	if value != "" {
-		return value
+func (a *topologyAgent) collect() (observation, error) {
+	selections, err := selectLLDPInterfaces(a.sysClassNet, a.interfaces)
+	if err != nil {
+		return observation{}, err
 	}
-	return fallback
+	allowed := map[string]struct{}{}
+	for name := range selections {
+		allowed[name] = struct{}{}
+	}
+	neighbors, err := receiveLLDP(allowed, a.listen)
+	if err != nil {
+		return observation{}, err
+	}
+	links := make([]leafLink, 0, len(neighbors))
+	for _, neighbor := range neighbors {
+		selection := selections[neighbor.LocalInterface]
+		mode := selection.BondMode
+		if mode == "" {
+			mode = "direct"
+		}
+		links = append(links, leafLink{
+			BondName: selection.BondName, BondMode: mode, Interface: neighbor.LocalInterface,
+			LeafSwitchID: neighbor.switchID(), RemotePortID: neighbor.PortID, Active: selection.Active || len(selections) == 0,
+		})
+	}
+	return observation{Links: links, Source: "LLDP"}, nil
 }
+
 func wait(ctx context.Context, duration time.Duration) bool {
 	select {
 	case <-ctx.Done():

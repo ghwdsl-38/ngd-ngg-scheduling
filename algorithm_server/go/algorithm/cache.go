@@ -53,14 +53,16 @@ func (c *staticCache) put(id string, body map[string]any) (staticSnapshot, error
 		if !ok {
 			return staticSnapshot{}, fmt.Errorf("Node %q has malformed topology", name)
 		}
-		leaf := stringValue(topology["leafSwitchId"])
-		if leaf == "" {
-			leaf = stringValue(topology["switchId"])
-			topology["leafSwitchId"] = leaf
+		leaves, err := staticNodeLeafIDs(topology)
+		if err != nil {
+			return staticSnapshot{}, fmt.Errorf("Node %q: %w", name, err)
 		}
-		if name == "" || uid == "" || leaf == "" {
-			return staticSnapshot{}, fmt.Errorf("every Node needs nodeName, nodeUID and leafSwitchId")
+		if name == "" || uid == "" || len(leaves) == 0 {
+			return staticSnapshot{}, fmt.Errorf("every Node needs nodeName, nodeUID and at least one Leaf")
 		}
+		topology["leafSwitchIds"] = leaves
+		topology["leafSwitchId"] = leaves[0]
+		topology["switchId"] = leaves[0]
 		if _, found := seen[uid]; found {
 			return staticSnapshot{}, fmt.Errorf("duplicate nodeUID %s", uid)
 		}
@@ -91,6 +93,46 @@ func (c *staticCache) put(id string, body map[string]any) (staticSnapshot, error
 	}
 	c.current = &snapshot
 	return snapshot, nil
+}
+
+func staticNodeLeafIDs(topology map[string]any) ([]string, error) {
+	values := []string{}
+	switch raw := topology["leafSwitchIds"].(type) {
+	case []any:
+		for _, value := range raw {
+			values = append(values, stringValue(value))
+		}
+	case []string:
+		values = append(values, raw...)
+	case nil:
+	default:
+		return nil, fmt.Errorf("leafSwitchIds must be an array")
+	}
+	if len(values) == 0 {
+		leaf := stringValue(topology["leafSwitchId"])
+		if leaf == "" {
+			leaf = stringValue(topology["switchId"])
+		}
+		values = append(values, leaf)
+	}
+	set := map[string]struct{}{}
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			set[value] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(set))
+	for value := range set {
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	if len(result) == 0 {
+		return nil, fmt.Errorf("leafSwitchIds cannot be empty")
+	}
+	if len(result) > 2 {
+		return nil, fmt.Errorf("leafSwitchIds contains %d Leaves; maximum is 2", len(result))
+	}
+	return result, nil
 }
 
 func (c *staticCache) get(id string) (staticSnapshot, bool) {

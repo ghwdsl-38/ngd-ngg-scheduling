@@ -37,16 +37,11 @@ func (r *NodeGroupDemandReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("node-group-demand-events").
 		For(newUnstructured(platformDemandGVK), builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Watches(newUnstructured(demandGVK), &handler.EnqueueRequestForObject{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Complete(r)
 }
 
 func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
-	demandType := demandGVK
-	if request.Namespace == "" {
-		demandType = platformDemandGVK
-	}
-	demand := newUnstructured(demandType)
+	demand := newUnstructured(platformDemandGVK)
 	if err := r.Get(ctx, request.NamespacedName, demand); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
@@ -59,20 +54,19 @@ func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.
 	}
 
 	created, changed := r.Scheduler.Upsert(request.NamespacedName, demand.GetUID(), demand.GetGeneration())
-	if request.Namespace == "" {
-		status, _, _ := unstructured.NestedMap(demand.Object, "status")
-		phase := stringValue(status, "phase")
-		switch {
-		case created && phase == "":
-			if err := r.Processor.setPlatformDemandStatus(ctx, demand, "Pending", "", 0, "WaitingForInitialCalculation"); err != nil {
-				return ctrl.Result{}, err
-			}
-		case changed:
-			if err := r.Processor.setPlatformDemandStatus(
-				ctx, demand, "Updating", stringValue(status, "grantRef"), intValue(status, "resolvedNodeCount"), "DemandSpecChanged",
-			); err != nil {
-				return ctrl.Result{}, err
-			}
+	status, _, _ := unstructured.NestedMap(demand.Object, "status")
+	phase := stringValue(status, "phase")
+	switch {
+	case created && phase == "":
+		if err := r.Processor.setPlatformDemandStatus(ctx, demand, "Pending", "", 0, "WaitingForInitialCalculation"); err != nil {
+			return ctrl.Result{}, err
+		}
+	case changed:
+		count, _, _ := unstructured.NestedInt64(status, "resolvedNodeCount")
+		if err := r.Processor.setPlatformDemandStatus(
+			ctx, demand, "Updating", stringValue(status, "grantRef"), count, "DemandSpecChanged",
+		); err != nil {
+			return ctrl.Result{}, err
 		}
 	}
 	if err := r.Scheduler.Trigger(ctx, request.NamespacedName); err != nil {
@@ -83,9 +77,6 @@ func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.
 
 func (r *NodeGroupDemandReconciler) deleteGrant(ctx context.Context, key types.NamespacedName) error {
 	name := grantName(key.Name)
-	if key.Namespace != "" {
-		name = grantName(key.Namespace + "-" + key.Name)
-	}
 	grant := newUnstructured(grantGVK)
 	grant.SetName(name)
 	if err := r.Delete(ctx, grant); err != nil && !apierrors.IsNotFound(err) {

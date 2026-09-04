@@ -6,11 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 type staticNode struct {
@@ -23,8 +22,19 @@ type staticNode struct {
 }
 
 type topology struct {
-	SwitchID     string `json:"switchId"`
+	SwitchID      string         `json:"switchId,omitempty"`
+	LeafSwitchID  string         `json:"leafSwitchId,omitempty"`
+	LeafSwitchIDs []string       `json:"leafSwitchIds"`
+	Links         []topologyLink `json:"links,omitempty"`
+}
+
+type topologyLink struct {
+	BondName     string `json:"bond,omitempty"`
+	BondMode     string `json:"bondMode,omitempty"`
+	Interface    string `json:"interface"`
 	LeafSwitchID string `json:"leafSwitchId"`
+	RemotePortID string `json:"remotePortId,omitempty"`
+	Active       bool   `json:"active"`
 }
 
 type staticSnapshot struct {
@@ -41,23 +51,13 @@ type schedulerNodeState struct {
 	RequestedResources map[string]string `json:"requestedResources"`
 }
 
-func buildStaticSnapshot(clusterID string, nodes []corev1.Node, topologies []unstructured.Unstructured) (string, staticSnapshot, error) {
-	byUID := map[string]topology{}
-	for i := range topologies {
-		item := &topologies[i]
-		uid, _, _ := unstructured.NestedString(item.Object, "spec", "nodeRef", "uid")
-		switchID, _, _ := unstructured.NestedString(item.Object, "status", "switchId")
-		if uid == "" || switchID == "" {
-			continue
-		}
-		byUID[uid] = topology{SwitchID: switchID, LeafSwitchID: switchID}
-	}
-	result := staticSnapshot{ClusterID: clusterID, TopologyVersion: "node-leaf-v1"}
+func buildStaticSnapshot(clusterID string, nodes []corev1.Node) (string, staticSnapshot, error) {
+	result := staticSnapshot{ClusterID: clusterID, TopologyVersion: "node-leaf-set-v2"}
 	for i := range nodes {
 		node := &nodes[i]
-		topo, found := topologyFromNodeLabels(node.Labels)
-		if !found {
-			topo, found = byUID[string(node.UID)]
+		topo, found, topologyErr := topologyFromNode(node)
+		if topologyErr != nil {
+			return "", result, fmt.Errorf("Node %s topology: %w", node.Name, topologyErr)
 		}
 		if !found {
 			continue
@@ -78,52 +78,78 @@ func buildStaticSnapshot(clusterID string, nodes []corev1.Node, topologies []uns
 		return result.Nodes[i].NodeUID < result.Nodes[j].NodeUID
 	})
 	if len(result.Nodes) == 0 {
-		return "", result, fmt.Errorf("no Worker has usable topology labels or NodeNetworkTopology status")
+		return "", result, fmt.Errorf("no Worker has usable Node Leaf labels or annotations")
 	}
 	id, err := contentHash(result)
 	return id, result, err
 }
 
 // BuildStaticSnapshot使用与Reconciler相同的生产逻辑生成内容Hash和可序列化快照。
-func BuildStaticSnapshot(clusterID string, nodes []corev1.Node, topologies []unstructured.Unstructured) (string, any, error) {
-	id, snapshot, err := buildStaticSnapshot(clusterID, nodes, topologies)
+func BuildStaticSnapshot(clusterID string, nodes []corev1.Node) (string, any, error) {
+	id, snapshot, err := buildStaticSnapshot(clusterID, nodes)
 	return id, snapshot, err
 }
 
-func topologyFromNodeLabels(labels map[string]string) (topology, bool) {
+func topologyFromNode(node *corev1.Node) (topology, bool, error) {
 	const prefix = "topology.demo.ngg.io/"
-	leaf := labels[prefix+"leaf-switch"]
-	if leaf == "" {
-		leaf = labels[prefix+"switch"]
+	leaves := []string{}
+	if raw := node.Annotations[prefix+"leaf-switch-ids"]; raw != "" {
+		if err := json.Unmarshal([]byte(raw), &leaves); err != nil {
+			return topology{}, false, fmt.Errorf("decode leaf-switch-ids: %w", err)
+		}
 	}
-	if leaf == "" {
-		return topology{}, false
+	links := []topologyLink{}
+	if raw := node.Annotations[prefix+"leaf-links"]; raw != "" {
+		if err := json.Unmarshal([]byte(raw), &links); err != nil {
+			return topology{}, false, fmt.Errorf("decode leaf-links: %w", err)
+		}
+		for _, link := range links {
+			leaves = append(leaves, link.LeafSwitchID)
+		}
 	}
-	return topology{SwitchID: leaf, LeafSwitchID: leaf}, true
+	leaf := node.Labels[prefix+"leaf-switch"]
+	if leaf == "" {
+		leaf = node.Labels[prefix+"switch"]
+	}
+	if len(leaves) == 0 && leaf != "" {
+		leaves = append(leaves, leaf)
+	}
+	leaves = canonicalStrings(leaves)
+	if len(leaves) == 0 {
+		return topology{}, false, nil
+	}
+	if len(leaves) > 2 {
+		return topology{}, false, fmt.Errorf("resolved %d Leaf switches; maximum is 2", len(leaves))
+	}
+	for i := range links {
+		links[i].Interface = strings.TrimSpace(links[i].Interface)
+		links[i].LeafSwitchID = strings.TrimSpace(links[i].LeafSwitchID)
+		if links[i].Interface == "" || links[i].LeafSwitchID == "" {
+			return topology{}, false, fmt.Errorf("every leaf-links entry needs interface and leafSwitchId")
+		}
+	}
+	sort.Slice(links, func(i, j int) bool {
+		if links[i].Interface == links[j].Interface {
+			return links[i].LeafSwitchID < links[j].LeafSwitchID
+		}
+		return links[i].Interface < links[j].Interface
+	})
+	return topology{SwitchID: leaves[0], LeafSwitchID: leaves[0], LeafSwitchIDs: leaves, Links: links}, true, nil
 }
 
-func nestedNumber(object map[string]any, fields ...string) float64 {
-	value, found, _ := unstructured.NestedFieldNoCopy(object, fields...)
-	if !found {
-		return 0
+func canonicalStrings(values []string) []string {
+	set := map[string]struct{}{}
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			set[value] = struct{}{}
+		}
 	}
-	switch number := value.(type) {
-	case float64:
-		return number
-	case float32:
-		return float64(number)
-	case int64:
-		return float64(number)
-	case int32:
-		return float64(number)
-	case int:
-		return float64(number)
-	case json.Number:
-		result, _ := number.Float64()
-		return result
-	default:
-		return 0
+	result := make([]string, 0, len(set))
+	for value := range set {
+		result = append(result, value)
 	}
+	sort.Strings(result)
+	return result
 }
 
 func buildSchedulerState(nodes []corev1.Node, pods []corev1.Pod) (string, string, []schedulerNodeState, error) {
@@ -196,21 +222,4 @@ func nodeReady(node *corev1.Node) bool {
 		}
 	}
 	return false
-}
-
-func directTaskPods(pods []corev1.Pod, namespace string, taskUID types.UID) []corev1.Pod {
-	result := []corev1.Pod{}
-	for i := range pods {
-		pod := &pods[i]
-		if pod.Namespace != namespace {
-			continue
-		}
-		for _, owner := range pod.OwnerReferences {
-			if owner.UID == taskUID {
-				result = append(result, *pod.DeepCopy())
-				break
-			}
-		}
-	}
-	return result
 }

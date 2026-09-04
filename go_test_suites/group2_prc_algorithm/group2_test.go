@@ -26,7 +26,7 @@ func TestGroup2_PRCClientCallsCompleteAlgorithm(t *testing.T) {
 	runDirectory := common.NewRunDirectory(t, groupDirectory)
 	ctx := context.Background()
 
-	staticID, staticBody, err := controller.BuildStaticSnapshot("mock-1000-node-cluster", fixture.Nodes, nil)
+	staticID, staticBody, err := controller.BuildStaticSnapshot("mock-1000-node-cluster", fixture.Nodes)
 	if err != nil {
 		t.Fatalf("build static snapshot: %v", err)
 	}

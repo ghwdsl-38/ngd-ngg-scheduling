@@ -1,19 +1,15 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"os"
-	"strings"
-	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 type nodeObject struct {
@@ -28,115 +24,57 @@ type nodeMetadata struct {
 	Annotations     map[string]string `json:"annotations"`
 }
 
-type watchEvent struct {
-	Type   string     `json:"type"`
-	Object nodeObject `json:"object"`
-}
-
+// kubeClient wraps the official client-go client. Authentication,
+// certificates and API endpoints therefore work identically for kubeconfig
+// and in-cluster rest.Config values.
 type kubeClient struct {
-	baseURL string
-	token   string
-	client  *http.Client
+	client kubernetes.Interface
 }
 
-func inClusterClient() (*kubeClient, error) {
-	host, port := os.Getenv("KUBERNETES_SERVICE_HOST"), os.Getenv("KUBERNETES_SERVICE_PORT_HTTPS")
-	if host == "" || port == "" {
-		return nil, fmt.Errorf("Kubernetes in-cluster environment is unavailable")
+func newKubeClient(config *rest.Config) (*kubeClient, error) {
+	if config == nil {
+		return nil, fmt.Errorf("Kubernetes rest.Config is required")
 	}
-	token, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
+	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create Kubernetes client: %w", err)
 	}
-	ca, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
-	if err != nil {
-		return nil, err
-	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(ca) {
-		return nil, fmt.Errorf("load Kubernetes service account CA")
-	}
-	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}
-	return &kubeClient{baseURL: "https://" + host + ":" + port, token: strings.TrimSpace(string(token)), client: &http.Client{Transport: transport}}, nil
+	return &kubeClient{client: clientset}, nil
 }
 
 func (c *kubeClient) getNode(ctx context.Context, name string) (nodeObject, error) {
-	var node nodeObject
-	err := c.request(ctx, http.MethodGet, "/api/v1/nodes/"+url.PathEscape(name), nil, &node)
-	return node, err
+	if c == nil || c.client == nil {
+		return nodeObject{}, fmt.Errorf("Kubernetes client is not initialized")
+	}
+	node, err := c.client.CoreV1().Nodes().Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nodeObject{}, err
+	}
+	return convertNode(node), nil
 }
 
-func (c *kubeClient) patchNode(ctx context.Context, name string, labels, annotations map[string]string) error {
+func (c *kubeClient) patchNode(ctx context.Context, name string, labels, annotations map[string]any) error {
+	if c == nil || c.client == nil {
+		return fmt.Errorf("Kubernetes client is not initialized")
+	}
 	body := map[string]any{"metadata": map[string]any{"labels": labels, "annotations": annotations}}
-	return c.request(ctx, http.MethodPatch, "/api/v1/nodes/"+url.PathEscape(name), body, nil)
-}
-
-func (c *kubeClient) watchNode(ctx context.Context, name, resourceVersion string, handle func(nodeObject) error) error {
-	query := url.Values{"watch": {"1"}, "fieldSelector": {"metadata.name=" + name}, "resourceVersion": {resourceVersion}, "timeoutSeconds": {"300"}}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/nodes?"+query.Encode(), nil)
+	raw, err := json.Marshal(body)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal Node metadata patch: %w", err)
 	}
-	request.Header.Set("Authorization", "Bearer "+c.token)
-	response, err := c.client.Do(request)
+	_, err = c.client.CoreV1().Nodes().Patch(ctx, name, types.MergePatchType, raw, metav1.PatchOptions{})
 	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
-		return fmt.Errorf("watch Node HTTP %d: %s", response.StatusCode, raw)
-	}
-	decoder := json.NewDecoder(bufio.NewReader(response.Body))
-	for {
-		var event watchEvent
-		if err := decoder.Decode(&event); err != nil {
-			if err == io.EOF {
-				return nil
-			}
-			return err
-		}
-		if event.Type == "ADDED" || event.Type == "MODIFIED" {
-			if err := handle(event.Object); err != nil {
-				return err
-			}
-		}
-	}
-}
-
-func (c *kubeClient) request(ctx context.Context, method, path string, body, result any) error {
-	requestContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	var reader io.Reader
-	if body != nil {
-		raw, err := json.Marshal(body)
-		if err != nil {
-			return err
-		}
-		reader = bytes.NewReader(raw)
-	}
-	request, err := http.NewRequestWithContext(requestContext, method, c.baseURL+path, reader)
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Authorization", "Bearer "+c.token)
-	request.Header.Set("Accept", "application/json")
-	if method == http.MethodPatch {
-		request.Header.Set("Content-Type", "application/merge-patch+json")
-	} else if body != nil {
-		request.Header.Set("Content-Type", "application/json")
-	}
-	response, err := c.client.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		raw, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
-		return fmt.Errorf("Kubernetes HTTP %d: %s", response.StatusCode, raw)
-	}
-	if result != nil {
-		return json.NewDecoder(response.Body).Decode(result)
+		return fmt.Errorf("patch Node %s: %w", name, err)
 	}
 	return nil
+}
+
+func convertNode(node *corev1.Node) nodeObject {
+	if node == nil {
+		return nodeObject{}
+	}
+	return nodeObject{Metadata: nodeMetadata{
+		Name: node.Name, UID: string(node.UID), ResourceVersion: node.ResourceVersion,
+		Labels: node.Labels, Annotations: node.Annotations,
+	}}
 }

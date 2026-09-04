@@ -1,0 +1,18 @@
+{
+  "algorithmGroupCount": 1,
+  "algorithmNodeCount": 15,
+  "algorithmNodesUnique": true,
+  "algorithmTopologyLevel": "leafDomain",
+  "bondMode": "active-backup",
+  "nggNodeCount": 15,
+  "nggNodesUnique": true,
+  "persistedLeafSwitchIds": [
+    "HB-HL-DC1-102-C04-44U-LTY-CSQ-LEAF-SW02-ZTE5960X"
+  ],
+  "scenario": "active-backup",
+  "selectedInterfaces": [
+    "eth1"
+  ],
+  "staticNodeCount": 20,
+  "staticNodeLeafCount": 1
+}

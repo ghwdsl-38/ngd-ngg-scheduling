@@ -1,0 +1,199 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: nodegroupgrants.scheduling.platform.example.io
+spec:
+  group: scheduling.platform.example.io
+  names:
+    kind: NodeGroupGrant
+    plural: nodegroupgrants
+    singular: nodegroupgrant
+    shortNames:
+    - ngg
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    subresources:
+      status: {}
+    schema:
+      openAPIV3Schema:
+        type: object
+        required: [spec]
+        properties:
+          spec:
+            type: object
+            required: [schedulerName, version, timestamp, source, nodes]
+            properties:
+              schedulerName:
+                type: string
+                description: |
+                  该节点组授权归属的调度器名称。
+                  Volcano 插件通过此字段过滤归属自己的 NGG。
+                  例如 "volcano"。
+              version:
+                type: string
+                description: |
+                  契约版本号。当前为 "v1"。
+                  消费方启动时校验，不匹配则拒绝调度并报错。
+                  不兼容变更走新版本号，双方同时升级。
+              timestamp:
+                type: string
+                format: date-time
+                description: |
+                  负载数据快照时间（UTC RFC3339）。
+                  消费方用于时效校验：当前时间 - timestamp > expirySeconds 则判过期。
+              source:
+                type: string
+                enum: [normal, degraded, disabled]
+                description: |
+                  数据来源标识，告知消费方当前数据的可信度：
+                  - normal: 正常负载感知，数据可信。
+                  - degraded: 负载数据不可用，CR 含全节点但 score 为中性值 50。
+                  - disabled: 负载感知关闭，全节点放行。
+              demandRef:
+                type: string
+                description: |
+                  关联的需求来源标识（可选）。
+                  可以是 NodeGroupDemand CR 名称、静态配置标识、或人工标注。
+                  用于追溯该 NGG 是由什么需求驱动的。
+              nodes:
+                type: array
+                description: |
+                  候选节点列表，已按 score 降序排列。
+                  这组节点是 PRC 根据拓扑需求筛选 + 负载感知过滤后的结果。
+                  消费方只应在这组节点内做调度决策。
+                items:
+                  type: object
+                  required: [name, score]
+                  properties:
+                    name:
+                      type: string
+                      description: 节点名，对应 K8s Node 的 metadata.name。
+                    score:
+                      type: integer
+                      minimum: 0
+                      maximum: 100
+                      description: |
+                        负载感知分数。0-100，越高表示节点越空闲、越适合调度。
+                        计算方式：基于节点 CPU/内存空闲度的加权综合评分。
+                        消费方在 ScoreFn 中使用 score x scoreWeight 作为负载分贡献。
+                    resources:
+                      type: object
+                      description: |
+                        基于真实负载计算的可用资源（可选字段）。
+                        区别于 K8s node.status.allocatable（基于 request 计算）。
+                        用于信息展示和 ScoreFn 辅助，不用于 Filter 拦截。
+                      properties:
+                        cpuAvailable:
+                          type: string
+                          description: |
+                            基于"实际负载"的可用 CPU 量。
+                            计算方式：节点 CPU 容量 - 实际 CPU 占用。
+                            示例值："8000m"。
+                        memoryAvailable:
+                          type: string
+                          description: |
+                            基于"实际负载"的可用内存量。
+                            计算方式：节点内存容量 - 实际内存占用。
+                            示例值："32Gi"。
+                        throughput5mAvg:
+                          type: string
+                          description: 5 分钟平均吞吐量。
+                    topology:
+                      type: object
+                      description: |
+                        节点网络拓扑信息（可选）。
+                        用于信息展示和多 NGG 场景下的节点分组参考。
+                      properties:
+                        dataCenter:
+                          type: string
+                          description: 数据中心标识。
+                        room:
+                          type: string
+                          description: 机房标识。
+                        convergenceSwitch:
+                          type: string
+                          description: 汇聚交换机标识（IP 或名称）。
+                        accessSwitch:
+                          type: string
+                          description: 接入交换机标识（IP 或名称）。
+                        borderSwitch:
+                          type: string
+                          description: Border 交换机标识（IP 或名称）。
+                        spineSwitch:
+                          type: string
+                          description: Spine 交换机标识（IP 或名称）。
+                        leafSwitch:
+                          type: string
+                          description: Leaf 交换机标识（IP 或名称）。
+                        subnet:
+                          type: string
+                          description: 子网标识。
+                        rack:
+                          type: string
+                          description: 机架标识。
+                        hops:
+                          type: integer
+                          description: 网络跳数。
+                        networkReachable:
+                          type: array
+                          items:
+                            type: string
+                          description: 节点可到达的外部存储集群列表（如 ["ozone", "shuffle"]）。
+          status:
+            type: object
+            properties:
+              phase:
+                type: string
+                enum: [Active, ReclaimRequested, Draining, Returned]
+                description: |
+                  节点组生命周期状态。
+                  - Active: 正常可用，PRC 持续更新节点和负载数据。
+                  - ReclaimRequested: 平台组发起回收，标记目标节点组。
+                  - Draining: 数据组执行排空中。
+                  - Returned: 节点已归还，可重新分配。
+                  MVP 阶段仅使用 Active。
+              resolvedCapacity:
+                type: object
+                description: 当前 NGG 实际解析到的节点资源总量（PRC 写入）。
+                properties:
+                  nodes:
+                    type: integer
+                  cpu:
+                    type: string
+                  memory:
+                    type: string
+              consumer:
+                type: object
+                description: |
+                  消费方（数据组）反馈的使用状态。
+                  平台组只读此区域，用于了解资源使用情况和回收进展。
+                properties:
+                  acceptedGeneration:
+                    type: integer
+                    description: |
+                      消费方已接受并生效的 NGG spec generation。
+                      用于平台组判断数据组是否已消费最新版本。
+                      若 acceptedGeneration < metadata.generation，说明消费方尚未消费最新变更。
+                  used:
+                    type: object
+                    description: 当前实际使用量。
+                    properties:
+                      cpu:
+                        type: string
+                      memory:
+                        type: string
+                  drain:
+                    type: object
+                    description: 回收排空状态（Phase 3）。
+                    properties:
+                      requestId:
+                        type: string
+                      remainingPods:
+                        type: integer
+                      blockers:
+                        type: array
+                        items:
+                          type: string

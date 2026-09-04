@@ -1,7 +1,7 @@
 // topology.go loads the operator-maintained network graph and resolves the
-// single Leaf observed by LLDP into stable scheduling domains.  Kubernetes
-// Nodes carry only their direct Leaf; Region/Location/DC/Room and all switch
-// relationships stay inside Algorithm Server.
+// one or two Leaves observed by LLDP into a single stable scheduling domain.
+// Kubernetes Nodes carry only direct-Leaf facts; Region/Location/DC/Room and
+// all switch relationships stay inside Algorithm Server.
 package algorithm
 
 import (
@@ -63,18 +63,20 @@ type networkTopologyConfig struct {
 }
 
 type resolvedLeafTopology struct {
-	RegionID        string
-	LocationID      string
-	DataCenterID    string
-	RoomID          string
-	LeafSwitchID    string
-	SpineDomainID   string
-	SpineSwitchIDs  []string
-	BorderDomainID  string
-	BorderSwitchIDs []string
-	PeerLeafIDs     []string
-	BandwidthGbps   float64
-	LatencyMillis   float64
+	RegionID         string
+	LocationID       string
+	DataCenterID     string
+	RoomID           string
+	LeafSwitchID     string
+	LeafDomainID     string
+	LeafDomainLeaves []string
+	SpineDomainID    string
+	SpineSwitchIDs   []string
+	BorderDomainID   string
+	BorderSwitchIDs  []string
+	PeerLeafIDs      []string
+	BandwidthGbps    float64
+	LatencyMillis    float64
 }
 
 type topologyCache struct {
@@ -218,6 +220,9 @@ func normalizeTopologyConfig(config networkTopologyConfig) (*topologyCache, erro
 		}
 		byLeaf[leafID] = leaf
 	}
+	if err := assignLeafDomains(byLeaf); err != nil {
+		return nil, err
+	}
 
 	identity := map[string]any{"version": config.Version, "scopes": config.Scopes, "borderDomains": config.BorderDomains, "leafMetrics": config.LeafMetrics, "topology": config.Topology}
 	id, err := canonicalHash(identity)
@@ -225,6 +230,77 @@ func normalizeTopologyConfig(config networkTopologyConfig) (*topologyCache, erro
 		return nil, err
 	}
 	return &topologyCache{snapshotID: id, version: config.Version, byLeaf: byLeaf, roomCount: len(rooms), borderDomainCount: len(config.BorderDomains)}, nil
+}
+
+// assignLeafDomains turns a configured pair of peer Leaves into one stable,
+// non-overlapping scheduling domain. Single Leaves remain singleton domains.
+func assignLeafDomains(byLeaf map[string]resolvedLeafTopology) error {
+	processed := map[string]struct{}{}
+	ids := make([]string, 0, len(byLeaf))
+	for id := range byLeaf {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, leafID := range ids {
+		if _, done := processed[leafID]; done {
+			continue
+		}
+		leaf := byLeaf[leafID]
+		members := append([]string{leafID}, leaf.PeerLeafIDs...)
+		members = uniqueSortedStrings(members)
+		if len(members) > 2 {
+			return fmt.Errorf("Leaf %q resolves to %d-member Leaf domain; maximum is 2", leafID, len(members))
+		}
+		for _, memberID := range members {
+			member, ok := byLeaf[memberID]
+			if !ok {
+				return fmt.Errorf("Leaf %q references unknown peer Leaf %q", leafID, memberID)
+			}
+			expectedPeers := make([]string, 0, len(members)-1)
+			for _, candidate := range members {
+				if candidate != memberID {
+					expectedPeers = append(expectedPeers, candidate)
+				}
+			}
+			if !equalStringsAsSet(member.PeerLeafIDs, expectedPeers) {
+				return fmt.Errorf("Leaf domain relationship is not symmetric for %q: peers=%v expected=%v", memberID, member.PeerLeafIDs, expectedPeers)
+			}
+			if member.RoomID != leaf.RoomID || member.BorderDomainID != leaf.BorderDomainID {
+				return fmt.Errorf("Leaf domain members %q and %q must share Room and Border domain", leafID, memberID)
+			}
+		}
+		domainID := leafID
+		if len(members) > 1 {
+			hash, err := canonicalHash(members)
+			if err != nil {
+				return err
+			}
+			domainID = "pair-" + hash[len("sha256:"):len("sha256:")+12]
+		}
+		for _, memberID := range members {
+			member := byLeaf[memberID]
+			member.LeafDomainID = domainID
+			member.LeafDomainLeaves = append([]string(nil), members...)
+			byLeaf[memberID] = member
+			processed[memberID] = struct{}{}
+		}
+	}
+	return nil
+}
+
+func uniqueSortedStrings(values []string) []string {
+	set := map[string]struct{}{}
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			set[value] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(set))
+	for value := range set {
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func indexScopes(kind string, values []topologyScopeConfig) (map[string]topologyScopeConfig, error) {
@@ -273,15 +349,41 @@ func (c *topologyCache) resolve(snapshot staticSnapshot) (staticSnapshot, []stri
 	for _, original := range snapshot.Nodes {
 		node := copyMap(original)
 		topology, _ := original["topology"].(map[string]any)
-		leafID := stringValue(topology["leafSwitchId"])
-		leaf, ok := c.byLeaf[leafID]
-		if !ok {
-			warnings = append(warnings, fmt.Sprintf("Node %s Leaf %q is absent from Algorithm topology config", stringValue(node["nodeName"]), leafID))
+		leafIDs, leafIDsErr := staticNodeLeafIDs(topology)
+		if leafIDsErr != nil {
+			warnings = append(warnings, fmt.Sprintf("Node %s has invalid Leaf set: %v", stringValue(node["nodeName"]), leafIDsErr))
+			continue
+		}
+		resolvedLeaves := make([]resolvedLeafTopology, 0, len(leafIDs))
+		missing := ""
+		for _, leafID := range leafIDs {
+			leaf, ok := c.byLeaf[leafID]
+			if !ok {
+				missing = leafID
+				break
+			}
+			resolvedLeaves = append(resolvedLeaves, leaf)
+		}
+		if missing != "" {
+			warnings = append(warnings, fmt.Sprintf("Node %s Leaf %q is absent from Algorithm topology config", stringValue(node["nodeName"]), missing))
+			continue
+		}
+		leaf := resolvedLeaves[0]
+		conflict := false
+		for _, candidate := range resolvedLeaves[1:] {
+			if candidate.LeafDomainID != leaf.LeafDomainID {
+				conflict = true
+				break
+			}
+		}
+		if conflict {
+			warnings = append(warnings, fmt.Sprintf("NODE_LEAF_DOMAIN_CONFLICT: Node %s Leaves %v do not share one Leaf domain", stringValue(node["nodeName"]), leafIDs))
 			continue
 		}
 		resolvedTopology := map[string]any{
 			"regionId": leaf.RegionID, "locationId": leaf.LocationID, "dataCenterId": leaf.DataCenterID, "roomId": leaf.RoomID,
-			"leafSwitchId": leaf.LeafSwitchID, "switchId": leaf.LeafSwitchID,
+			"leafSwitchId": leafIDs[0], "leafSwitchIds": leafIDs, "switchId": leafIDs[0],
+			"leafDomainId": leaf.LeafDomainID, "leafDomainSwitchIds": leaf.LeafDomainLeaves,
 			"borderDomainId": leaf.BorderDomainID, "borderSwitchIds": leaf.BorderSwitchIDs,
 			"spineDomainId": leaf.SpineDomainID, "spineSwitchIds": leaf.SpineSwitchIDs,
 			"peerLeafSwitchIds": leaf.PeerLeafIDs, "bandwidthGbps": leaf.BandwidthGbps, "latencyMillis": leaf.LatencyMillis,

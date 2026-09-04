@@ -184,12 +184,7 @@ func (s *RefreshScheduler) Remove(key types.NamespacedName) {
 
 func (s *RefreshScheduler) emit(ctx context.Context, key types.NamespacedName) error {
 	object := &unstructured.Unstructured{}
-	if key.Namespace == "" {
-		object.SetGroupVersionKind(platformDemandGVK)
-	} else {
-		object.SetGroupVersionKind(demandGVK)
-	}
-	object.SetNamespace(key.Namespace)
+	object.SetGroupVersionKind(platformDemandGVK)
 	object.SetName(key.Name)
 	select {
 	case s.events <- event.GenericEvent{Object: client.Object(object)}:

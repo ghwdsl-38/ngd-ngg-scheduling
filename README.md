@@ -1,201 +1,114 @@
-# NGD/NGG 两层调度 Demo v3
+# NGD/NGG 两层资源调度
 
-本工程验证“任务级节点组划分 + Pod 级调度”的完整闭环，并同时支持 VolcanoJob 和 Kubernetes Job。
-
-- 第一层：Go PRC用独立Controller提前同步Node静态/拓扑快照；NGD到达后，任务Reconciler只发送需求和Node动态状态。Go Algorithm负责HTTP、静态/Prometheus缓存，单一Python Worker执行算法函数；
-- 第二层：Volcano 插件或自定义 kube-scheduler 插件只允许当前 `activeGroupRef` 中的 Node；
-- 当前组超时且零 Pod 绑定时，PRC 按 Algorithm 原顺序切到下一组；
-- 任意任务 Pod 首次绑定后立即锁组，同一 NGD generation 不再跨组；
-- 缺少有效 NGG 时两个插件都 Fail Closed，受管 Pod 保持 Pending。
-
-## 整体结构
-
-```mermaid
-flowchart TB
-    STATIC[Leaf到Border到Core静态JSON] -->|ConfigMap挂载| LLDP[Go LLDP Agent DaemonSet]
-    NODE[9个Kind Worker] -->|模拟种子或真实LLDP帧<br/>取得Node到Leaf| LLDP
-    LLDP -->|持久化Leaf/Border/Core| LABEL[Node Labels]
-    LABEL --> KAPI[Kubernetes API Server]
-    KAPI -->|Watch Node / 拓扑| STATIC_SYNC[PRC Node静态快照Controller]
-    KAPI -->|Watch NGD / Node / Pod| PRC[PRC NGD Reconciler]
-    NGD[NodeGroupDemand] --> KAPI
-    STATIC_SYNC -->|独立PUT内容Hash静态快照| ALG[Go Algorithm API Server<br/>HTTP + 缓存]
-    PRC -->|NGD + 每任务Node动态状态<br/>+ 已确认snapshotId| ALG
-    PROM[Prometheus] -->|Go后台周期查询| CACHE[Go进程内指标缓存]
-    CACHE --> ALG
-    ALG -->|完整计算上下文/本地JSON-RPC| PY[单一Python算法Worker]
-    PY -->|groupScore降序稳定Top-3| ALG
-    ALG -->|保持算法原顺序| PRC
-    PRC -->|写入候选组和唯一activeGroupRef| NGG[NodeGroupGrant CR]
-    NGG --> V[Volcano NGG插件]
-    NGG --> K[kube-scheduler NGG插件]
-    V -->|当前组内Filter + Volcano原生流程| TARGET[目标Node]
-    K -->|当前组内Filter + kube原生Score/Bind| TARGET
-```
-
-Kind 拓扑为 1 个 Control Plane 和 9 个 Worker：
+本仓库实现联通正式接口下的任务级节点资源池划分：
 
 ```text
-                            core-0
-                    /          |          \
-             switch-a       switch-b       switch-c
-             /  |  \          /  \        /  |  |  \
-       worker-01 02 03   worker-04 05  worker-06 07 08 09
+Node/Bond/LLDP ──> Node Leaf元数据 ──> PRC静态快照 ──┐
+Prometheus ──> Algorithm指标缓存 ──────────────────┤
+正式NGD ──> PRC动态状态 ──> Algorithm/Python算法 ──> 正式NGG
+Leaf以上拓扑配置 ───────────────────────────────────┘
 ```
 
-| 交换机 | Worker 数 | 模拟带宽 | 模拟时延 |
-|---|---:|---:|---:|
-| switch-a | 3 | 20 Gbps | 1.5 ms |
-| switch-b | 2 | 10 Gbps | 5 ms |
-| switch-c | 4 | 25 Gbps | 1 ms |
+当前代码范围到 PRC 生成正式 `NodeGroupGrant` 为止，不包含下游 Pod 调度实现。
 
-## 关键目录
+## 当前组件
 
-- `prc/`：正式Go PRC；`static_snapshot_controller.go`独立维护静态快照，`prc_controller.go`处理任务动态状态、Algorithm调用和NGG生命周期；
-- `algorithm_server/`：Algorithm 完整实现目录；`go/` 负责 HTTP、缓存、Prometheus 与进程管理，`python/algorithm_worker/` 负责 Python 算法；
-- `topology_agent/`：Go LLDP 采集、静态三层拓扑解析、Node Watch 和 Label 持久化；
-- `src/ngd_ngg_demo/`：保留的 Python legacy PRC/LLDP 对照实现和公共领域逻辑，不作为当前镜像入口；
-- `plugin/nodegroupgrant/`：Volcano NGG 插件；
-- `plugin/kubescheduler/`：kube-scheduler NGG 插件及自定义 scheduler 注册入口；
-- `ngg_consumer/formalgrant/`：正式扁平 NGG 的公共解析、时效/生命周期校验和授权合并核心；
-- `test_suites/`：3000 Node 三大统一测试组、固定 Fixture、Mock Prometheus、envtest runner 和结果格式；
-- `go_test_suites/`：1000 Node 五组标准`go test`，支持独立Expected/Actual/Results和VS Code/Delve本地Debug；
-- `config/crd/`：NGD、NGG、NNT CRD；
-- `config/manager/`：PRC、Algorithm 和 LLDP Agent 部署；
-- `config/kubescheduler/`：第二个 scheduler profile 和 Deployment；
-- `manifests/monitoring/`：Prometheus、node-exporter 和 kube-state-metrics；
-- `manifests/topology-*`：VolcanoJob 演示；
-- `manifests/kubernetes-*`：Kubernetes Job 演示；
-- `scripts/08-run-demo.sh`：Volcano Top-3、超时切组和锁组验收；
-- `scripts/09-run-kubernetes-demo.sh`：kube-scheduler Fail Closed 和绑定验收；
-- `results/generated-ngg-v2/`：实跑导出的 NGD、NGG、三层拓扑 Node YAML 和旧 NNT 对照 YAML。
+- `topology_agent/`：Go LLDP Agent。识别主机 Bond，采集 Node 直连 Leaf，并通过 In-Cluster 或 Kubeconfig 身份更新 Node Label/Annotation。
+- `prc/`：Go PRC。独立同步 Node 静态快照，Watch 正式 Cluster-scoped NGD，构造 Node 动态状态，调用 Algorithm，并创建或更新正式 NGG。
+- `algorithm_server/go/`：Go Algorithm 主进程。提供 HTTP API，维护静态拓扑、Node 静态快照和 Prometheus 指标缓存，并管理一个长期 Python Worker。
+- `algorithm_server/python/algorithm_worker/`：Python 算法实现，固定执行需求过滤、拓扑分组和负载评分。
+- `go_test_suites/`：统一 Go Test，包括组件调用、PRC 全链路、周期刷新、3000 Node 性能矩阵和双 Leaf/Bond 测试。
+- `config/crd/`：正式 NGG CRD；正式 NGD CRD使用需求方提供的原始文件。
+- `config/manager/`、`config/rbac/`：三个组件的通用 Kubernetes 部署和最小权限。
+- `config/topology/`：Algorithm 使用的 Leaf 以上静态拓扑配置。
+- `docs/`：设计、接口、测试和阶段说明。
 
-## 从零运行
+完整实现说明见 [NGD-NGG两层调度项目整体说明v1.0.md](docs/阶段汇报-0907/NGD-NGG两层调度项目整体说明v1.0.md)。
 
-所有工程文件、Go 缓存、镜像归档和 Docker 数据都位于 `/mnt/data0`。
+## 数据边界
 
-使用已有镜像归档：
+- LLDP Agent只把 Node 到一个或两个 Leaf 的直接观测事实写入 Node。
+- Region、Location、DataCenter、Room、Border、Spine 和 Leaf Peer 关系只保存在 Algorithm 拓扑配置中。
+- PRC通过独立接口向 Algorithm PUT 内容 Hash 标识的 Node 静态快照。
+- 每次 NGD 计算时，PRC重新读取 Node/Pod并发送动态调度状态。
+- Algorithm默认每15秒读取一次 Prometheus，指标不经过 PRC。
+- Python Worker不维护共享缓存；Go在每次调用时通过 JSONL发送完整计算上下文。
+- PRC只取 Algorithm 排名第一的候选组，写成联通正式扁平 NGG。
+
+## 本地测试
+
+先准备仓库自带的 Go 与 envtest 环境：
 
 ```bash
 cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
-make demo-prebuilt
+source scripts/go-test-env.sh
 ```
 
-从源码重新构建：
+运行全部当前测试：
 
 ```bash
-make demo
+make go-test-all
 ```
 
-只运行某一条演示：
+分组运行：
 
 ```bash
-make run             # VolcanoJob
-make run-kubernetes  # Kubernetes Job + ngg-scheduler
-make monitoring      # 单独安装或重新部署监控组件
-make monitoring-check # 检查 Prometheus 查询和 Algorithm 指标缓存
+make go-test-topology-agent
+make go-test-group1  # Go Algorithm调用真实Python Worker
+make go-test-group2  # PRC客户端调用完整Algorithm和Mock Prometheus
+make go-test-group3  # envtest中PRC Watch NGD并生成NGG
+make go-test-group4  # PRC + 真实Algorithm/Python完整链路
+make go-test-group5  # 周期刷新、NGD更新和删除生命周期
+make go-test-group7  # Active-Backup与负载Bond完整链路
 ```
 
-
-Algorithm 1000 Node 独立演示：
-
-```bash
-make algorithm-1000-demo
-```
-
-3000 Node 三组演示采用“计时一遍、证据一遍”：
-
-```bash
-make demo-group1       # Algorithm Cold/Warm及Go↔Python原始协议
-make demo-group2       # envtest + 真实PRC + 单一normal_create
-make demo-group3       # 真实PRC/Algorithm + NGG消费/Binding模拟
-make demo-all-groups   # 依次执行以上三组
-make demo-show-latest  # 展示最新结果
-```
-
-每组结果保存在`test_suites/<组>/runs/<时间戳>/`：`timing-run/`只保存性能结果，`evidence-run/`按原始格式保存输入、中间过程和输出。详细命令和文件含义见`test_suites/README.md`。运行数据由`.gitignore`排除。
-
-新的五组标准Go Test：
-
-```bash
-make go-test-group1  # Go调用真实Python Worker
-make go-test-group2  # PRC调用真实Algorithm和Mock Prometheus
-make go-test-group3  # envtest + PRC Watch + Mock Algorithm
-make go-test-group4  # envtest + PRC + 真实Algorithm完整组件链路
-make go-test-group5  # PRC周期刷新、NGD修改、consumer保留和删除清理
-make go-test-all     # 串行运行五组
-```
-
-每组结果分别保存在`go_test_suites/<组>/results/<run-id>/`，详细输入、输出和计时边界见[`go_test_suites/README.md`](go_test_suites/README.md)。
-
-3000 Node规模性能矩阵（选择1000/800/500/300/100/10个Node，每个规模30次）：
+3000 Node性能矩阵：
 
 ```bash
 make benchmark-3000-all
 ```
 
-详细设计、运行方法、原始样本和正式P50/P95结果见[`go_test_suites/scale_benchmark_3000/README.md`](go_test_suites/scale_benchmark_3000/README.md)。
-单独构建或部署：
+Algorithm 1000 Node独立演示：
+
+```bash
+make algorithm-1000-demo
+```
+
+测试输出位于各组自己的 `results/<run-id>/`，详细输入、预期输出、实际输出、计时边界和 Debug 方法见 [go_test_suites/README.md](go_test_suites/README.md)。
+
+## 构建与部署
+
+构建三个镜像：
 
 ```bash
 make prc-image
 make algorithm-image
 make lldp-agent-image
-make plugin-image
-make kube-scheduler-image
-
-make prc
-make algorithm
-make lldp-agent
-make plugin
-make kube-scheduler
 ```
 
-## 镜像归档
+部署到当前 kubeconfig 指向的 Kubernetes 集群：
 
-```text
-images/
-├── ngd-ngg-prc-v0.3.0.tar
-├── ngd-ngg-algorithm-v0.4.0.tar
-├── ngd-ngg-lldp-agent-v0.2.0.tar
-├── volcano-ngg-scheduler-v1.15.0.tar
-└── ngg-kube-scheduler-v1.35.3.tar
+```bash
+make deploy
 ```
 
-PRC 和自定义 kube-scheduler 都使用 Go 1.25 构建，Kubernetes 依赖锁定在 v1.35.3/v0.35.3；Volcano 插件锁定 v1.15.0。
+也可显式选择上下文：
 
-## 当前验证结果
+```bash
+KUBE_CONTEXT=<context-name> make deploy
+```
 
-- `make test-acceptance-v2` 三组统一入口通过，规模为 3000 Node、14 类 Prometheus 指标和 42000 个指标样本；
-- Algorithm Cold：PRC静态同步至最终响应约1.44秒，Algorithm内部约0.82秒；Warm正式采样30次：PRC发送至接收P95约0.58秒、Algorithm内部P95约0.57秒；两个Core各返回1000个具体Node；
-- Mock Prometheus 正确覆盖 Bearer Header 有效、缺失 401、错误 403 和查询超时；
-- envtest 中真实 PRC Watch 正式 Cluster-scoped NGD，正常生成 1000 Node 扁平 NGG；Patch、非法 Algorithm 结果、无可行组和 HTTP 503 用例通过；
-- 全链路模拟中真实 PRC、Go Algorithm、Python Worker 和公共 formal NGG consumer core 连通；20 个 cold、20 个 warm 和10个 generation 更新 Binding 均未越界；无有效 NGG 时 Binding 数为0；
-- 上述全链路是 envtest 和 Binding 子资源模拟，不是实际 Volcano/kube-scheduler、kubelet、CNI 或容器 Running 性能结论；
-- Go LLDP Agent DaemonSet `9/9 Ready`，9 个 Worker 均写入 Leaf/Border/Core、带宽、时延、来源和拓扑版本 Label；
-- Prometheus、kube-state-metrics 和 9 个 Worker 上的 node-exporter 正常运行；Algorithm 指标缓存包含 9 个 Node，`degraded=false`；
-- Volcano 路径返回 `switch-c → switch-a → switch-b`，阻塞 switch-c 后切到 switch-a，4 个 Pod 绑定并锁组；
-- Kubernetes Job 在没有 NGG 时 4 个 Pod 全部 Pending；创建 NGD/NGG 后 4 个 Pod 只落在 activeGroup 并进入 Running；
-- Algorithm 重启后由 PRC 使用内容 Hash 重新同步静态 Node 快照；
-- Kubernetes Job 和 VolcanoJob 均通过直接 Owner UID 与 NGD/NGG 关联。
+部署顺序为：正式 CRD/RBAC → LLDP Agent → Algorithm → PRC。镜像需要预先推送到目标集群可访问的镜像仓库，并同步修改部署 YAML 中的镜像地址。
 
-主要证据：
+主要配置：
 
-- `results/generated-ngg-v2/ngg-topology.yaml`；
-- `results/generated-ngg-v2/ngg-kubernetes.yaml`；
-- `results/topology-placement.txt`；
-- `results/kubernetes-fail-closed.txt`；
-- `results/kubernetes-placement.txt`；
-- `results/algorithm-calculation-result.txt`、`results/algorithm-metrics-cache-status.json`；
-- `results/prometheus-query-checks.txt`、`results/prometheus-node-cpu.json`、`results/prometheus-node-memory.json`；
-- `results/prc-v2.log`、`results/kube-scheduler.log`、`results/algorithm.log`。
+- `config/manager/lldp-agent.yaml`：真实 LLDP/Bond采集 DaemonSet。
+- `config/manager/lldp-agent-kubeconfig-patch.yaml`：需要外部 Kubeconfig 身份时使用的补丁示例。
+- `config/manager/algorithm.yaml`：Algorithm、Prometheus与上层拓扑挂载。
+- `config/manager/prc.yaml`：PRC、Algorithm地址和刷新周期。
+- `docs/paas-schedbridge-master/crd-deploy/nodegroupdemand-crd.yaml`：需求方正式 NGD。
+- `config/crd/nodegroupgrant-platform.yaml`：当前正式 NGG。
 
-## Prometheus 和 LLDP 边界
+## 已验证边界
 
-Kind 集群已部署 Prometheus、kube-state-metrics 和 node-exporter。node-exporter 只运行在 9 个 Worker 上；Prometheus 同时采集这 9 个 Worker 的主机指标、10 个 Kubernetes Node 的对象状态以及 kubelet/cAdvisor 指标。Go Algorithm 主进程通过集群内地址 `http://prometheus.monitoring.svc.cluster.local:9090` 每 15 秒查询 CPU、内存利用率并保存当前/上一份内存快照，与PRC Reconcile周期一致；不使用 Redis、Kafka或跨 Pod 共享内存。调度时 Go 将选定的指标快照连同静态节点和当次动态状态发给 Python Worker；Prometheus 暂时不可用时保留最后一次有效快照并标记 degraded。
-
-`make demo` 和 `make demo-prebuilt` 已包含监控安装与端到端检查。也可执行 `make monitoring` 重新部署，再执行 `make monitoring-check` 验证 PromQL 返回值以及 Algorithm 缓存的 `enabled=true`、`ready=true`、`degraded=false` 和 `nodeCount=9`。最新 Volcano 实跑生成了非空的 `sha256:...` 指标快照身份，具体值见 `results/algorithm-calculation-result.txt`。
-
-新接口使用 `nodeUsageStates[].inUse`。当前 Go PRC 尚未切换该字段，因此 Algorithm 暂时保留 `/api/v1/node-groups/calculate` 和旧 `schedulerState` 请求适配；这条兼容路径只用于项目平滑衔接，后续修改 PRC 后可删除。
-
-Kind 使用 Go LLDP Agent 的 `Simulated` 模式；物理集群可用 `config/manager/lldp-agent-real-patch.yaml` 切为真实 `0x88CC` 监听。Agent 使用 Cobra CLI，启动时优先从 Node Label 恢复内存状态；仅在 Label 不完整时采集 Node→Leaf，再与 ConfigMap 中 Leaf→Border→Core 静态 JSON 合并并 Patch Node。PRC 优先读取 Label，旧 NNT 仅作为迁移回退。真实网卡、交换机命名和 NET_RAW 权限仍需在目标物理网络验证。
+统一测试使用真实 PRC、真实 Go Algorithm、长期 Python Worker、带认证 Mock Prometheus和 envtest API Server/etcd。测试验证的是资源池计算和 NGG生成，不代表真实网卡、交换机、生产 Prometheus或大规模 Kubernetes控制面的最终性能；这些仍需在目标环境进行联调。

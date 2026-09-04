@@ -1,8 +1,7 @@
-"""解析 Kubernetes Quantity，并验证 PodSet 能否装入一个候选节点组。"""
+"""解析 Kubernetes Quantity并计算节点剩余资源。"""
 
 from __future__ import annotations
 
-import heapq
 import re
 from decimal import Decimal
 from typing import Any
@@ -48,13 +47,6 @@ def parse_resources(resources: dict[str, Any]) -> dict[str, int]:
             )
     return result
 
-
-def fits(available: dict[str, int], request: dict[str, int]) -> bool:
-    """判断一份剩余资源是否能容纳一个 Pod 请求。"""
-
-    return all(available.get(name, 0) >= value for name, value in request.items())
-
-
 def subtract(
     available: dict[str, int],
     request: dict[str, int],
@@ -65,70 +57,3 @@ def subtract(
     for name, value in request.items():
         result[name] = max(0, result.get(name, 0) - value)
     return result
-
-
-def pod_set_minimums(
-    pod_sets: list[dict[str, Any]],
-) -> list[tuple[str, int, dict[str, int]]]:
-    """提取每个 PodSet 必须同时满足的 minAvailable 和单 Pod 资源。"""
-
-    result: list[tuple[str, int, dict[str, int]]] = []
-    for pod_set in pod_sets:
-        name = str(pod_set.get("name", ""))
-        count = int(pod_set.get("minAvailable", 0))
-        resources = pod_set.get("resourcesPerPod", {})
-        if not name or count < 1 or not isinstance(resources, dict) or not resources:
-            raise InvalidRequest(
-                "each podSet needs name, minAvailable and resourcesPerPod"
-            )
-        result.append((name, count, parse_resources(resources)))
-    if not result:
-        raise InvalidRequest("podSets must not be empty")
-    return result
-
-
-def can_place_minimums(
-    nodes: list[dict[str, Any]],
-    minimums: list[tuple[str, int, dict[str, int]]],
-) -> bool:
-    """用确定性贪心装箱验证整个任务的最小副本是否能放入该组。"""
-
-    remaining = {
-        str(node["nodeUID"]): parse_resources(node.get("allocatable", {}))
-        for node in nodes
-    }
-    ordered = sorted(
-        minimums,
-        key=lambda item: sum(item[2].values()),
-        reverse=True,
-    )
-    # 每个 PodSet 构建一次确定性最大堆。旧实现每放一个副本都扫描
-    # 全部 Node，3000 Node/1000 副本时为 O(P*N)；堆实现降为
-    # O((N+P)logN)，并以 UID 作为同分稳定次关键字。
-    for _name, count, request in ordered:
-        heap = [
-            (
-                -sum(capacity.get(key, 0) for key in request),
-                uid,
-            )
-            for uid, capacity in remaining.items()
-            if fits(capacity, request)
-        ]
-        heapq.heapify(heap)
-        for _ in range(count):
-            if not heap:
-                return False
-            _negative_capacity, chosen = heapq.heappop(heap)
-            remaining[chosen] = subtract(remaining[chosen], request)
-            if fits(remaining[chosen], request):
-                heapq.heappush(
-                    heap,
-                    (
-                        -sum(
-                            remaining[chosen].get(key, 0)
-                            for key in request
-                        ),
-                        chosen,
-                    ),
-                )
-    return True

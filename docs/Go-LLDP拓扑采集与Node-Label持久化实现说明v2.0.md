@@ -1,62 +1,101 @@
-# Go LLDP 拓扑采集与 Node Label 持久化实现说明 v2.0
+# Go LLDP拓扑采集与Node元数据持久化实现说明 v2.0
 
-## 1. 当前实现
+## 1. 当前实现边界
 
-拓扑采集组件已经由 Python 改为 Go，源码位于 `topology_agent/`，镜像为 `ngd-ngg-lldp-agent:v0.2.0`。它使用 Cobra 提供命令行参数，并以 DaemonSet 运行在每个 Worker。
+`topology_agent/`是Go实现的LLDP Agent，以DaemonSet运行，每个目标Worker一个Pod、一个Go进程。它只负责采集Node直接连接的Leaf及物理链路事实，不读取也不保存Border、Spine、机房、数据中心等上层拓扑。
 
 ```mermaid
-flowchart TB
-    NODE[新增或现有Worker] -->|DaemonSet自动创建Pod| AGENT[Go topology-agent]
-    NODE -->|真实0x88CC或Kind模拟种子| AGENT
-    STATIC[ConfigMap静态JSON<br/>Leaf到Border到Core] -->|只读挂载| AGENT
-    AGENT -->|合并Node到Leaf与上层静态拓扑| VIEW[完整三层拓扑]
-    VIEW -->|Patch Labels和Annotations| API[Kubernetes API Server]
-    API -->|持久化| NODE
-    API -->|Node Watch事件| PRC[Go PRC]
-    PRC -->|Label优先/NNT回退| SNAPSHOT[Node静态Hash快照]
+flowchart LR
+    NET[Bond模式、Slave状态、LLDP帧] --> AGENT[LLDP Agent]
+    KC[Kubeconfig或In-Cluster身份] --> AGENT
+    AGENT -->|Get/Patch自身Node| API[Kubernetes API Server]
+    API -->|Node静态字段变化| PRC[PRC Static Snapshot Controller]
+    PRC -->|leafSwitchIds和links| ALG[Algorithm Server]
+    CFG[上层静态拓扑配置] --> ALG
+    ALG -->|Leaf Domain及完整层级| WORKER[Python算法Worker]
 ```
 
-## 2. 动态与静态数据边界
+当前主链路不安装、不注册、不Watch、不读取`NodeNetworkTopology`。`config/crd/nodenetworktopology.yaml`仅是历史定义，不参与当前运行。
 
-- 动态采集：Node 连接的 Leaf 交换机、远端端口、本地网卡。物理集群来自 LLDP；Kind Demo 来自预置的模拟种子 Label。
-- 静态配置：Leaf→Border→Core、链路带宽和时延，来自 `ngd-ngg-static-topology` ConfigMap 中的 JSON。
-- 持久化：Leaf、Border、Core、带宽、时延、来源和版本写 Node Label；端口、网卡和采集时间写 Annotation。
-- 内存：Agent 保存本 Node 当前 Observation。Pod 重启先读 Label，内容完整时直接恢复，不重新监听 LLDP，也不重复 Patch。
+## 2. Kubernetes连接
 
-## 3. 新增 Node 的流程
+配置选择顺序为：
 
 ```text
-Kubernetes 新增 Worker
-→ 满足 demo.ngg/worker=true 后 DaemonSet 自动创建 Agent Pod
-→ Agent GET 自己的 Node
-→ Label 不完整：采集 Node→Leaf
-→ 查静态 JSON 得到 Border/Core
-→ PATCH Node Labels/Annotations
-→ PRC 收到 Node Watch 事件
-→ Pending/Unsatisfied/Degraded NGD 重新计算
+--kubeconfig
+→ KUBECONFIG
+→ In-Cluster ServiceAccount
+→ 默认kubeconfig
 ```
 
-Agent 还会 Watch 自己的 Node。当拓扑 Label 已经完整时只恢复内存；Label 被清除或 Node 新建时才重新采集和持久化。
+显式Kubeconfig或`KUBECONFIG`无效时直接启动失败，避免静默连接其他集群。Agent使用官方`client-go`调用Node Get/Patch；最小RBAC只有`nodes/get`和`nodes/patch`。
 
-## 4. 真实 LLDP
+部署文件：
 
-Go 使用 Linux `AF_PACKET/SOCK_RAW` 监听 EtherType `0x88CC`，解析 Chassis ID、Port ID、TTL 和 System Name。部署具备：
+- `config/manager/lldp-agent.yaml`：默认In-Cluster、Kind模拟模式；
+- `config/manager/lldp-agent-real-patch.yaml`：Host Network、NET_RAW、真实LLDP和宿主机`/sys/class/net`；
+- `config/manager/lldp-agent-kubeconfig-patch.yaml`：挂载Kubeconfig Secret并关闭ServiceAccount自动挂载。
+
+## 3. Bond与双Leaf
+
+Agent从`/sys/class/net`读取Bond信息：
+
+- `active-backup`：只选择`active_slave`；
+- `802.3ad`、balance-xor等负载模式：选择所有链路Up的Slave；
+- 普通网卡：按接口过滤条件直接采集；
+- 同一Leaf重复出现时去重；Leaf集合排序后最多保留2个。
+
+Agent每30秒重新探测。采集失败时保留Node上最后一次有效拓扑；新旧有效内容完全一致时不Patch，避免无意义API写入。
+
+## 4. Node持久化格式
+
+Label只保存适合索引的短字段：
 
 ```text
-hostNetwork: true
-CAP_NET_RAW
-readOnlyRootFilesystem: true
-runAs non-root image user
+topology.demo.ngg.io/leaf-set-id=<Leaf集合内容Hash>
+topology.demo.ngg.io/leaf-count=1|2
+topology.demo.ngg.io/leaf-switch=<单Leaf兼容字段，仅值合法时写入>
 ```
 
-Kind 默认 `--mode=Simulated`。物理集群使用 `config/manager/lldp-agent-real-patch.yaml` 将参数改为 `--mode=LLDP`。真实网卡、交换机 System Name、报文到达和安全策略仍需要在联通物理环境验收。
+Annotation保存原始事实：
 
-## 5. 已验证结果
+```text
+topology.demo.ngg.io/leaf-switch-ids=["Leaf-A","Leaf-B"]
+topology.demo.ngg.io/leaf-links=[{"interfaceName":"eth0",...}]
+topology.demo.ngg.io/source=LLDP|Simulated
+topology.demo.ngg.io/observed-at=<RFC3339时间>
+```
 
-- Go LLDP 帧解析单测通过；
-- Leaf→Border→Core 静态解析单测通过；
-- 1000 份 Node Label 内存恢复单测通过；
-- 当前 Kind DaemonSet 为 `9/9 Ready`；
-- switch-a 的 3 个 Worker 写入 border-a，switch-b 的 2 个写入 border-b，switch-c 的 4 个写入 border-c，三组均连接 core-0；
-- PRC 从 Label 生成新的静态 Hash，后续 Algorithm/NGG/Volcano 全链路验证通过；
-- NNT CRD 和 PRC 回退读取暂时保留，新 Agent 不再写 NNT。
+交换机长名称和JSON不受Kubernetes Label 63字符及字符集约束，因此必须放Annotation。`observed-at`只表示采集时间，PRC静态快照内容Hash不包含它。
+
+## 5. PRC与Algorithm处理
+
+PRC只Watch Node。它优先读取`leaf-switch-ids` Annotation，兼容期内可读取单值`leaf-switch` Label，并把规范化的`leafSwitchIds`和链路明细同步到Algorithm静态缓存。缺少Leaf元数据的Node不会回退到NNT。
+
+Algorithm从自身上层拓扑配置解析Leaf所属Room、Border Domain及Peer Leaf。两个满足“同Room、同Border Domain、对称Peer关系”的Leaf组成稳定的Leaf Domain；单Leaf形成单成员Domain。一个双Leaf Node只归入一个Leaf Domain，容量和负载只统计一次。Python Worker按Leaf Domain作为最窄层级生成候选组。
+
+## 6. 代码位置
+
+| 功能 | 文件 |
+|---|---|
+| CLI、配置加载与进程启动 | `topology_agent/main.go`、`topology_agent/kube_config.go` |
+| Node Get/Patch | `topology_agent/kube.go` |
+| Bond识别和有效接口选择 | `topology_agent/pkg/bond/discovery.go`；入口适配为`topology_agent/bond.go` |
+| Leaf规范化和Node元数据生成 | `topology_agent/pkg/topologyfacts/facts.go` |
+| LLDP多接口接收与解析 | `topology_agent/lldp.go` |
+| 周期采集、规范化和Patch去重 | `topology_agent/agent.go` |
+| PRC Node静态快照 | `prc/pkg/controller/static_snapshot_controller.go`、`snapshot.go` |
+| Algorithm Leaf Domain解析 | `algorithm_server/go/algorithm/topology.go` |
+| Python拓扑分组 | `algorithm_server/python/algorithm_worker/algorithms/topology.py` |
+
+## 7. 已完成测试
+
+- Kubeconfig优先级、Context和无效显式配置失败；
+- Active-Backup只选择主网卡，负载模式选择全部Up Slave；
+- 单Leaf、双Leaf、长交换机名称、结果去重和稳定排序；
+- PRC只从Node Annotation/Label生成快照，确认无NNT回退；
+- 联通式长交换机名称及对称Peer Leaf形成同一Leaf Domain；
+- 双Leaf Node在Algorithm解析后只出现一次；
+- Group1～Group5原有主链路回归；Group7的Active-Backup与802.3ad全链路通过。
+
+物理环境仍需验证交换机实际LLDP System Name、Bond驱动暴露方式、报文到达、Kubeconfig证书及安全策略。

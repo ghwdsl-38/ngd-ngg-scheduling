@@ -25,7 +25,7 @@ spec:
         - name: ALGORITHM_URL
           value: http://ngd-ngg-algorithm.ngd-ngg-system.svc:8080
         - name: CLUSTER_ID
-          value: volcano-ngd-ngg-v2-demo
+          value: default-cluster
         ports:
         - name: health
           containerPort: 8081

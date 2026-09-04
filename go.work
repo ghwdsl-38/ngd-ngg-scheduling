@@ -4,4 +4,5 @@ use (
 	./algorithm_server/go
 	./go_test_suites
 	./prc
+	./topology_agent
 )
