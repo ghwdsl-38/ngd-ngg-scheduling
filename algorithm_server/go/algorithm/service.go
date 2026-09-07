@@ -40,8 +40,18 @@ func (s *service) allocate(ctx context.Context, request map[string]any) (map[str
 	}
 	requestCopy := copyMap(request)
 	requestCopy["nodeUsageStates"] = normalized
+	// topologyConstraints是Go层生成的内部协议字段，不接受HTTP调用方注入。
+	delete(requestCopy, "topologyConstraints")
+	topologyConstraints, constraintWarnings, constraintErr := s.topology.resolveDemandTopologyLabels(requestCopy)
+	if constraintErr != nil {
+		return nil, &apiError{RequestID: requestID, Code: "INVALID_TOPOLOGY_LABELS", Message: constraintErr.Error(), Status: 400}
+	}
+	if len(topologyConstraints) > 0 {
+		requestCopy["topologyConstraints"] = topologyConstraints
+	}
 	metric, degraded, warnings := s.metrics.resolve()
 	warnings = append(warnings, topologyWarnings...)
+	warnings = append(warnings, constraintWarnings...)
 	warnings = append(warnings, ignoredNGDWarnings(requestCopy)...)
 	// Worker 每次收到完整上下文，因此 Python 不需要维护跨请求缓存。
 	result, workerErr := s.worker.calculate(ctx, workerPayload{Request: requestCopy, StaticSnapshot: resolvedStatic, MetricSnapshot: metric, MetricsDegraded: degraded, Warnings: warnings})

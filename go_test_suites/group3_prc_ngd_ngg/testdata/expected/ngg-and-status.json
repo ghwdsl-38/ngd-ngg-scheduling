@@ -31,9 +31,9 @@
           },
           "score": 90,
           "topology": {
-            "accessSwitch": "leaf-001",
-            "convergenceSwitch": "HB-HL-DC1-102-BORDER-DOMAIN-01",
-            "dataCenter": "HB-HL-DC1"
+            "borderSwitch": "HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "dataCenter": "HB-HL-DC1",
+            "room": "HB-HL-DC1-102"
           }
         },
         {
@@ -44,9 +44,9 @@
           },
           "score": 85,
           "topology": {
-            "accessSwitch": "leaf-001",
-            "convergenceSwitch": "HB-HL-DC1-102-BORDER-DOMAIN-01",
-            "dataCenter": "HB-HL-DC1"
+            "borderSwitch": "HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "dataCenter": "HB-HL-DC1",
+            "room": "HB-HL-DC1-102"
           }
         },
         {
@@ -57,9 +57,9 @@
           },
           "score": 80,
           "topology": {
-            "accessSwitch": "leaf-001",
-            "convergenceSwitch": "HB-HL-DC1-102-BORDER-DOMAIN-01",
-            "dataCenter": "HB-HL-DC1"
+            "borderSwitch": "HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "dataCenter": "HB-HL-DC1",
+            "room": "HB-HL-DC1-102"
           }
         }
       ],

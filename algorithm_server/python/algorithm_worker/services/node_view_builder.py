@@ -12,6 +12,14 @@ from ..quantity import parse_resources, subtract
 class NodeViewBuilder:
     """构造 FILTER 阶段使用的任务级可用 Node 列表。"""
 
+    TOPOLOGY_FIELDS = {
+        "dataCenter": "dataCenterId",
+        "room": "roomId",
+        "borderDomain": "borderDomainId",
+        "spineDomain": "spineDomainId",
+        "leafDomain": "leafDomainId",
+    }
+
     def build(
         self,
         context: AllocationContext,
@@ -28,6 +36,17 @@ class NodeViewBuilder:
         expressions = label_selector.get("matchExpressions", [])
         if not isinstance(match_labels, dict) or not isinstance(expressions, list):
             raise InvalidRequest("labelSelector matchLabels/matchExpressions are malformed")
+        topology_constraints = context.request.get("topologyConstraints", {})
+        if not isinstance(topology_constraints, dict):
+            raise InvalidRequest("topologyConstraints must be an object")
+        unknown_topology_levels = sorted(
+            set(topology_constraints) - set(self.TOPOLOGY_FIELDS)
+        )
+        if unknown_topology_levels:
+            raise InvalidRequest(
+                "topologyConstraints contains unsupported levels: "
+                + ", ".join(unknown_topology_levels)
+            )
         usage = {}
         for item in context.request.get("nodeUsageStates", []):
             if not isinstance(item, dict):
@@ -43,6 +62,10 @@ class NodeViewBuilder:
             if not all(labels.get(key) == value for key, value in match_labels.items()):
                 continue
             if not self._matches_expressions(labels, expressions):
+                continue
+            if not self._matches_topology(
+                node.get("topology", {}), topology_constraints
+            ):
                 continue
             capacity = parse_resources(node.get("allocatable", {}))
             requested_raw = state.get("requestedResources", {})
@@ -63,6 +86,25 @@ class NodeViewBuilder:
             key=lambda item: (str(item["nodeName"]), str(item["nodeUID"]))
         )
         return result
+
+    @classmethod
+    def _matches_topology(
+        cls,
+        topology: dict[str, Any],
+        constraints: dict[str, Any],
+    ) -> bool:
+        """过滤具体逻辑域；requiredSame由后续GROUP阶段限制分组宽度。"""
+
+        if not isinstance(topology, dict):
+            return False
+        for level, raw_value in constraints.items():
+            value = str(raw_value)
+            if value == "requiredSame":
+                continue
+            field = cls.TOPOLOGY_FIELDS[level]
+            if str(topology.get(field, "")) != value:
+                return False
+        return True
 
     @staticmethod
     def _matches_expressions(

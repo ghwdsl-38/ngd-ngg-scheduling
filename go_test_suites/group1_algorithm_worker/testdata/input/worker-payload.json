@@ -16013,8 +16013,8 @@
     "ngd": {
       "maxNodes": 18,
       "minResources": {
-        "cpu": "480",
-        "memory": "1920Gi"
+        "cpu": "320",
+        "memory": "1280Gi"
       },
       "nodeSelector": {
         "matchLabels": {
@@ -16025,7 +16025,14 @@
         "cpu": "576",
         "memory": "2304Gi"
       },
-      "schedulerName": "volcano"
+      "schedulerName": "volcano",
+      "topologyLabels": {
+        "topology.kubernetes.io/border-switch": "requiredSame",
+        "topology.kubernetes.io/data-center": "HB-HL-DC1",
+        "topology.kubernetes.io/leaf-switch": "requiredSame",
+        "topology.kubernetes.io/room": "HB-HL-DC1-102",
+        "topology.kubernetes.io/spine-switch": "spine-01"
+      }
     },
     "ngdGeneration": 1,
     "ngdUID": "ngd-uid-1000",
@@ -21034,7 +21041,13 @@
     ],
     "requestId": "group-request-1000",
     "requestMode": "resourcePool",
-    "taskUID": "task-uid-1000"
+    "taskUID": "task-uid-1000",
+    "topologyConstraints": {
+      "borderDomain": "requiredSame",
+      "dataCenter": "HB-HL-DC1",
+      "leafDomain": "requiredSame",
+      "room": "HB-HL-DC1-102"
+    }
   },
   "staticSnapshot": {
     "clusterId": "mock-1000-node-cluster",
@@ -62043,5 +62056,7 @@
     "snapshotId": "sha256:30c5efddac9f20b891efda3310ab1a40cb68dc329a99d8b41a8c1c434175d6cd",
     "topologyVersion": "unicom-border-domain-v1"
   },
-  "warnings": []
+  "warnings": [
+    "SPINE_NOT_FOUND_FALLBACK: Spine \"spine-01\" is absent from the configured topology; using existing border-switch constraint \"requiredSame\""
+  ]
 }

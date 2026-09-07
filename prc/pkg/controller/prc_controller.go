@@ -107,9 +107,9 @@ func (r *DemandProcessor) reconcilePlatformDemand(ctx context.Context, demand *u
 	}
 
 	requestID := fmt.Sprintf("%s-generation-%d-state-%s", demand.GetUID(), demand.GetGeneration(), shortHash(stateID))
-	// 联通 NGD spec 作为一个完整对象原样传给 Algorithm。Algorithm 当前只读取
-	// nodeSelector、maxNodes、quota 和 minResources；拓扑图与固定算法顺序均由
-	// Algorithm Server 管理。其余字段保留在协议中，便于后续兼容而不改 PRC。
+	// 联通 NGD spec 作为一个完整对象原样传给 Algorithm。Algorithm读取
+	// nodeSelector、topologyLabels、maxNodes、quota和minResources；具体拓扑图、
+	// 物理交换机到逻辑域的映射及固定算法顺序均由Algorithm Server管理。
 	ngdSpec, _ := runtime.DeepCopyJSONValue(spec).(map[string]any)
 	algorithmRequest := map[string]any{
 		"requestId": requestID, "taskUID": string(demand.GetUID()), "ngdUID": string(demand.GetUID()),
@@ -168,7 +168,7 @@ func validatePlatformDemandSpec(spec map[string]any) error {
 		return fmt.Errorf("spec.schedulerName is required")
 	}
 	// minThroughput、IP亲和、网络可达性和preferredSubnet均按联通原始契约
-	// 原样透传；当前阶段只处理资源需求与nodeSelector。
+	// 原样透传；当前阶段处理资源需求、nodeSelector和五级topologyLabels。
 	for _, field := range []string{"minResources", "quota"} {
 		resources := mapOrEmpty(spec, field)
 		for _, name := range []string{"cpu", "memory"} {
@@ -178,6 +178,27 @@ func validatePlatformDemandSpec(spec map[string]any) error {
 			}
 			if _, err := resource.ParseQuantity(raw); err != nil {
 				return fmt.Errorf("spec.%s.%s is invalid: %w", field, name, err)
+			}
+		}
+	}
+	if raw, exists := spec["topologyLabels"]; exists && raw != nil {
+		labels, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("spec.topologyLabels must be an object")
+		}
+		supported := map[string]struct{}{
+			"topology.kubernetes.io/data-center":   {},
+			"topology.kubernetes.io/room":          {},
+			"topology.kubernetes.io/border-switch": {},
+			"topology.kubernetes.io/spine-switch":  {},
+			"topology.kubernetes.io/leaf-switch":   {},
+		}
+		for key, value := range labels {
+			if _, ok := supported[key]; !ok {
+				return fmt.Errorf("spec.topologyLabels key %q is unsupported", key)
+			}
+			if item, ok := value.(string); !ok || strings.TrimSpace(item) == "" {
+				return fmt.Errorf("spec.topologyLabels[%q] must be a non-empty string", key)
 			}
 		}
 	}
@@ -293,9 +314,11 @@ func buildPlatformGrantSpec(demand *unstructured.Unstructured, demandSpec map[st
 func platformCandidateTopology(topology map[string]any) map[string]any {
 	value := map[string]any{}
 	fields := map[string]string{
-		"dataCenter":        "dataCenterId",
-		"convergenceSwitch": "borderDomainId",
-		"accessSwitch":      "leafSwitchId",
+		"dataCenter":   "dataCenterId",
+		"room":         "roomId",
+		"borderSwitch": "borderDomainId",
+		"spineSwitch":  "spineDomainId",
+		"leafSwitch":   "leafDomainId",
 	}
 	for target, source := range fields {
 		if item := stringValue(topology, source); item != "" {

@@ -160,11 +160,21 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 	ngdSpec := map[string]any{
 		"schedulerName": "volcano",
 		"nodeSelector":  map[string]any{"matchLabels": map[string]any{"tests.ngg.io/worker": "true"}},
-		// 每个Leaf有20个Node，其中约1/3处于占用状态；15个Node的最低需求
-		// 故意无法在单Leaf满足，用来验证SPINE为空时上升到Border Domain。
+		// 严格使用联通新版topologyLabels。spine-01在模拟拓扑中不存在，
+		// Algorithm Go层会降级为Border requiredSame；Leaf requiredSame是更窄
+		// 的硬约束，因此最终仍只允许从一个Leaf逻辑域选择Node。
+		"topologyLabels": map[string]any{
+			"topology.kubernetes.io/data-center":   "HB-HL-DC1",
+			"topology.kubernetes.io/room":          "HB-HL-DC1-102",
+			"topology.kubernetes.io/border-switch": "requiredSame",
+			"topology.kubernetes.io/spine-switch":  "spine-01",
+			"topology.kubernetes.io/leaf-switch":   "requiredSame",
+		},
+		// 每个Leaf有20个Node，其中约1/3处于占用状态；10个Node的最低需求
+		// 可以在一个Leaf逻辑域内满足。
 		"maxNodes":     int64(18),
 		"quota":        map[string]any{"cpu": "576", "memory": "2304Gi"},
-		"minResources": map[string]any{"cpu": "480", "memory": "1920Gi"},
+		"minResources": map[string]any{"cpu": "320", "memory": "1280Gi"},
 	}
 	allocation := map[string]any{
 		"requestId": "group-request-1000", "taskUID": "task-uid-1000", "ngdUID": "ngd-uid-1000", "ngdGeneration": int64(1),
@@ -176,13 +186,21 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 	}
 	workerStatic := copyMap(resolvedStatic)
 	workerStatic["snapshotId"] = snapshotID
+	workerRequest := copyMap(allocation)
+	// Group1直接测试Go到Python Worker边界，因此输入使用Algorithm Go层已经
+	// 解析好的内部逻辑域约束。其他组通过真实Algorithm HTTP服务自动生成它。
+	workerRequest["topologyConstraints"] = map[string]any{
+		"dataCenter": "HB-HL-DC1", "room": "HB-HL-DC1-102",
+		"borderDomain": "requiredSame", "leafDomain": "requiredSame",
+	}
 	workerPayload := map[string]any{
-		"request": allocation, "staticSnapshot": workerStatic,
+		"request": workerRequest, "staticSnapshot": workerStatic,
 		"metricSnapshot": map[string]any{
 			"snapshotId": metricSnapshotID, "capturedAt": "2026-08-21T00:00:00Z", "capturedAtUnix": float64(1787270400),
 			"catalogueVersion": "node-exporter-network-v1", "nodes": metrics,
 		},
-		"metricsDegraded": false, "warnings": []any{},
+		"metricsDegraded": false,
+		"warnings":        []any{"SPINE_NOT_FOUND_FALLBACK: Spine \"spine-01\" is absent from the configured topology; using existing border-switch constraint \"requiredSame\""},
 	}
 	demand := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "scheduling.platform.example.io/v1alpha1", "kind": "NodeGroupDemand",

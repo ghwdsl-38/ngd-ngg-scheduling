@@ -339,8 +339,8 @@ func runFullFlow(t *testing.T, fixture *common.Fixture, input scenarioInput, pre
 	group := groups[0].(map[string]any)
 	algorithmNodes := group["nodes"].([]any)
 	grantNodes, _, _ := unstructured.NestedSlice(grant.Object, "spec", "nodes")
-	if len(algorithmNodes) != 15 || len(grantNodes) != 15 {
-		t.Fatalf("Algorithm/NGG Node counts=%d/%d, want 15/15", len(algorithmNodes), len(grantNodes))
+	if len(algorithmNodes) != 10 || len(grantNodes) != 10 {
+		t.Fatalf("Algorithm/NGG Node counts=%d/%d, want 10/10", len(algorithmNodes), len(grantNodes))
 	}
 
 	summary := map[string]any{

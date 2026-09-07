@@ -26,6 +26,7 @@ go test -p=1 ./go_test_suites/group4_full_real_algorithm -run '^TestGroup4_' -v 
   -> 创建正式NGD
   -> PRC通过Watch观察到NGD，开始计时并进入Reconcile
   -> PRC读取已确认snapshotId并POST动态状态和完整NGD
+  -> Go Algorithm解析五级topologyLabels，映射逻辑域并处理Spine缺失回退
   -> Algorithm固定执行requirement/topology/loadbalance
   -> Algorithm返回最多3个候选组和具体Node
   -> PRC将rank 1写成联通正式NGG
@@ -43,7 +44,7 @@ go test -p=1 ./go_test_suites/group4_full_real_algorithm -run '^TestGroup4_' -v 
 - Algorithm候选组和Pipeline Trace；
 - 正式NGG Raw YAML、标准化结果和NGD Status。
 
-主要断言包括认证及14项PromQL、独立静态同步、任务链路不重复PUT、固定三段流水线、Top-3排序、每组具体Node、NGG节点与rank 1逐项一致，以及正式CRD Status。
+主要断言包括认证及14项PromQL、独立静态同步、任务链路不重复PUT、PRC原样传递五级`topologyLabels`、Spine缺失回退、固定三段流水线、Top-3排序、每组具体Node、NGG节点与rank 1逐项一致，以及新版NGG的DataCenter/Room/Border/Leaf逻辑域字段。
 
 ## Delve全链路调试
 

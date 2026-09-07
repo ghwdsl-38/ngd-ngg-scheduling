@@ -252,6 +252,28 @@ config/manager/algorithm.yaml
 
 Kubernetes API本身不需要理解整张网络图；Kubernetes只保存Node到Leaf事实和最终NGD/NGG对象。
 
+NGD中的拓扑约束严格使用联通新版`spec.topologyLabels`，当前只接受以下五级：
+
+| NGD key | 配置来源 | Algorithm内部字段 |
+|---|---|---|
+| `topology.kubernetes.io/data-center` | `scopes.dataCenters[].id` | `dataCenterId` |
+| `topology.kubernetes.io/room` | `scopes.rooms[].id` | `roomId` |
+| `topology.kubernetes.io/border-switch` | `BORDER`物理交换机名或Border Domain ID | `borderDomainId` |
+| `topology.kubernetes.io/spine-switch` | `SPINE`物理交换机名或Spine Domain ID | `spineDomainId` |
+| `topology.kubernetes.io/leaf-switch` | 机房下Leaf物理交换机名或Leaf Domain ID | `leafDomainId` |
+
+每一级都可省略；具体值表示指定位置，`requiredSame`表示不指定具体位置、但最终Node必须处于同一个该级逻辑域。多个字段按AND关系取交集。`access-switch`、`convergence-switch`、Region、Location和Subnet不属于当前NGD拓扑约束范围。
+
+物理交换机名不会直接作为算法分组身份。Algorithm启动时基于独立拓扑配置建立别名索引：
+
+```text
+物理Border名称 -> Border Domain ID
+物理Spine名称  -> Spine Domain ID
+物理Leaf名称   -> Leaf Domain ID
+```
+
+因此需求方可填写联通拓扑中的物理交换机全名，算法会先映射到稳定逻辑域再执行筛选。
+
 ### 5.5 双Leaf如何形成一个逻辑域
 
 两个Leaf只有同时满足以下条件才合并：
@@ -263,7 +285,7 @@ Kubernetes API本身不需要理解整张网络图；Kubernetes只保存Node到L
 
 成员排序后计算内容Hash，形成稳定`pair-<hash>`逻辑域。主备从Leaf-A切换到Leaf-B时，单个Node观测值会变化，但两个Leaf映射到同一Leaf Domain，调度域身份保持稳定。负载模式同时观测两个Leaf时，同一Node只加入逻辑域一次，资源不会重复计算。
 
-当前SPINE为空是合法输入：算法不会生成空的Spine候选，而是从Leaf Domain继续向Border Domain、Room等更宽层级查找。
+当前SPINE为空是合法输入。NGD没有Spine约束时，算法不生成空的Spine候选；NGD填写`spine-switch: requiredSame`或一个配置中不存在的具体Spine时，Algorithm把本次有效约束降级为`border-switch: requiredSame`，并在响应`warnings`记录`SPINE_EMPTY_FALLBACK`或`SPINE_NOT_FOUND_FALLBACK`。原始NGD不会被修改。
 
 关键代码：
 
@@ -372,6 +394,8 @@ Go层负责：
 - HTTP服务和请求校验；
 - Node静态快照缓存；
 - 上层拓扑配置解析与Node拓扑补全；
+- 校验五级`topologyLabels`，把物理Border/Spine/Leaf映射为逻辑域；
+- 在有效范围没有Spine时生成Border `requiredSame`回退约束；
 - Prometheus采集、认证、TLS、当前/上一份快照缓存；
 - Python Worker启动、健康检查、超时和重启管理；
 - 请求/响应模型转换和最终结果校验。
@@ -395,11 +419,13 @@ requirement -> topology -> loadbalance
 
 - 合并静态容量、动态资源占用和Node状态；
 - 应用NGD的`nodeSelector`；
+- 应用Algorithm Go层解析后的具体DataCenter、Room及交换机逻辑域约束；
 - 剔除不可用、已占用或不满足硬约束的Node。
 
 第二步，`topology`：
 
-- 按`leafDomain -> spineDomain -> borderDomain -> room -> dataCenter -> location -> region`逐层分组；
+- 只按`leafDomain -> spineDomain -> borderDomain -> room -> dataCenter`逐层分组；
+- `requiredSame`限制候选组允许扩展到的最宽层级，例如Border Same可以选择Leaf、Spine或Border组，但不能扩大到Room；
 - 使用NarrowestFit，只保留第一个能满足全部最低资源需求的最窄层级；
 - SPINE为空时自然跳过该层；
 - 不从NGD读取拓扑图或算法Profile。
@@ -426,6 +452,7 @@ requirement -> topology -> loadbalance
 
 - `schedulerName`；
 - `nodeSelector`；
+- `topologyLabels`，仅支持DataCenter、Room、Border、Spine、Leaf五级；
 - `maxNodes`；
 - `quota.cpu/memory`；
 - `minResources.cpu/memory`。
@@ -453,8 +480,21 @@ kind: NodeGroupDemand
 
 参考CRD和样例：
 
-- `docs/paas-schedbridge-master/crd-deploy/nodegroupdemand-crd.yaml`
-- `docs/paas-schedbridge-master/crd-deploy/nodegroupdemand-cr-example.yaml`
+- `docs/paas-schedbridge-master-new/crd-deploy/nodegroupdemand-crd.yaml`
+- `docs/paas-schedbridge-master-new/crd-deploy/nodegroupdemand-cr-example.yaml`
+
+当前测试使用的完整结构为：
+
+```yaml
+topologyLabels:
+  topology.kubernetes.io/data-center: HB-HL-DC1
+  topology.kubernetes.io/room: HB-HL-DC1-102
+  topology.kubernetes.io/border-switch: requiredSame
+  topology.kubernetes.io/spine-switch: spine-01
+  topology.kubernetes.io/leaf-switch: requiredSame
+```
+
+模拟拓扑中没有`spine-01`，所以有效Spine约束回退为Border Same；Leaf Same更窄，最终候选仍为单个Leaf Domain。
 
 `metadata.generation`不是NGD CRD自定义字段，而是所有Kubernetes对象都具备的标准元数据。只有spec变化时Kubernetes才增加generation；单纯周期刷新不会增加。
 
@@ -494,9 +534,12 @@ spec:
         memoryAvailable: 128Gi
       topology:
         dataCenter: HB-HL-DC1
-        convergenceSwitch: HB-HL-DC1-102-BORDER-DOMAIN-01
-        accessSwitch: <Leaf名称>
+        room: HB-HL-DC1-102
+        borderSwitch: HB-HL-DC1-102-BORDER-DOMAIN-01
+        leafSwitch: <Leaf Domain ID>
 ```
+
+`borderSwitch/spineSwitch/leafSwitch`字段保存当前物理交换机映射后的逻辑域ID。没有Spine时省略`spineSwitch`，而不是伪造一个Spine值。
 
 Algorithm可以返回Top-3，但PRC不重新评分、不重新排序，只把`candidateNodeGroups[0]`转成正式NGG。
 
@@ -519,8 +562,8 @@ Returned          节点组已归还；当前算法无可行组且旧NGG存在�
 
 参考CRD和样例：
 
-- `config/crd/nodegroupgrant-platform.yaml`
-- `docs/paas-schedbridge-master/crd-deploy/nodegroupgrant-cr-example.yaml`
+- `docs/paas-schedbridge-master-new/crd-deploy/nodegroupgrant-crd.yaml`
+- `docs/paas-schedbridge-master-new/crd-deploy/nodegroupgrant-cr-example.yaml`
 
 ## 9. 一次正式NGD的完整处理流程
 
@@ -611,9 +654,9 @@ go_test_suites/<group>/results/<run-id>/
                      -> Leaf-A <-> Leaf-B
                      -> 20个Worker通过bond0连接双Leaf
 
-NGD最低资源：480 CPU + 1920 GiB
-计算：480/32 = 15，1920/128 = 15
-结果：20个候选 -> Algorithm选择15个 -> 正式NGG写15个
+NGD最低资源：320 CPU + 1280 GiB
+计算：320/32 = 10，1280/128 = 10
+结果：20个候选 -> Algorithm选择10个 -> 正式NGG写10个
 ```
 
 - Active-Backup：只采集`active_slave=eth1`对应Leaf-B；
@@ -692,7 +735,7 @@ ngd-ngg-scheduling-demo/
 ├── prc/                   PRC正式实现
 ├── topology_agent/        LLDP/Bond拓扑采集正式实现
 ├── go_test_suites/        当前统一Go测试
-├── config/                正式CRD、RBAC、部署和拓扑配置
+├── config/                RBAC、组件部署和拓扑配置
 ├── scripts/               环境、构建、部署和测试辅助脚本
 ├── manifests/monitoring/  可选Prometheus监控清单
 ├── docs/                  接口、设计、测试和阶段说明
@@ -716,7 +759,7 @@ ngd-ngg-scheduling-demo/
 | `algorithm_server/` | 核心源码 | 提供Algorithm HTTP服务、缓存Node静态快照和Prometheus指标，并调用Python算法Worker | 是 |
 | `prc/` | 核心源码 | Watch正式NGD、准备静态/动态Node数据、调用Algorithm、生成NGG和更新Status | 是 |
 | `topology_agent/` | 核心源码 | 在每台Worker采集Bond与LLDP信息，并把Node到Leaf事实写入Node元数据 | 是 |
-| `config/` | 部署配置 | 保存正式NGG CRD、RBAC、Deployment/DaemonSet/Service以及上层拓扑配置 | 是 |
+| `config/` | 部署配置 | 保存RBAC、Deployment/DaemonSet/Service以及上层拓扑配置；正式CRD直接使用需求方新版文件 | 是 |
 | `scripts/` | 工程脚本 | 检查环境、构建镜像、安装CRD、部署三个组件以及运行规模测试 | 部署或测试时使用 |
 | `go_test_suites/` | 当前测试 | 统一保存Go Test、Mock输入、Expected、Actual、计时结果和3000 Node规模测试 | 不进入生产进程 |
 | `docs/` | 文档 | 保存需求方原始接口、技术方案、实现说明、测试方案和阶段汇报 | 不进入生产进程 |
@@ -785,8 +828,8 @@ topology_agent/
 
 | 路径 | 内容 |
 |---|---|
-| `config/crd/nodegroupgrant-platform.yaml` | PRC输出的正式NGG CRD |
-| `docs/paas-schedbridge-master/crd-deploy/nodegroupdemand-crd.yaml` | 需求方提供、PRC输入使用的正式NGD CRD |
+| `docs/paas-schedbridge-master-new/crd-deploy/nodegroupgrant-crd.yaml` | 需求方新版正式NGG CRD，PRC按此输出 |
+| `docs/paas-schedbridge-master-new/crd-deploy/nodegroupdemand-crd.yaml` | 需求方新版正式NGD CRD，包含`topologyLabels` |
 | `config/manager/prc.yaml` | PRC Deployment和运行参数 |
 | `config/manager/algorithm.yaml` | Algorithm Deployment、Service和拓扑ConfigMap |
 | `config/manager/lldp-agent.yaml` | 真实LLDP采集DaemonSet |
@@ -864,6 +907,8 @@ groupX/
 - Node静态快照独立同步和Algorithm重启重新确认；
 - Algorithm独立读取并缓存Prometheus指标；
 - 固定`requirement -> topology -> loadbalance`算法链；
+- 联通新版五级`topologyLabels`校验、物理交换机到逻辑域映射和多条件交集；
+- Spine存在时按Spine执行、Spine缺失时回退Border Same并返回Warning；
 - Region到Leaf的上层拓扑解析、空SPINE、显式Border Domain；
 - Active-Backup和802.3ad双Leaf采集规则；
 - In-Cluster和Kubeconfig两种Agent连接方式；

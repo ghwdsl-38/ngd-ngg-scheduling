@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type calculator interface {
@@ -47,15 +48,51 @@ type ParsedPythonResult struct {
 }
 
 type pythonWorker struct {
-	// stdin/stdout 是共享流，互斥锁保证一次写入只匹配一次读取。
-	mu      sync.Mutex
-	command *exec.Cmd
-	stdin   io.WriteCloser
-	stdout  *bufio.Scanner
-	nextID  atomic.Uint64
-	// evidenceDir 仅供演示的 evidence-run 使用。为空时完全不做协议落盘，
-	// 因而 timing-run 不会受到文件 I/O 影响。
+	// gate 是可取消的串行入口；持有者独占当前进程及其管道。
+	gate        chan struct{}
+	ctx         context.Context
+	cancel      context.CancelFunc
+	start       func() (*workerProcess, error)
+	process     *workerProcess
+	nextStart   time.Time
+	closeOnce   sync.Once
+	closeErr    error
+	nextID      atomic.Uint64
 	evidenceDir string
+}
+
+const workerCleanupTimeout = 2 * time.Second
+const workerRestartBackoff = 100 * time.Millisecond
+
+// 每次重启创建独立的 Scanner/管道；旧进程的读取者绝不读取新进程。
+type workerProcess struct {
+	command    *exec.Cmd
+	stdin      io.WriteCloser
+	stdout     *bufio.Scanner
+	stdoutPipe io.ReadCloser
+	stopOnce   sync.Once
+	reaped     chan struct{}
+	stopping   bool // 仅由持有 gate 的调用方访问，不读取 exec.Cmd 的并发内部状态。
+}
+
+// 关闭 OS 管道可以解除阻塞的 Write/Scan；强制终止后限时等待回收。
+// 不把主动终止产生的 ExitError 当成 Close 失败。
+func (p *workerProcess) stop() error {
+	p.stopping = true
+	p.stopOnce.Do(func() {
+		_ = p.stdin.Close()
+		_ = p.stdoutPipe.Close()
+		_ = p.command.Process.Kill()
+		go func() { _ = p.command.Wait(); close(p.reaped) }()
+	})
+	timer := time.NewTimer(workerCleanupTimeout)
+	defer timer.Stop()
+	select {
+	case <-p.reaped:
+		return nil
+	case <-timer.C:
+		return fmt.Errorf("Python worker process cleanup timed out")
+	}
 }
 
 // NewPythonWorker启动一个真实Python算法Worker。
@@ -74,14 +111,27 @@ func NewPythonWorker(ctx context.Context, config WorkerConfig) (*PythonWorker, e
 }
 
 func startPythonWorkerWithPath(ctx context.Context, evidenceDir, pythonPath, command string, arguments ...string) (*pythonWorker, error) {
-	cmd := exec.CommandContext(ctx, command, arguments...)
-	if pythonPath != "" {
-		cmd.Env = append(os.Environ(), "PYTHONPATH="+pythonPath)
+	lifetime, cancel := context.WithCancel(ctx)
+	w := &pythonWorker{ctx: lifetime, cancel: cancel, gate: make(chan struct{}, 1), evidenceDir: evidenceDir}
+	w.start = func() (*workerProcess, error) {
+		cmd := exec.CommandContext(lifetime, command, arguments...)
+		if pythonPath != "" {
+			cmd.Env = append(os.Environ(), "PYTHONPATH="+pythonPath)
+		}
+		return startPythonWorkerCommand(cmd)
 	}
-	return startPythonWorkerCommand(cmd, evidenceDir)
+	var err error
+	w.process, err = w.start()
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	// 父 Context 取消时也回收空闲 Worker，不依赖下一次请求触发清理。
+	go func() { <-lifetime.Done(); _ = w.close() }()
+	return w, nil
 }
 
-func startPythonWorkerCommand(cmd *exec.Cmd, evidenceDir string) (*pythonWorker, error) {
+func startPythonWorkerCommand(cmd *exec.Cmd) (*workerProcess, error) {
 	cmd.Stderr = os.Stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -89,20 +139,74 @@ func startPythonWorkerCommand(cmd *exec.Cmd, evidenceDir string) (*pythonWorker,
 	}
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
+		_ = stdin.Close()
 		return nil, err
 	}
 	scanner := bufio.NewScanner(stdoutPipe)
 	scanner.Buffer(make([]byte, 64*1024), 32*1024*1024)
 	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
+		_ = stdoutPipe.Close()
 		return nil, err
 	}
-	return &pythonWorker{command: cmd, stdin: stdin, stdout: scanner, evidenceDir: evidenceDir}, nil
+	return &workerProcess{command: cmd, stdin: stdin, stdout: scanner, stdoutPipe: stdoutPipe, reaped: make(chan struct{})}, nil
+}
+
+// recycle 只在持有 gate 时调用。未完成回收的进程不能被新进程替代。
+func (w *pythonWorker) recycle() error {
+	if w.process == nil {
+		return nil
+	}
+	if err := w.process.stop(); err != nil {
+		return err
+	}
+	w.process = nil
+	w.nextStart = time.Now().Add(workerRestartBackoff)
+	return nil
+}
+
+func workerTimeout(err error) *apiError {
+	return &apiError{Code: "ALGORITHM_TIMEOUT", Message: err.Error(), Retryable: true, Status: 504}
 }
 
 func (w *pythonWorker) calculate(ctx context.Context, payload workerPayload) (workerResult, *apiError) {
 	// 当前为单 Worker 串行模型；消息 ID 用于检测协议错位。
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return workerResult{}, workerTimeout(ctx.Err())
+	case <-w.ctx.Done():
+		return workerResult{}, internalWorkerError(fmt.Errorf("Python worker is closed"))
+	case w.gate <- struct{}{}:
+	}
+	defer func() { <-w.gate }()
+	if err := ctx.Err(); err != nil {
+		return workerResult{}, workerTimeout(err)
+	}
+	if err := w.ctx.Err(); err != nil {
+		return workerResult{}, internalWorkerError(err)
+	}
+	if w.process != nil && w.process.stopping {
+		if err := w.recycle(); err != nil {
+			return workerResult{}, internalWorkerError(err)
+		}
+	}
+	if w.process == nil {
+		timer := time.NewTimer(time.Until(w.nextStart))
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return workerResult{}, workerTimeout(ctx.Err())
+		case <-w.ctx.Done():
+			return workerResult{}, internalWorkerError(w.ctx.Err())
+		case <-timer.C:
+		}
+		var err error
+		w.process, err = w.start()
+		if err != nil {
+			w.nextStart = time.Now().Add(workerRestartBackoff)
+			return workerResult{}, internalWorkerError(err)
+		}
+	}
 	id := strconv.FormatUint(w.nextID.Add(1), 10)
 	request := workerEnvelope{ID: id, Payload: payload}
 	raw, err := json.Marshal(request)
@@ -112,43 +216,64 @@ func (w *pythonWorker) calculate(ctx context.Context, payload workerPayload) (wo
 	if err := w.appendEvidence("go-to-python-request.jsonl", raw); err != nil {
 		return workerResult{}, internalWorkerError(err)
 	}
-	if _, err := w.stdin.Write(append(raw, '\n')); err != nil {
-		return workerResult{}, internalWorkerError(err)
-	}
 	type scanResult struct {
 		raw []byte
 		err error
 	}
 	done := make(chan scanResult, 1)
+	p := w.process
+	// Write 和 Scan 均在可取消的事务内；取消时关闭这一代进程的管道。
 	go func() {
-		if !w.stdout.Scan() {
-			done <- scanResult{err: w.stdout.Err()}
+		if _, err := p.stdin.Write(append(raw, '\n')); err != nil {
+			done <- scanResult{err: err}
 			return
 		}
-		done <- scanResult{raw: append([]byte(nil), w.stdout.Bytes()...)}
+		if !p.stdout.Scan() {
+			done <- scanResult{err: p.stdout.Err()}
+			return
+		}
+		done <- scanResult{raw: append([]byte(nil), p.stdout.Bytes()...)}
 	}()
 	var scanned scanResult
-	// HTTP 请求超时会立即返回 504；根 Context 取消还会终止 Python 进程。
+	// 请求超时先清理这一代进程，再返回 504，不能遗留读取者给下一请求。
 	select {
 	case <-ctx.Done():
-		return workerResult{}, &apiError{Code: "ALGORITHM_TIMEOUT", Message: ctx.Err().Error(), Retryable: true, Status: 504}
+		_ = w.recycle()
+		<-done // 管道已关闭，等待本次读写者退出后才释放串行入口。
+		return workerResult{}, workerTimeout(ctx.Err())
+	case <-w.ctx.Done():
+		_ = w.recycle()
+		<-done
+		return workerResult{}, internalWorkerError(w.ctx.Err())
 	case scanned = <-done:
 	}
 	if scanned.err != nil {
+		_ = w.recycle()
 		return workerResult{}, internalWorkerError(scanned.err)
 	}
 	if scanned.raw == nil {
+		_ = w.recycle()
 		return workerResult{}, internalWorkerError(fmt.Errorf("Python worker closed stdout"))
 	}
 	if err := w.appendEvidence("python-to-go-response.jsonl", scanned.raw); err != nil {
 		return workerResult{}, internalWorkerError(err)
 	}
-	var response workerEnvelope
+	var response struct {
+		ID     string        `json:"id"`
+		Result *workerResult `json:"result"`
+		Error  *workerError  `json:"error"`
+	}
 	if err := json.Unmarshal(scanned.raw, &response); err != nil {
+		_ = w.recycle()
 		return workerResult{}, internalWorkerError(err)
 	}
 	if response.ID != id {
+		_ = w.recycle()
 		return workerResult{}, internalWorkerError(fmt.Errorf("worker response id %q, want %q", response.ID, id))
+	}
+	if (response.Result == nil) == (response.Error == nil) {
+		_ = w.recycle()
+		return workerResult{}, internalWorkerError(fmt.Errorf("worker response must contain exactly one of result or error"))
 	}
 	if response.Error != nil {
 		status := response.Error.Status
@@ -157,7 +282,7 @@ func (w *pythonWorker) calculate(ctx context.Context, payload workerPayload) (wo
 		}
 		return workerResult{}, &apiError{RequestID: response.Error.RequestID, Code: response.Error.Code, Message: response.Error.Message, Retryable: response.Error.Retryable, Status: status}
 	}
-	return response.Result, nil
+	return *response.Result, nil
 }
 
 // Calculate把通用JSON对象转换为正式Worker Payload并返回通用JSON结果。
@@ -241,11 +366,22 @@ func (w *pythonWorker) appendEvidence(name string, raw []byte) error {
 }
 
 func (w *pythonWorker) close() error {
-	_ = w.stdin.Close()
-	return w.command.Wait()
+	w.closeOnce.Do(func() {
+		w.cancel()
+		timer := time.NewTimer(2 * workerCleanupTimeout)
+		defer timer.Stop()
+		select {
+		case w.gate <- struct{}{}:
+			defer func() { <-w.gate }()
+			w.closeErr = w.recycle()
+		case <-timer.C:
+			w.closeErr = fmt.Errorf("Python worker shutdown timed out waiting for active request")
+		}
+	})
+	return w.closeErr
 }
 
-// Close要求Python Worker读到EOF后正常退出，可重复调用由Application统一保证。
+// Close取消排队和执行中的请求、终止并回收子进程，可重复调用。
 func (w *PythonWorker) Close() error { return w.inner.close() }
 
 func (w *PythonWorker) close() error { return w.Close() }

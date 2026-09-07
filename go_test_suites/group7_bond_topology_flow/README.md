@@ -23,26 +23,26 @@ Group7的每个子场景都使用一套独立的20节点环境；`active-backup`
                     └── Worker Node：20个（worker-0001 ～ worker-0020）
                          └── 每个Node通过bond0物理连接Leaf-A和Leaf-B
 
-NGD最低需求：480 CPU + 1920 GiB内存
+NGD最低需求：320 CPU + 1280 GiB内存
 单Node容量：  32 CPU + 128 GiB内存 + 4 GPU
-最低节点数：  max(480/32, 1920/128) = 15
+最低节点数：  max(320/32, 1280/128) = 10
 
-实际结果：20个候选Node -> Algorithm选择15个 -> NGG写入15个
-未选结果：其余5个Node不进入本次NGG
+实际结果：20个候选Node -> Algorithm选择10个 -> NGG写入10个
+未选结果：其余10个Node不进入本次NGG
 ```
 
 | 项目 | Group7实际配置 |
 |---|---:|
 | 每个子场景的静态Node总数 | 20 |
 | 单Node资源 | 32 CPU、128 GiB内存、4 GPU |
-| NGD最低资源 | 480 CPU、1920 GiB内存 |
+| NGD最低资源 | 320 CPU、1280 GiB内存 |
 | NGD允许的最大Node数 | 18 |
 | Algorithm返回候选组数 | 1个Leaf Domain组 |
-| Algorithm最终选中Node数 | 15 |
-| NGG中写入Node数 | 15 |
-| 未进入NGG的Node数 | 5 |
+| Algorithm最终选中Node数 | 10 |
+| NGG中写入Node数 | 10 |
+| 未进入NGG的Node数 | 10 |
 
-算法先把两个互为Peer的Leaf归并成唯一Leaf Domain，再在这个域内按负载指标排序并逐个累加节点资源；累加到第15个节点时已经满足NGD最低CPU和内存需求，因此停止选择，不会为了用满`maxNodes=18`而继续增加节点。
+算法先把两个互为Peer的Leaf归并成唯一Leaf Domain，再在这个域内按负载指标排序并逐个累加节点资源；累加到第10个节点时已经满足NGD最低CPU和内存需求，因此停止选择，不会为了用满`maxNodes=18`而继续增加节点。
 
 ## 2. 两种Bond拓扑图
 
@@ -200,7 +200,7 @@ Expected Summary验证：
 - Node最终保存的Leaf集合；
 - PRC静态快照中每个Node的Leaf数量；
 - Algorithm只返回一个Leaf Domain组；
-- Algorithm和NGG均选择15个不重复Node。
+- Algorithm和NGG均选择10个不重复Node。
 
 ## 6. 运行方式
 

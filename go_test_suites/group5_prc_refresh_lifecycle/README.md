@@ -30,9 +30,9 @@
         ↓
 启动完整PRC Application
         ↓
-创建NGD(minResources对应15个Node，maxNodes=18)
+创建包含五级topologyLabels的NGD(minResources对应10个Node，maxNodes=18)
         ↓
-等待第一次Algorithm调用和NGG Active(15 Node)
+等待第一次Algorithm调用和NGG Active(10 Node)
         ↓
 模拟消费方SSA写入status.consumer
         ↓
@@ -40,9 +40,9 @@
         ↓
 确认NGD generation不变、consumer仍保留
         ↓
-修改NGD资源需求为10个Node
+修改NGD资源需求为6个Node
         ↓
-等待generation=2、重新计算、原NGG更新为10 Node
+等待generation=2、重新计算、原NGG更新为6 Node
         ↓
 删除NGD
         ↓
@@ -86,13 +86,13 @@ go_test_suites/group5_prc_refresh_lifecycle/results/<timestamp>/actual/
 
 ## 本次回归结果
 
-2026-09-03 使用1000 Node Fixture执行 `make go-test-all`，Group5结果如下：
+2026-09-04 使用1000 Node Fixture执行新版`topologyLabels`回归，Group5结果如下：
 
 | 阶段 | 结果 | 耗时 |
 |---|---|---:|
-| 首次创建 | NGD generation=1，NGG Active，15 Node | 386.813 ms |
-| 无修改周期刷新 | NGD generation仍为1，consumer保持不变 | 518.442 ms |
-| 修改需求 | NGD generation=2，原NGG更新为10 Node | 288.958 ms |
-| 删除需求 | NGG删除，后续无新增Algorithm调用 | 14.803 ms |
+| 首次创建 | NGD generation=1，NGG Active，10 Node | 336.986 ms |
+| 无修改周期刷新 | NGD generation仍为1，consumer保持不变 | 455.210 ms |
+| 修改需求 | NGD generation=2，原NGG更新为6 Node | 208.807 ms |
+| 删除需求 | NGG删除，后续无新增Algorithm调用 | 14.358 ms |
 
 周期耗时包含配置的250毫秒等待；其他阶段均从对应 Kubernetes 操作开始，到目标 Kubernetes 对象状态可读取为止。不同机器上数值会有波动，正确性以测试断言为准。

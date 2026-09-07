@@ -74,7 +74,7 @@ metadata:
   namespace: ngd-ngg-system
 data:
   topology.yaml: |
-    version: unicom-huabei-huailai-v1
+    version: unicom-huailai-102-v1
     scopes:
       regions:
         - {id: CN-NORTH, name: 华北}
@@ -85,39 +85,26 @@ data:
       rooms:
         - {id: HB-HL-DC1-102, name: 102机房, dataCenterId: HB-HL-DC1}
     borderDomains:
-      HB-HL-DC1-102-BD-A:
+      HB-HL-DC1-102-BORDER-DOMAIN-01:
         roomId: HB-HL-DC1-102
-        mode: active-active
+        mode: exact-set
         members: [HB-HL-DC1-102-C03-02U-LTY-CSQ-BORDER-SW01-ZTE9904X, HB-HL-DC1-102-D03-02U-LTY-CSQ-BORDER-SW02-ZTE9904X]
-      HB-HL-DC1-102-BD-B:
-        roomId: HB-HL-DC1-102
-        mode: active-active
-        members: [HB-HL-DC1-102-C05-02U-LTY-CSQ-BORDER-SW03-ZTE9904X, HB-HL-DC1-102-D05-02U-LTY-CSQ-BORDER-SW04-ZTE9904X]
-      HB-HL-DC1-102-BD-C:
-        roomId: HB-HL-DC1-102
-        mode: active-active
-        members: [HB-HL-DC1-102-C07-02U-LTY-CSQ-BORDER-SW05-ZTE9904X, HB-HL-DC1-102-D07-02U-LTY-CSQ-BORDER-SW06-ZTE9904X]
     leafMetrics:
-      switch-a: {bandwidthGbps: 20, latencyMillis: 1.5}
-      switch-b: {bandwidthGbps: 10, latencyMillis: 5}
-      switch-c: {bandwidthGbps: 25, latencyMillis: 1}
+      HB-HL-DC1-102-C03-44U-LTY-CSQ-LEAF-SW01-ZTE5960X: {bandwidthGbps: 20, latencyMillis: 1.5}
+      HB-HL-DC1-102-C04-44U-LTY-CSQ-LEAF-SW02-ZTE5960X: {bandwidthGbps: 20, latencyMillis: 1.5}
     topology:
       HB-HL-DC1-102:
-        switch-a:
+        HB-HL-DC1-102-C03-44U-LTY-CSQ-LEAF-SW01-ZTE5960X:
           SPINE: {}
           BORDER:
             HB-HL-DC1-102-C03-02U-LTY-CSQ-BORDER-SW01-ZTE9904X: {local_port: cgei-0/1/1/51, peer_port: cgei-0/3/0/9}
             HB-HL-DC1-102-D03-02U-LTY-CSQ-BORDER-SW02-ZTE9904X: {local_port: cgei-0/1/1/53, peer_port: cgei-0/3/0/9}
-          LEAF: {}
-        switch-b:
+          LEAF:
+            HB-HL-DC1-102-C04-44U-LTY-CSQ-LEAF-SW02-ZTE5960X: {local_port: cgei-0/1/1/54, peer_port: cgei-0/1/1/54}
+        HB-HL-DC1-102-C04-44U-LTY-CSQ-LEAF-SW02-ZTE5960X:
           SPINE: {}
           BORDER:
-            HB-HL-DC1-102-C05-02U-LTY-CSQ-BORDER-SW03-ZTE9904X: {local_port: cgei-0/1/1/51, peer_port: cgei-0/3/0/9}
-            HB-HL-DC1-102-D05-02U-LTY-CSQ-BORDER-SW04-ZTE9904X: {local_port: cgei-0/1/1/53, peer_port: cgei-0/3/0/9}
-          LEAF: {}
-        switch-c:
-          SPINE: {}
-          BORDER:
-            HB-HL-DC1-102-C07-02U-LTY-CSQ-BORDER-SW05-ZTE9904X: {local_port: cgei-0/1/1/51, peer_port: cgei-0/3/0/9}
-            HB-HL-DC1-102-D07-02U-LTY-CSQ-BORDER-SW06-ZTE9904X: {local_port: cgei-0/1/1/53, peer_port: cgei-0/3/0/9}
-          LEAF: {}
+            HB-HL-DC1-102-C03-02U-LTY-CSQ-BORDER-SW01-ZTE9904X: {local_port: cgei-0/1/1/51, peer_port: cgei-0/3/0/10}
+            HB-HL-DC1-102-D03-02U-LTY-CSQ-BORDER-SW02-ZTE9904X: {local_port: cgei-0/1/1/53, peer_port: cgei-0/3/0/10}
+          LEAF:
+            HB-HL-DC1-102-C03-44U-LTY-CSQ-LEAF-SW01-ZTE5960X: {local_port: cgei-0/1/1/54, peer_port: cgei-0/1/1/54}

@@ -151,7 +151,7 @@ func TestGroup5_PRCPeriodicRefreshUpdateAndDelete(t *testing.T) {
 		t.Fatal("Refresh Controller did not invoke Demand Processor within 10s")
 	}
 
-	initialGrant := waitForGrant(t, waitContext, apiClient, 15)
+	initialGrant := waitForGrant(t, waitContext, apiClient, 10)
 	initialDemand := waitForDemandPhase(t, waitContext, apiClient, "Fulfilled")
 	initialCompletedAt := time.Now()
 	if initialDemand.GetGeneration() != 1 {
@@ -179,7 +179,7 @@ func TestGroup5_PRCPeriodicRefreshUpdateAndDelete(t *testing.T) {
 	waitForAllocateCount(t, waitContext, &exchangeMu, &exchanges, initialCalls+1)
 	initialLastUpdated, _, _ := unstructured.NestedString(initialDemand.Object, "status", "lastUpdated")
 	periodicDemand := waitForDemandRefresh(t, waitContext, apiClient, initialLastUpdated)
-	periodicGrant := waitForGrant(t, waitContext, apiClient, 15)
+	periodicGrant := waitForGrant(t, waitContext, apiClient, 10)
 	periodicCompletedAt := time.Now()
 	if periodicDemand.GetGeneration() != initialDemand.GetGeneration() {
 		t.Fatalf("periodic refresh changed NGD generation: before=%d after=%d", initialDemand.GetGeneration(), periodicDemand.GetGeneration())
@@ -189,7 +189,7 @@ func TestGroup5_PRCPeriodicRefreshUpdateAndDelete(t *testing.T) {
 		t.Fatalf("PRC refresh overwrote consumer status: %#v", actualConsumer)
 	}
 
-	// Reduce the resource demand from 15 to 10 Nodes while the old NGG remains
+	// Reduce the resource demand from 10 to 6 Nodes while the old NGG remains
 	// available. The new generation must update the same NGG object.
 	latestDemand := &unstructured.Unstructured{}
 	latestDemand.SetGroupVersionKind(demandGVK)
@@ -197,9 +197,9 @@ func TestGroup5_PRCPeriodicRefreshUpdateAndDelete(t *testing.T) {
 		t.Fatalf("get NGD for update: %v", err)
 	}
 	spec, _, _ := unstructured.NestedMap(latestDemand.Object, "spec")
-	spec["maxNodes"] = int64(10)
-	spec["quota"] = map[string]any{"cpu": "320", "memory": "1280Gi"}
-	spec["minResources"] = map[string]any{"cpu": "320", "memory": "1280Gi"}
+	spec["maxNodes"] = int64(6)
+	spec["quota"] = map[string]any{"cpu": "192", "memory": "768Gi"}
+	spec["minResources"] = map[string]any{"cpu": "192", "memory": "768Gi"}
 	if err := unstructured.SetNestedMap(latestDemand.Object, spec, "spec"); err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestGroup5_PRCPeriodicRefreshUpdateAndDelete(t *testing.T) {
 	if err := apiClient.Update(waitContext, latestDemand); err != nil {
 		t.Fatalf("update NGD spec: %v", err)
 	}
-	updatedGrant := waitForGrant(t, waitContext, apiClient, 10)
+	updatedGrant := waitForGrant(t, waitContext, apiClient, 6)
 	updatedDemand := waitForDemandPhase(t, waitContext, apiClient, "Fulfilled")
 	updateCompletedAt := time.Now()
 	if updatedDemand.GetGeneration() != 2 {
@@ -246,9 +246,9 @@ func TestGroup5_PRCPeriodicRefreshUpdateAndDelete(t *testing.T) {
 	_ = common.WriteJSON(filepath.Join(actualDirectory, "07-algorithm-exchanges.json"), exchangeEvidence(snapshotExchanges(&exchangeMu, &exchanges)))
 	_ = common.WriteJSON(filepath.Join(actualDirectory, "08-lifecycle-summary.json"), map[string]any{
 		"refreshInterval": refreshInterval.String(), "algorithmAllocateCalls": callsAfterDeleteSettled,
-		"initial":  map[string]any{"ngdGeneration": initialDemand.GetGeneration(), "nggGeneration": initialGrant.GetGeneration(), "nodeCount": 15, "elapsedMs": elapsedMillis(createdAt, initialCompletedAt)},
-		"periodic": map[string]any{"ngdGeneration": periodicDemand.GetGeneration(), "nggGeneration": periodicGrant.GetGeneration(), "nodeCount": 15, "elapsedMs": elapsedMillis(periodicStartedAt, periodicCompletedAt)},
-		"update":   map[string]any{"ngdGeneration": updatedDemand.GetGeneration(), "nggGeneration": updatedGrant.GetGeneration(), "nodeCount": 10, "elapsedMs": elapsedMillis(updateStartedAt, updateCompletedAt)},
+		"initial":  map[string]any{"ngdGeneration": initialDemand.GetGeneration(), "nggGeneration": initialGrant.GetGeneration(), "nodeCount": 10, "elapsedMs": elapsedMillis(createdAt, initialCompletedAt)},
+		"periodic": map[string]any{"ngdGeneration": periodicDemand.GetGeneration(), "nggGeneration": periodicGrant.GetGeneration(), "nodeCount": 10, "elapsedMs": elapsedMillis(periodicStartedAt, periodicCompletedAt)},
+		"update":   map[string]any{"ngdGeneration": updatedDemand.GetGeneration(), "nggGeneration": updatedGrant.GetGeneration(), "nodeCount": 6, "elapsedMs": elapsedMillis(updateStartedAt, updateCompletedAt)},
 		"delete":   map[string]any{"nggDeleted": true, "elapsedMs": elapsedMillis(deleteStartedAt, deleteCompletedAt)},
 	})
 	t.Logf("initial=%.3fms periodic=%.3fms update=%.3fms delete=%.3fms calls=%d", elapsedMillis(createdAt, initialCompletedAt), elapsedMillis(periodicStartedAt, periodicCompletedAt), elapsedMillis(updateStartedAt, updateCompletedAt), elapsedMillis(deleteStartedAt, deleteCompletedAt), callsAfterDeleteSettled)

@@ -83,8 +83,23 @@ type topologyCache struct {
 	snapshotID        string
 	version           string
 	byLeaf            map[string]resolvedLeafTopology
+	dataCenters       map[string]struct{}
+	rooms             map[string]struct{}
+	borderAliases     map[string]string
+	spineAliases      map[string]string
+	leafAliases       map[string]string
 	roomCount         int
 	borderDomainCount int
+}
+
+const requiredSame = "requiredSame"
+
+var demandTopologyKeys = map[string]string{
+	"topology.kubernetes.io/data-center":   "dataCenter",
+	"topology.kubernetes.io/room":          "room",
+	"topology.kubernetes.io/border-switch": "borderDomain",
+	"topology.kubernetes.io/spine-switch":  "spineDomain",
+	"topology.kubernetes.io/leaf-switch":   "leafDomain",
 }
 
 func loadTopologyCache(path string, data []byte) (*topologyCache, error) {
@@ -223,13 +238,217 @@ func normalizeTopologyConfig(config networkTopologyConfig) (*topologyCache, erro
 	if err := assignLeafDomains(byLeaf); err != nil {
 		return nil, err
 	}
+	borderAliases := map[string]string{}
+	spineAliases := map[string]string{}
+	leafAliases := map[string]string{}
+	for _, leaf := range byLeaf {
+		if err := addTopologyAlias(borderAliases, leaf.BorderDomainID, leaf.BorderDomainID, "Border"); err != nil {
+			return nil, err
+		}
+		for _, switchID := range leaf.BorderSwitchIDs {
+			if err := addTopologyAlias(borderAliases, switchID, leaf.BorderDomainID, "Border"); err != nil {
+				return nil, err
+			}
+		}
+		if leaf.SpineDomainID != "" {
+			if err := addTopologyAlias(spineAliases, leaf.SpineDomainID, leaf.SpineDomainID, "Spine"); err != nil {
+				return nil, err
+			}
+			for _, switchID := range leaf.SpineSwitchIDs {
+				if err := addTopologyAlias(spineAliases, switchID, leaf.SpineDomainID, "Spine"); err != nil {
+					return nil, err
+				}
+			}
+		}
+		if err := addTopologyAlias(leafAliases, leaf.LeafDomainID, leaf.LeafDomainID, "Leaf"); err != nil {
+			return nil, err
+		}
+		for _, switchID := range leaf.LeafDomainLeaves {
+			if err := addTopologyAlias(leafAliases, switchID, leaf.LeafDomainID, "Leaf"); err != nil {
+				return nil, err
+			}
+		}
+	}
 
 	identity := map[string]any{"version": config.Version, "scopes": config.Scopes, "borderDomains": config.BorderDomains, "leafMetrics": config.LeafMetrics, "topology": config.Topology}
 	id, err := canonicalHash(identity)
 	if err != nil {
 		return nil, err
 	}
-	return &topologyCache{snapshotID: id, version: config.Version, byLeaf: byLeaf, roomCount: len(rooms), borderDomainCount: len(config.BorderDomains)}, nil
+	return &topologyCache{
+		snapshotID: id, version: config.Version, byLeaf: byLeaf,
+		dataCenters: stringSet(sortedKeys(dataCenters)), rooms: stringSet(sortedKeys(rooms)),
+		borderAliases: borderAliases, spineAliases: spineAliases, leafAliases: leafAliases,
+		roomCount: len(rooms), borderDomainCount: len(config.BorderDomains),
+	}, nil
+}
+
+func addTopologyAlias(aliases map[string]string, alias, domain, kind string) error {
+	if alias == "" || domain == "" {
+		return fmt.Errorf("%s topology alias and domain must not be empty", kind)
+	}
+	if existing, found := aliases[alias]; found && existing != domain {
+		return fmt.Errorf("%s switch %q maps to multiple logical domains: %q and %q", kind, alias, existing, domain)
+	}
+	aliases[alias] = domain
+	return nil
+}
+
+func stringSet(values []string) map[string]struct{} {
+	result := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		result[value] = struct{}{}
+	}
+	return result
+}
+
+// resolveDemandTopologyLabels validates the China Unicom topologyLabels map
+// and converts physical Border/Spine/Leaf names into stable logical-domain
+// IDs. The original NGD remains unchanged; topologyConstraints is an internal
+// Go-to-Python field for this calculation only.
+func (c *topologyCache) resolveDemandTopologyLabels(request map[string]any) (map[string]any, []string, error) {
+	ngd, ok := request["ngd"].(map[string]any)
+	if !ok {
+		return nil, nil, nil
+	}
+	raw, exists := ngd["topologyLabels"]
+	if !exists || raw == nil {
+		return nil, nil, nil
+	}
+	labels, ok := raw.(map[string]any)
+	if !ok {
+		return nil, nil, fmt.Errorf("spec.topologyLabels must be an object")
+	}
+	requested := make(map[string]string, len(labels))
+	for key, rawValue := range labels {
+		level, supported := demandTopologyKeys[key]
+		if !supported {
+			return nil, nil, fmt.Errorf("spec.topologyLabels key %q is unsupported; supported levels are data-center, room, border-switch, spine-switch and leaf-switch", key)
+		}
+		value, ok := rawValue.(string)
+		value = strings.TrimSpace(value)
+		if !ok || value == "" {
+			return nil, nil, fmt.Errorf("spec.topologyLabels[%q] must be a non-empty string", key)
+		}
+		requested[level] = value
+	}
+
+	constraints := map[string]any{}
+	if err := resolveScopeConstraint(constraints, requested, "dataCenter", c.dataCenters); err != nil {
+		return nil, nil, err
+	}
+	if err := resolveScopeConstraint(constraints, requested, "room", c.rooms); err != nil {
+		return nil, nil, err
+	}
+	if err := resolveDomainConstraint(constraints, requested, "borderDomain", c.borderAliases); err != nil {
+		return nil, nil, err
+	}
+	if err := resolveDomainConstraint(constraints, requested, "leafDomain", c.leafAliases); err != nil {
+		return nil, nil, err
+	}
+	if !c.hasMatchingLeaf(constraints, false) {
+		return nil, nil, fmt.Errorf("spec.topologyLabels selects no Leaf in the configured topology")
+	}
+
+	warnings := []string{}
+	if value, requestedSpine := requested["spineDomain"]; requestedSpine {
+		if value == requiredSame {
+			if c.hasSpineInMatchingScope(constraints) {
+				constraints["spineDomain"] = requiredSame
+			} else {
+				fallback := fallbackToBorderSame(constraints)
+				warnings = append(warnings, "SPINE_EMPTY_FALLBACK: requested same Spine but the matching topology scope has no Spine; "+fallback)
+			}
+		} else if domain, found := c.spineAliases[value]; found {
+			constraints["spineDomain"] = domain
+			if !c.hasMatchingLeaf(constraints, true) {
+				return nil, nil, fmt.Errorf("spec.topologyLabels Spine %q conflicts with the other topology constraints", value)
+			}
+		} else {
+			fallback := fallbackToBorderSame(constraints)
+			warnings = append(warnings, fmt.Sprintf("SPINE_NOT_FOUND_FALLBACK: Spine %q is absent from the configured topology; %s", value, fallback))
+		}
+	}
+	return constraints, warnings, nil
+}
+
+func resolveScopeConstraint(constraints map[string]any, requested map[string]string, level string, known map[string]struct{}) error {
+	value, exists := requested[level]
+	if !exists {
+		return nil
+	}
+	if value != requiredSame {
+		if _, found := known[value]; !found {
+			return fmt.Errorf("spec.topologyLabels %s %q is absent from the configured topology", level, value)
+		}
+	}
+	constraints[level] = value
+	return nil
+}
+
+func resolveDomainConstraint(constraints map[string]any, requested map[string]string, level string, aliases map[string]string) error {
+	value, exists := requested[level]
+	if !exists {
+		return nil
+	}
+	if value == requiredSame {
+		constraints[level] = value
+		return nil
+	}
+	domain, found := aliases[value]
+	if !found {
+		return fmt.Errorf("spec.topologyLabels %s switch or domain %q is absent from the configured topology", level, value)
+	}
+	constraints[level] = domain
+	return nil
+}
+
+func fallbackToBorderSame(constraints map[string]any) string {
+	if existing, alreadyConstrained := constraints["borderDomain"]; alreadyConstrained {
+		delete(constraints, "spineDomain")
+		return fmt.Sprintf("using existing border-switch constraint %q", stringValue(existing))
+	}
+	constraints["borderDomain"] = requiredSame
+	delete(constraints, "spineDomain")
+	return "using border-switch=requiredSame"
+}
+
+func (c *topologyCache) hasSpineInMatchingScope(constraints map[string]any) bool {
+	for _, leaf := range c.byLeaf {
+		if topologyLeafMatches(leaf, constraints, false) && leaf.SpineDomainID != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *topologyCache) hasMatchingLeaf(constraints map[string]any, includeSpine bool) bool {
+	for _, leaf := range c.byLeaf {
+		if topologyLeafMatches(leaf, constraints, includeSpine) {
+			return true
+		}
+	}
+	return false
+}
+
+func topologyLeafMatches(leaf resolvedLeafTopology, constraints map[string]any, includeSpine bool) bool {
+	values := map[string]string{
+		"dataCenter": leaf.DataCenterID, "room": leaf.RoomID,
+		"borderDomain": leaf.BorderDomainID, "leafDomain": leaf.LeafDomainID,
+	}
+	if includeSpine {
+		values["spineDomain"] = leaf.SpineDomainID
+	}
+	for level, actual := range values {
+		expected, exists := constraints[level]
+		if !exists || expected == requiredSame {
+			continue
+		}
+		if stringValue(expected) != actual {
+			return false
+		}
+	}
+	return true
 }
 
 // assignLeafDomains turns a configured pair of peer Leaves into one stable,

@@ -134,6 +134,8 @@ class PipelineRunner:
             common.update({
                 "availableNodeCount": len(context.current_nodes),
                 "availableNodes": self._node_refs(context.current_nodes),
+                "requestedTopologyLabels": context.request.get("ngd", {}).get("topologyLabels", {}),
+                "effectiveTopologyConstraints": context.request.get("topologyConstraints", {}),
                 "podMinimums": context.pod_minimums,
             })
         elif stage == AlgorithmStage.SCORE:

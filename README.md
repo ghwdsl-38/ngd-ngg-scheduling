@@ -18,7 +18,7 @@ Leaf以上拓扑配置 ───────────────────
 - `algorithm_server/go/`：Go Algorithm 主进程。提供 HTTP API，维护静态拓扑、Node 静态快照和 Prometheus 指标缓存，并管理一个长期 Python Worker。
 - `algorithm_server/python/algorithm_worker/`：Python 算法实现，固定执行需求过滤、拓扑分组和负载评分。
 - `go_test_suites/`：统一 Go Test，包括组件调用、PRC 全链路、周期刷新、3000 Node 性能矩阵和双 Leaf/Bond 测试。
-- `config/crd/`：正式 NGG CRD；正式 NGD CRD使用需求方提供的原始文件。
+- `docs/paas-schedbridge-master-new/crd-deploy/`：需求方新版正式 NGD/NGG CRD，部署和envtest共同使用。
 - `config/manager/`、`config/rbac/`：三个组件的通用 Kubernetes 部署和最小权限。
 - `config/topology/`：Algorithm 使用的 Leaf 以上静态拓扑配置。
 - `docs/`：设计、接口、测试和阶段说明。
@@ -78,6 +78,19 @@ make algorithm-1000-demo
 
 ## 构建与部署
 
+真实集群优先使用新的统一入口：[deploy/README.md](deploy/README.md)。集群内和集群外部署均修改 `deploy/config.local.json`，自动生成镜像、拓扑、Prometheus 和认证配置：
+
+```bash
+python3 deploy/deploy.py init
+# 按 deploy/README.md 填写配置，并完成首次 bootstrap。
+python3 deploy/deploy.py kubernetes up   # 集群内方式
+# 或：
+python3 deploy/deploy.py external up     # 集群外管理服务器
+python3 deploy/deploy.py node up --node-name worker-001  # 各 Worker 上的 LLDP
+```
+
+下面为旧脚本入口，仍使用 `config/manager/` 下的 YAML，不读取新入口配置；请勿混用。
+
 构建三个镜像：
 
 ```bash
@@ -106,8 +119,8 @@ KUBE_CONTEXT=<context-name> make deploy
 - `config/manager/lldp-agent-kubeconfig-patch.yaml`：需要外部 Kubeconfig 身份时使用的补丁示例。
 - `config/manager/algorithm.yaml`：Algorithm、Prometheus与上层拓扑挂载。
 - `config/manager/prc.yaml`：PRC、Algorithm地址和刷新周期。
-- `docs/paas-schedbridge-master/crd-deploy/nodegroupdemand-crd.yaml`：需求方正式 NGD。
-- `config/crd/nodegroupgrant-platform.yaml`：当前正式 NGG。
+- `docs/paas-schedbridge-master-new/crd-deploy/nodegroupdemand-crd.yaml`：需求方新版正式 NGD。
+- `docs/paas-schedbridge-master-new/crd-deploy/nodegroupgrant-crd.yaml`：需求方新版正式 NGG。
 
 ## 已验证边界
 

@@ -34,8 +34,8 @@ func StartEnvTest(t *testing.T) *TestEnvironment {
 	ctrl.SetLogger(logr.Discard())
 	root := ProjectRoot()
 	paths := []string{
-		filepath.Join(root, "docs", "paas-schedbridge-master", "crd-deploy", "nodegroupdemand-crd.yaml"),
-		filepath.Join(root, "docs", "paas-schedbridge-master", "crd-deploy", "nodegroupgrant-crd.yaml"),
+		filepath.Join(root, "docs", "paas-schedbridge-master-new", "crd-deploy", "nodegroupdemand-crd.yaml"),
+		filepath.Join(root, "docs", "paas-schedbridge-master-new", "crd-deploy", "nodegroupgrant-crd.yaml"),
 	}
 	crds := make([]*extensionsv1.CustomResourceDefinition, 0, len(paths))
 	for _, path := range paths {

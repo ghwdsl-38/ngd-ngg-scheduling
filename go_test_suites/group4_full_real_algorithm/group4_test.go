@@ -241,6 +241,14 @@ func TestGroup4_PRCWatchesNGDCallsRealAlgorithmAndCreatesNGG(t *testing.T) {
 		t.Fatalf("NGD Reconcile issued static PUTs: before=%d after=%d", putCountBeforeDemand, got)
 	}
 	algorithmRequest, algorithmResponse := findAllocateExchange(t, exchangeCopy)
+	requestNGD, ok := algorithmRequest["ngd"].(map[string]any)
+	if !ok {
+		t.Fatal("PRC Allocate request does not contain the original NGD spec")
+	}
+	topologyLabels, ok := requestNGD["topologyLabels"].(map[string]any)
+	if !ok || len(topologyLabels) != 5 {
+		t.Fatalf("PRC topologyLabels=%v, want all five China Unicom levels", requestNGD["topologyLabels"])
+	}
 	groups, ok := algorithmResponse["candidateNodeGroups"].([]any)
 	if !ok || len(groups) == 0 || len(groups) > 3 {
 		t.Fatalf("real Algorithm groups=%d, want 1..3", len(groups))
@@ -256,15 +264,32 @@ func TestGroup4_PRCWatchesNGDCallsRealAlgorithmAndCreatesNGG(t *testing.T) {
 	}
 	grantNodes, _, _ := unstructured.NestedSlice(grant.Object, "spec", "nodes")
 	firstGroup := groups[0].(map[string]any)
+	if got := fmt.Sprint(firstGroup["topologyLevel"]); got != "leafDomain" {
+		t.Fatalf("topologyLevel=%s, want leafDomain because leaf-switch=requiredSame", got)
+	}
+	warnings, _ := algorithmResponse["warnings"].([]any)
+	if len(warnings) != 1 || !strings.Contains(fmt.Sprint(warnings[0]), "SPINE_NOT_FOUND_FALLBACK") {
+		t.Fatalf("warnings=%v, want missing-Spine to Border-Same fallback", warnings)
+	}
 	selectedNodes := firstGroup["nodes"].([]any)
 	if len(grantNodes) != len(selectedNodes) {
 		t.Fatalf("NGG nodes=%d, rank1 nodes=%d", len(grantNodes), len(selectedNodes))
 	}
 	for index := range grantNodes {
-		grantName := fmt.Sprint(grantNodes[index].(map[string]any)["name"])
+		grantNode := grantNodes[index].(map[string]any)
+		grantName := fmt.Sprint(grantNode["name"])
 		algorithmName := fmt.Sprint(selectedNodes[index].(map[string]any)["nodeName"])
 		if grantName != algorithmName {
 			t.Fatalf("NGG node[%d]=%s, Algorithm=%s", index, grantName, algorithmName)
+		}
+		topology, _ := grantNode["topology"].(map[string]any)
+		for _, field := range []string{"dataCenter", "room", "borderSwitch", "leafSwitch"} {
+			if fmt.Sprint(topology[field]) == "" {
+				t.Fatalf("NGG node[%d] topology.%s is empty: %v", index, field, topology)
+			}
+		}
+		if _, found := topology["spineSwitch"]; found {
+			t.Fatalf("NGG must omit spineSwitch when configured SPINE is empty: %v", topology)
 		}
 	}
 	if len(prometheus.Requests()) < 14 {

@@ -1,8 +1,13 @@
 package algorithm
 
 import (
+	"bytes"
+	"io"
 	"os"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 const unicomTopologyFixture = `
@@ -128,5 +133,107 @@ func TestRepositoryTopologyConfigurationsAreValid(t *testing.T) {
 		if _, err := loadTopologyCache("", raw); err != nil {
 			t.Fatalf("validate %s: %v", path, err)
 		}
+	}
+}
+
+func TestDeployedAlgorithmConfigMapContainsValidTopology(t *testing.T) {
+	raw, err := os.ReadFile("../../../config/manager/algorithm.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(raw))
+	topologyData := ""
+	for {
+		var manifest struct {
+			Data map[string]string `yaml:"data"`
+		}
+		if err := decoder.Decode(&manifest); err != nil {
+			if err == io.EOF {
+				break
+			}
+			t.Fatalf("decode Algorithm manifest: %v", err)
+		}
+		if candidate := manifest.Data["topology.yaml"]; candidate != "" {
+			topologyData = candidate
+			break
+		}
+	}
+	if topologyData == "" {
+		t.Fatal("Algorithm ConfigMap does not contain data.topology.yaml")
+	}
+	if _, err := loadTopologyCache("", []byte(topologyData)); err != nil {
+		t.Fatalf("validate deployed Algorithm topology: %v", err)
+	}
+}
+
+func TestDemandTopologyLabelsMapPhysicalSwitchesAndFallbackFromMissingSpine(t *testing.T) {
+	cache, err := loadTopologyCache("", []byte(unicomTopologyFixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := map[string]any{"ngd": map[string]any{"topologyLabels": map[string]any{
+		"topology.kubernetes.io/data-center":   "HB-HL-DC1",
+		"topology.kubernetes.io/room":          "HB-HL-DC1-102",
+		"topology.kubernetes.io/border-switch": "requiredSame",
+		"topology.kubernetes.io/spine-switch":  "spine-01",
+		"topology.kubernetes.io/leaf-switch":   "requiredSame",
+	}}}
+	constraints, warnings, err := cache.resolveDemandTopologyLabels(request)
+	if err != nil {
+		t.Fatalf("resolve topologyLabels: %v", err)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "SPINE_NOT_FOUND_FALLBACK") {
+		t.Fatalf("warnings=%v, want missing-Spine fallback", warnings)
+	}
+	for key, want := range map[string]string{
+		"dataCenter": "HB-HL-DC1", "room": "HB-HL-DC1-102",
+		"borderDomain": requiredSame, "leafDomain": requiredSame,
+	} {
+		if got := stringValue(constraints[key]); got != want {
+			t.Fatalf("constraint %s=%q, want %q; all=%v", key, got, want, constraints)
+		}
+	}
+	if _, found := constraints["spineDomain"]; found {
+		t.Fatalf("missing Spine must not remain as an effective constraint: %v", constraints)
+	}
+
+	border := "HB-HL-DC1-102-C03-02U-LTY-CSQ-BORDER-SW01-ZTE9904X"
+	leaf := "HB-HL-DC1-102-C03-44U-LTY-CSQ-LEAF-SW01-ZTE5960X"
+	constraints, warnings, err = cache.resolveDemandTopologyLabels(map[string]any{"ngd": map[string]any{"topologyLabels": map[string]any{
+		"topology.kubernetes.io/border-switch": border,
+		"topology.kubernetes.io/leaf-switch":   leaf,
+	}}})
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("map physical switches: constraints=%v warnings=%v err=%v", constraints, warnings, err)
+	}
+	if constraints["borderDomain"] != "HB-HL-DC1-102-BORDER-DOMAIN-01" {
+		t.Fatalf("physical Border was not mapped to its logical domain: %v", constraints)
+	}
+	if constraints["leafDomain"] == leaf {
+		t.Fatalf("peer Leaf must map to the shared logical Leaf domain, got %v", constraints)
+	}
+}
+
+func TestDemandTopologyLabelsUseConfiguredSpineAndRejectUnsupportedLevel(t *testing.T) {
+	withSpine := strings.ReplaceAll(unicomTopologyFixture, "SPINE: {}", `SPINE:
+        SPINE-01:
+          local_port: cgei-0/1/1/49
+          peer_port: cgei-0/2/0/1`)
+	cache, err := loadTopologyCache("", []byte(withSpine))
+	if err != nil {
+		t.Fatal(err)
+	}
+	constraints, warnings, err := cache.resolveDemandTopologyLabels(map[string]any{"ngd": map[string]any{"topologyLabels": map[string]any{
+		"topology.kubernetes.io/spine-switch": "SPINE-01",
+	}}})
+	if err != nil || len(warnings) != 0 || stringValue(constraints["spineDomain"]) == "" {
+		t.Fatalf("configured Spine must resolve without fallback: constraints=%v warnings=%v err=%v", constraints, warnings, err)
+	}
+
+	_, _, err = cache.resolveDemandTopologyLabels(map[string]any{"ngd": map[string]any{"topologyLabels": map[string]any{
+		"topology.kubernetes.io/access-switch": "10.0.1.10",
+	}}})
+	if err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("unsupported access-switch must be rejected, got %v", err)
 	}
 }

@@ -24,7 +24,7 @@ flowchart TB
 - Node 动态数据：由 PRC 随每次任务请求发送，只在本次请求中使用，不跨请求缓存。
 - Prometheus 指标：由 Go 自己周期读取，进程内保存当前和前一个有效快照。
 - Node静态拓扑：PRC只上传每个Node的直连`leafSwitchId`。
-- 上层网络拓扑：Go从独立YAML加载Region→Location→DataCenter→Room→Border Domain→可选Spine→Leaf，不写入NGD或Node Label。
+- 上层网络拓扑：Go从独立YAML加载Region→Location→DataCenter→Room→Border Domain→可选Spine→Leaf；NGD只通过`topologyLabels`引用其中DataCenter到Leaf的名称，不携带拓扑图。
 - 输出：Python 最多返回 3 个稳定排序候选组；Go 和 PRC 均不修改分数和顺序。
 
 ## 2. 目录结构
@@ -74,7 +74,7 @@ algorithm_server/
 | `go/algorithm/server.go`                                   | 完整Algorithm进程封装；统一拥有Application、HTTP Listener、Prometheus后台刷新、Python Worker关闭和Ready等待。生产入口、Group2和Group4共用。                                  |
 | `go/algorithm/application.go`                              | Algorithm内部组装层，创建缓存、Prometheus、Python Worker和HTTP Handler；由`Server`统一管理生命周期。                                                                        |
 | `go/algorithm/cache.go`                                    | Node静态快照缓存。校验`sha256:`内容Hash、Node UID唯一性和直连Leaf，内存中仅保留current/previous两份。                                                                     |
-| `go/algorithm/topology.go`                                 | 严格解析独立拓扑YAML，校验显式Border Domain，用Leaf补齐上层拓扑并计算`topologySnapshotId`。                                                                               |
+| `go/algorithm/topology.go`                                 | 严格解析独立拓扑YAML，校验显式Border Domain，用Leaf补齐上层拓扑；校验五级`topologyLabels`、映射物理交换机到逻辑域，并处理Spine缺失回退。                                  |
 | `go/algorithm/metrics.go`                                  | Prometheus 采集与缓存。周期调用 instant query，按 Node 名合并 CPU、内存、吞吐、丢包、错误、重传、链路和带宽指标。                                                           |
 | `go/algorithm/metrics_config.go`                           | 加载指标目录，配置 Bearer Token/Token 文件、CA、TLS Server Name 和超时。                                                                                                    |
 | `go/algorithm/prometheus_metrics.json`                     | Mock 与真实 Prometheus 共用的14项指标契约。                                                                                                                                |
@@ -90,9 +90,9 @@ algorithm_server/
 | `python/algorithm_worker/models.py`                        | 定义固定流水线的三个算法阶段枚举。                                                                                                                          |
 | `python/algorithm_worker/errors.py`                        | 定义输入、服务端算法参数和指标未就绪等结构化错误。                                                                                                                           |
 | `python/algorithm_worker/quantity.py`                      | 解析 Kubernetes CPU、内存和扩展资源 Quantity，计算 PodSet 最小资源需求并进行节点装箱检查。                                                                                    |
-| `python/algorithm_worker/services/node_view_builder.py`    | 合并 Node 静态属性、请求级占用状态和`nodeSelector`，生成本次算法使用的 Node 视图；复用只读静态子对象和已解析资源容量。                                                       |
+| `python/algorithm_worker/services/node_view_builder.py`    | 合并Node静态属性、请求级占用状态、`nodeSelector`和Go层解析后的具体拓扑逻辑域约束，生成本次算法使用的Node视图。                                                            |
 | `python/algorithm_worker/algorithms/requirement.py`        | 固定FILTER步骤：排除不可用或标签不匹配的Node，并形成扣减已请求资源后的可用视图。                                                                                              |
-| `python/algorithm_worker/algorithms/topology.py`           | 固定GROUP步骤：按Leaf→可选Spine→Border Domain→Room→DC→Location→Region执行NarrowestFit。                                                                                     |
+| `python/algorithm_worker/algorithms/topology.py`           | 固定GROUP步骤：只按Leaf→可选Spine→Border Domain→Room→DataCenter执行NarrowestFit，并按`requiredSame`限制可扩展的最宽层级。                                                  |
 | `python/algorithm_worker/algorithms/loadbalance.py`        | 固定SCORE步骤：综合资源和Prometheus指标评分，逐层验证资源可行性，再按`minResources/maxNodes/quota`选具体Node并稳定排序。                                                       |
 | `python/algorithm_worker/config/loadbalance_profiles.json` | 评分 profile 及资源、负载、拓扑权重，新增 profile 无需修改 Go 主服务。                                                                                                        |
 | `demo_1000_nodes/run_demo.py`                              | 独立验证驱动：在内存中生成 1000 Node/拓扑/动态/指标数据，启动模拟 Prometheus 和真实 Algorithm 容器，走 HTTP 协议并导出证据。                                                  |
@@ -121,13 +121,14 @@ loadbalance/v1 (SCORE)
 - 静态快照中的标签和 `allocatable`；
 - `nodeUsageStates[].inUse`；
 - 正式资源池请求中的 `ngd.nodeSelector`；
+- 正式资源池请求中的五级`ngd.topologyLabels`；
 - Node 动态状态中的 `requestedResources`。
 
 资源池可用量按 `allocatable - requestedResources` 计算；`inUse=true` 的 Node 整体排除。
 
 ### GROUP
 
-正式NGD不携带拓扑profile。GROUP固定按`Leaf → 可选Spine Domain → Border Domain → Room → DataCenter → Location → Region`形成拓扑组；SCORE按该顺序验证资源可行性。某一层出现可行组后立即停止。联通样例`SPINE: {}`时直接跳到Border Domain。
+正式NGD不携带拓扑profile。GROUP固定按`Leaf → 可选Spine Domain → Border Domain → Room → DataCenter`形成拓扑组；SCORE按该顺序验证资源可行性。某一层出现可行组后立即停止。具体交换机名先由Go映射为逻辑域；`requiredSame`限制结果不能跨出相应层级。联通样例`SPINE: {}`或指定Spine不存在时，本次Spine约束转换为Border `requiredSame`并返回Warning。
 
 ### SCORE
 
@@ -197,6 +198,32 @@ Docker ENTRYPOINT /app/algorithm-server
 ```
 
 Python `worker.py` 是算法子进程入口，不是 HTTP Server 入口。对外的 8080 端口始终由 Go 提供。
+
+### Python Worker 超时恢复
+
+实现位于 [go/algorithm/worker.go](go/algorithm/worker.go)，不改变 HTTP 或 JSONL 接口，也不改变 Python 算法。
+
+| 情况 | 当前处理 |
+| --- | --- |
+| 正常请求 | 复用同一个 Python 进程，串行写入请求和读取响应，以 ID 校验对应关系 |
+| 请求仍在排队时取消/超时 | 返回 504，不终止正在处理其他请求的进程 |
+| 已发送请求取消/超时，包括 stdin 写入阻塞 | 关闭这一代管道，终止并回收 Python，等待读写协程退出后返回 504 |
+| EOF、非法 JSON、ID 不匹配或缺失结果/错误 | 返回 503，丢弃当前进程，下一请求使用新进程 |
+| Python 返回合法业务错误 | 原样保留错误语义，不重启进程 |
+| Application 关闭或父 Context 取消 | 取消等待及执行中的请求，回收子进程，禁止再次启动；Close 可重复调用 |
+
+恢复是**下一请求触发的新进程启动**，不会自动重放失败请求，也不会重新启动 Go HTTP 服务或清空 Go 的静态/Prometheus 缓存。异常后至少退避 100 ms，每个请求最多尝试启动一次；启动失败返回可重试的 503。回收进程等待上限为 2 s，未回收完成时不启动替代进程；Close 等待串行入口上限为 4 s，取得入口后的进程回收另有 2 s 上限。因此超时响应可能附带短暂清理耗时，不是到达 deadline 后零耗时返回。
+
+专项测试：[worker_test.go](go/algorithm/worker_test.go)。测试使用真实 Python 进程和 [可控异常 Worker](go/algorithm/testdata/recovery_worker.py)，覆盖重复超时恢复、排队取消、协议异常、业务错误、大请求写阻塞、并发调用、关闭、父 Context 取消和重启失败恢复。
+
+```bash
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+source scripts/go-test-env.sh
+cd algorithm_server/go
+GOWORK=off go test -mod=vendor -race ./... -count=3
+```
+
+需要本地 `python3` 和支持 Race 的 Go/C 工具链；无需真实 Kubernetes 或 Prometheus。正常业务链路继续使用 Group1、Group2、Group4 验证。
 
 ### Go与Python原始协议证据
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,6 +114,12 @@ func TestGroup2_PRCClientCallsCompleteAlgorithm(t *testing.T) {
 	}
 	if len(response.CandidateNodeGroups) == 0 || len(response.CandidateNodeGroups) > 3 {
 		t.Fatalf("candidate groups=%d, want 1..3", len(response.CandidateNodeGroups))
+	}
+	if response.CandidateNodeGroups[0].TopologyLevel != "leafDomain" {
+		t.Fatalf("topologyLevel=%s, want leafDomain", response.CandidateNodeGroups[0].TopologyLevel)
+	}
+	if len(response.Warnings) != 1 || !strings.Contains(response.Warnings[0], "SPINE_NOT_FOUND_FALLBACK") {
+		t.Fatalf("warnings=%v, want missing-Spine to Border-Same fallback", response.Warnings)
 	}
 	if len(mock.Requests()) < 14 {
 		t.Fatalf("Prometheus requests=%d, want at least 14", len(mock.Requests()))

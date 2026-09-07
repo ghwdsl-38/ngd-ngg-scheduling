@@ -24,6 +24,8 @@ go test -p=1 ./go_test_suites/group2_prc_algorithm -run '^TestGroup2_' -v -count
   -> 查询静态缓存状态并确认snapshotId Ready
   -> 开始计时
   -> PRC AlgorithmClient POST Allocate
+  -> Algorithm将五级topologyLabels中的物理名称映射为逻辑域
+  -> 指定Spine不存在，记录Warning并转换为Border requiredSame
   -> Go Algorithm调用真实Python Worker
   -> PRC解析候选组响应
   -> 停止计时并写入本组results
@@ -39,4 +41,4 @@ Mock Prometheus严格校验`Authorization: Bearer go-test-prometheus-token`和�
 - `prc-algorithm-http.json`；
 - `static-ack.json`、`algorithm-response.json`及对应Diff。
 
-主要断言包括Hash应答关系、静态缓存Ready、动态状态Hash关系、Prometheus 14项查询、固定流水线顺序和候选组完整性。`go test -v`会直接打印`businessTiming ... elapsedMs=...`；末尾的包耗时包含环境准备，不能当作业务时间。
+主要断言包括Hash应答关系、静态缓存Ready、动态状态Hash关系、Prometheus 14项查询、五级拓扑约束、Spine回退Warning、固定流水线顺序和候选组完整性。`go test -v`会直接打印`businessTiming ... elapsedMs=...`；末尾的包耗时包含环境准备，不能当作业务时间。

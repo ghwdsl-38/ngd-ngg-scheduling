@@ -3,8 +3,8 @@
   "ngd": {
     "maxNodes": 18,
     "minResources": {
-      "cpu": "480",
-      "memory": "1920Gi"
+      "cpu": "320",
+      "memory": "1280Gi"
     },
     "nodeSelector": {
       "matchLabels": {
@@ -15,7 +15,14 @@
       "cpu": "576",
       "memory": "2304Gi"
     },
-    "schedulerName": "volcano"
+    "schedulerName": "volcano",
+    "topologyLabels": {
+      "topology.kubernetes.io/border-switch": "requiredSame",
+      "topology.kubernetes.io/data-center": "HB-HL-DC1",
+      "topology.kubernetes.io/leaf-switch": "requiredSame",
+      "topology.kubernetes.io/room": "HB-HL-DC1-102",
+      "topology.kubernetes.io/spine-switch": "spine-01"
+    }
   },
   "ngdGeneration": 1,
   "ngdUID": "ngd-uid-1000",

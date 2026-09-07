@@ -1,0 +1,51 @@
+{
+  "namespace": "ngd-ngg-system",
+  "context": "REPLACE_WITH_CLUSTER_CONTEXT",
+  "clusterId": "production-cluster",
+  "images": {
+    "prc": "registry.example.com/ngd-ngg/prc:v0.5.0",
+    "algorithm": "registry.example.com/ngd-ngg/algorithm:v0.5.0",
+    "lldp": "registry.example.com/ngd-ngg/lldp-agent:v0.5.0"
+  },
+  "topologyFile": "../config/topology/unicom-huailai-102-sample.yaml",
+  "prometheus": {
+    "url": "http://prometheus.monitoring.svc.cluster.local:9090",
+    "refreshSeconds": 15,
+    "staleSeconds": 120,
+    "timeoutSeconds": 5,
+    "nodeLabel": "node",
+    "tlsServerName": "",
+    "secretName": "",
+    "tokenFile": "",
+    "caFile": "",
+    "metricsConfigFile": ""
+  },
+  "kubernetes": {
+    "imagePullSecrets": [],
+    "prcAuth": {"mode": "incluster", "secretName": "", "subject": null},
+    "lldpAuth": {"mode": "incluster", "secretName": "", "subject": null},
+    "workerNodeSelector": {"node-role.kubernetes.io/worker": ""},
+    "workerTolerations": [],
+    "resources": {
+      "prc": {"requests": {"cpu": "100m", "memory": "128Mi"}, "limits": {"cpu": "1", "memory": "1Gi"}},
+      "algorithm": {"requests": {"cpu": "250m", "memory": "256Mi"}, "limits": {"cpu": "2", "memory": "2Gi"}},
+      "lldp": {"requests": {"cpu": "10m", "memory": "32Mi"}, "limits": {"cpu": "200m", "memory": "128Mi"}}
+    }
+  },
+  "external": {
+    "projectName": "ngd-ngg",
+    "prcKubeconfig": "secrets/prc.kubeconfig",
+    "prcSubject": {"kind": "User", "name": "REPLACE_WITH_PRC_AUTHENTICATED_USERNAME"},
+    "lldpSubject": {"kind": "User", "name": "REPLACE_WITH_LLDP_AUTHENTICATED_USERNAME"},
+    "bindAddress": "127.0.0.1",
+    "algorithmPort": 8080,
+    "prcPort": 8081
+  },
+  "lldp": {
+    "nodeName": "REPLACE_WITH_NODE_NAME",
+    "kubeconfig": "secrets/lldp.kubeconfig",
+    "interfaces": "",
+    "listenSeconds": 35,
+    "resyncSeconds": 30
+  }
+}

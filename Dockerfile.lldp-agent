@@ -4,6 +4,7 @@ ARG GOPROXY=https://goproxy.cn,direct
 COPY topology_agent/go.mod topology_agent/go.sum ./
 RUN go mod download
 COPY topology_agent/*.go ./
+COPY topology_agent/pkg ./pkg
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/topology-agent .
 
 FROM alpine:3.22

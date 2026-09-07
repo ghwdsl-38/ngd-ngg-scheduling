@@ -16,7 +16,9 @@ class TopologyAlgorithm:
     version = "v1"
     stage = AlgorithmStage.GROUP
 
-    # SPINE 可以为空；为空时该层不会产生候选组，算法自然继续到 Border Domain。
+    # NGD拓扑约束范围固定为DataCenter到Leaf。order越小，拓扑越窄。
+    # SPINE为空时Go层会把Spine约束转换为Border requiredSame；没有显式
+    # Spine约束时，这一空层也只会自然跳过。
     LEVELS = [
         {
             "name": "leafDomain",
@@ -39,9 +41,15 @@ class TopologyAlgorithm:
             "field": "dataCenterId",
             "groupPrefix": "data-center",
         },
-        {"name": "location", "field": "locationId", "groupPrefix": "location"},
-        {"name": "region", "field": "regionId", "groupPrefix": "region"},
     ]
+
+    ORDER_BY_CONSTRAINT = {
+        "leafDomain": 0,
+        "spineDomain": 1,
+        "borderDomain": 2,
+        "room": 3,
+        "dataCenter": 4,
+    }
 
     def validate_parameters(self, parameters: dict[str, Any]) -> None:
         if parameters:
@@ -56,8 +64,24 @@ class TopologyAlgorithm:
     ) -> dict[str, Any]:
         # 资源池模式先生成各层候选；评分阶段会从最窄层开始，找到首个可满足
         # NGD 资源需求的层级后停止。这样 Leaf 不够时可以上升到 Border Domain。
+        constraints = context.request.get("topologyConstraints", {})
+        if not isinstance(constraints, dict):
+            raise InvalidAlgorithmParameters("topologyConstraints must be an object")
+        unknown = sorted(set(constraints) - set(self.ORDER_BY_CONSTRAINT))
+        if unknown:
+            raise InvalidAlgorithmParameters(
+                "unsupported topology constraint levels: " + ", ".join(unknown)
+            )
+        # 最深的显式条件决定候选组允许扩展到的最宽层级。例如Border
+        # requiredSame允许Leaf/Spine/Border，但不允许继续扩大到Room。
+        max_order = min(
+            (self.ORDER_BY_CONSTRAINT[level] for level in constraints),
+            default=4,
+        )
         all_groups: list[dict[str, Any]] = []
         for order, level in enumerate(self.LEVELS):
+            if order > max_order:
+                break
             groups = self._group(
                 context.current_nodes,
                 str(level["field"]),
