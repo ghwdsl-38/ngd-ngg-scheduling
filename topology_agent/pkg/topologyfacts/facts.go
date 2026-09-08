@@ -20,12 +20,14 @@ const Prefix = "topology.demo.ngg.io/"
 
 // Link is one selected host interface and its LLDP Leaf neighbor.
 type Link struct {
-	BondName     string `json:"bond,omitempty"`
-	BondMode     string `json:"bondMode,omitempty"`
-	Interface    string `json:"interface"`
-	LeafSwitchID string `json:"leafSwitchId"`
-	RemotePortID string `json:"remotePortId,omitempty"`
-	Active       bool   `json:"active"`
+	BondName       string `json:"bond,omitempty"`
+	BondMode       string `json:"bondMode,omitempty"`
+	Interface      string `json:"interface"`
+	LeafSwitchID   string `json:"leafSwitchId"`
+	ChassisID      string `json:"chassisId,omitempty"`
+	ChassisSubtype string `json:"chassisIdSubtype,omitempty"`
+	RemotePortID   string `json:"remotePortId,omitempty"`
+	Active         bool   `json:"active"`
 }
 
 // Observation is the normalized direct network fact for one Node.
@@ -104,7 +106,16 @@ func BuildNodeMetadata(value Observation, observedAt time.Time) (Observation, ma
 
 // LeafSetID is a short stable identity suitable for a Kubernetes Label.
 func LeafSetID(leaves []string) string {
-	copyOfLeaves := append([]string(nil), leaves...)
+	unique := make(map[string]struct{}, len(leaves))
+	for _, leaf := range leaves {
+		if leaf = strings.TrimSpace(leaf); leaf != "" {
+			unique[leaf] = struct{}{}
+		}
+	}
+	copyOfLeaves := make([]string, 0, len(unique))
+	for leaf := range unique {
+		copyOfLeaves = append(copyOfLeaves, leaf)
+	}
 	sort.Strings(copyOfLeaves)
 	sum := sha256.Sum256([]byte(strings.Join(copyOfLeaves, "\x00")))
 	return hex.EncodeToString(sum[:6])

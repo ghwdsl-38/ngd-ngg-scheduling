@@ -105,6 +105,11 @@ Group7分别验证两种生产Bond模式：
 | `active-backup` | `active_slave=eth1` | 只选择`eth1` | 只保存Leaf-B |
 | `load-balance` | `802.3ad`且eth0/eth1均Up | 选择`eth0`和`eth1` | 保存Leaf-A、Leaf-B |
 
+此外，`TestGroup7_DualLinksToSameLeafAreDeduplicated`专门验证去重边界：
+eth0和eth1即使都收到LLDP，只要Chassis/Leaf相同，Node仍写成一个Leaf，
+但`leaf-links`保留两条物理链路。正式Socket层还会验证两个不同Chassis后，
+才把负载模式判定为双Leaf采集完成。
+
 两个Leaf使用联通式长交换机名称，并在Algorithm上层拓扑中配置为：同一102机房、同一Border Domain、互为对称Peer。因此负载模式的双Leaf最终形成一个Leaf Domain，一个Node只进入一次、资源只统计一次。
 
 ### 3.1 Active-Backup详细拓扑（Mermaid）

@@ -64,7 +64,8 @@ Kubernetes Node
 | 邻居身份 | 接口+Chassis subtype/ID+Port subtype/ID | 相同 | 一致 |
 | 重复报文 | 更新已有邻居，不重置idle计时 | 相同 | 一致 |
 | 普通物理口结束 | 首个新邻居后等待idle timeout | 相同 | 一致 |
-| 全Bond Slave结束 | 每个选中Slave均有邻居时提前结束 | 相同 | 一致 |
+| Bond采集基础流程 | 每个选中Slave分别接收邻居 | 相同 | 一致 |
+| Bond完成条件 | 在接口覆盖基础上要求不同Chassis：主备1个，其他模式2个 | 仅检查接口覆盖 | 按生产双Leaf要求增强 |
 | 本机反射 | 采集时标记，Leaf筛选阶段剔除 | 相同 | 一致 |
 | LLDP解析 | MAC、Chassis、Port、TTL、描述、能力、管理地址 | 相同 | 一致 |
 
@@ -107,7 +108,9 @@ Kubernetes Node
 5. sysfs信息不完整时回退读取`/proc/net/bonding`；
 6. `active-backup`只选Active Slave；
 7. 其他Bond模式选择链路及MII状态有效的Slave；
-8. 不再回退到“监听全部接口”。
+8. 如果存在`bond0`，只使用`bond0`，不混入管理网、存储网或其他Bond；
+9. 没有`bond0`时，保持`lldp-new-2`的物理网卡自动发现；
+10. 不再回退到“监听全部接口”。
 
 最后一条是故障关闭策略。只有虚拟网卡时Agent明确报错，不会把`poh_*`、
 veth或本机反射报文误写为Leaf。
@@ -120,9 +123,10 @@ veth或本机反射报文误写为Leaf。
 --interfaces=ens5f1np1,ens8f0np0
 ```
 
-指定`bond0`时会展开为符合Bond策略的Slave。显式指定普通接口属于运维
-覆盖，即使该接口被识别为虚拟接口也允许监听，但疑似本机反射邻居仍会
-被过滤。
+显式接口按名称直接监听；显式填写`bond0`表示监听Bond Master本身，不会
+展开为Slave。推荐保持`--interfaces`为空，让自动模式根据Bond模式选择
+Slave。显式指定普通接口属于运维覆盖，即使该接口被识别为虚拟接口也允许
+监听，但疑似本机反射邻居仍会被过滤。
 
 生产环境如果服务器存在管理网、存储网等多组物理口，建议明确填写承载
 业务网络的物理口或Bond，避免把非业务上联纳入Leaf集合。
@@ -150,14 +154,24 @@ unix.Socket(AF_PACKET, SOCK_RAW, htons(0x88cc))
 `Chassis ID`。邻居按“本地接口+Chassis+Port”保留，同一接口上的不同
 邻居不会在采集阶段被覆盖；当前Node业务协议最多接受两个不同Leaf。
 
-收集窗口由三个条件结束：
+采集仍沿用`lldp-new-2`的单Socket、ifindex过滤、邻居身份和重复帧更新流程。
+在此基础上，Bond完成条件增加了不同Leaf校验：
 
-- 所有选中接口都是Bond Slave，且每个Slave都收到邻居；
-- 收到首个新邻居后，连续`idle-seconds`没有新的唯一邻居；
+- `active-backup`：Active Slave收到一个有效外部Leaf后完成；
+- 其他Bond模式：至少两个选中接口收到邻居，并且Chassis ID去重后恰有两个
+  不同Leaf，才提前完成；
+- Bond目标未满足时禁用通用idle提前退出，最长等待`listen-seconds`；
+- 普通物理口收到首个新邻居后，连续`idle-seconds`没有新邻居即可结束；
 - 到达`listen-seconds`总超时。
 
-重复邻居只更新最新内容，不重置idle计时。`count>0`时，达到指定的唯一
-邻居数量也会结束。
+重复邻居只更新最新内容，不重置idle计时。Chassis ID是判断物理Leaf是否
+不同的依据；System Name是写入Node并与Algorithm配置匹配的Leaf ID。两个
+接口收到同一个Chassis只会形成一个Leaf集合成员，但两条物理链路明细均可
+保留。`count>0`是人工覆盖项，达到指定唯一邻居数量时仍会结束。
+
+非主备Bond等待65秒后仍不足两个不同Chassis时，本轮返回“不完整”错误，
+不会用单Leaf结果覆盖Node上一次成功的双Leaf拓扑。这样不会把“两张网卡都
+连到同一交换机”误报成双Leaf，也不会因一次丢包立即缩减已有拓扑。
 
 ## 5. Node元数据协议
 
@@ -188,10 +202,10 @@ PRC读取位置是`prc/pkg/controller/snapshot.go`。因此不能直接改成
 | 参数 | 默认值 | 含义 |
 |---|---:|---|
 | `--interfaces` | 空 | 自动选择；也可填写接口或Bond，多个用逗号分隔 |
-| `--listen-seconds` | 120 | 单轮最长LLDP监听时间，与参考版一致 |
+| `--listen-seconds` | 65 | 单轮最长监听时间，覆盖两个常见30秒LLDP发送周期 |
 | `--idle-seconds` | 3 | 首个邻居后无新唯一邻居的提前结束时间；0表示禁用 |
 | `--count` | 0 | 最大唯一邻居数；0表示使用idle/最大超时 |
-| `--resync-seconds` | 30 | 一轮完成后到下一轮开始的等待时间 |
+| `--resync-seconds` | 180 | 相邻两轮开始时间的目标间隔，即每3分钟启动一轮 |
 | `--sys-class-net` | `/sys/class/net` | 网卡sysfs根目录 |
 | `--kubeconfig` | 空 | 空时优先In-Cluster，也支持显式文件 |
 | `--kube-context` | 空 | 显式覆盖Kubeconfig Context |
@@ -248,8 +262,7 @@ sudo tcpdump -i <物理口> -nn -e -vv ether proto 0x88cc
 ## 9. 当前边界
 
 - Agent只负责Node到直连Leaf，不处理Leaf以上拓扑；
-- 自动模式会发现所有有效物理业务/非业务上联，复杂服务器建议显式配置；
+- 自动模式优先且独占`bond0`；没有`bond0`时才发现其他有效物理口；
 - 超过两个不同Leaf会被现有拓扑协议拒绝；
-- 完整一轮未收到任何外部邻居时保留Node旧拓扑，不主动删除；
-- `idle-seconds=3`适合快速现场验证；双Leaf发送周期不同步时可设为0，使用
-  完整`listen-seconds`窗口。
+- 完整一轮未收到邻居或非主备Bond不足两个不同Leaf时，保留Node旧拓扑；
+- Bond双Leaf未完成时不会被`idle-seconds=3`提前截断，而是最多等待65秒。

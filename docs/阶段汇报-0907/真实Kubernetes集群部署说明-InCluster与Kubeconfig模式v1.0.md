@@ -598,16 +598,17 @@ docker run -d \
   --network host \
   --cap-add NET_RAW \
   -e NODE_NAME=<与-kubectl-get-nodes-一致的节点名> \
-  -v /sys/class/net:/host-sys-class-net:ro \
+  -v /sys:/host-sys:ro \
   -v /opt/ngd-ngg/lldp.kubeconfig:/etc/ngd-ngg/kubeconfig:ro \
   registry.example.com/ngd-ngg/lldp-agent:v0.2.0 \
   --kubeconfig=/etc/ngd-ngg/kubeconfig \
-  --sys-class-net=/host-sys-class-net \
-  --listen-seconds=35 \
-  --resync-seconds=30
+  --sys-class-net=/host-sys/class/net \
+  --listen-seconds=65 \
+  --idle-seconds=3 \
+  --resync-seconds=180
 ```
 
-`NODE_NAME` 必须与 Kubernetes Node `metadata.name` 完全一致，不应盲目使用操作系统 `hostname`。未配置 `--interfaces` 时 Agent 按当前 Bond/网卡发现逻辑筛选可用接口；生产也可显式指定允许探测的接口列表。
+`NODE_NAME` 必须与 Kubernetes Node `metadata.name` 完全一致，不应盲目使用操作系统 `hostname`。未配置 `--interfaces` 时 Agent 优先且只使用`bond0`；没有`bond0`时才回退到物理网卡自动发现。主备只采集Active Slave的一个Leaf，其他Bond模式要求在65秒内得到两个不同Chassis的Leaf。Agent以180秒为相邻两轮开始时间的目标间隔。
 
 验证单节点：
 

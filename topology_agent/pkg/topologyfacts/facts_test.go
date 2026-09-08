@@ -61,3 +61,19 @@ func TestNormalizeRetainsDistinctPeersOnSameInterface(t *testing.T) {
 		t.Fatalf("distinct LLDP peers were collapsed: %#v", observed)
 	}
 }
+
+func TestNormalizeDeduplicatesLeafSetAcrossTwoPhysicalLinks(t *testing.T) {
+	observed, err := Normalize(Observation{Links: []Link{
+		{Interface: "eth0", LeafSwitchID: "leaf-a", RemotePortID: "Ethernet1", Active: true},
+		{Interface: "eth1", LeafSwitchID: "leaf-a", RemotePortID: "Ethernet2", Active: true},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observed.Links) != 2 || len(observed.LeafSwitchIDs) != 1 || observed.LeafSwitchIDs[0] != "leaf-a" {
+		t.Fatalf("two links to one Leaf were not represented correctly: %#v", observed)
+	}
+	if LeafSetID([]string{"leaf-a", "leaf-a"}) != LeafSetID([]string{"leaf-a"}) {
+		t.Fatal("duplicate Leaf values changed the stable Leaf set ID")
+	}
+}

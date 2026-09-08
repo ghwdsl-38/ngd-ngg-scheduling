@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"demo.ngg/topology-agent/pkg/topologyfacts"
@@ -31,12 +32,13 @@ type topologyAgent struct {
 func (a *topologyAgent) run(ctx context.Context) error {
 	log.Printf("[LLDP-AGENT] ENTER topologyAgent.run node=%s", a.nodeName)
 	if a.resync <= 0 {
-		a.resync = 30 * time.Second
+		a.resync = 3 * time.Minute
 	}
 	if a.sysClassNet == "" {
 		a.sysClassNet = "/sys/class/net"
 	}
 	for cycle := 1; ctx.Err() == nil; cycle++ {
+		cycleStarted := time.Now()
 		log.Printf("[LLDP-AGENT] CYCLE start number=%d", cycle)
 		log.Printf("[LLDP-AGENT] CALL Kubernetes Nodes.Get node=%s", a.nodeName)
 		node, err := a.client.getNode(ctx, a.nodeName)
@@ -46,8 +48,12 @@ func (a *topologyAgent) run(ctx context.Context) error {
 			// Keep the last persisted topology when a collection window fails.
 			log.Printf("[LLDP-AGENT] ERROR reconcile Node %s: %v", a.nodeName, err)
 		}
-		log.Printf("[LLDP-AGENT] WAIT resync=%s", a.resync)
-		if !wait(ctx, a.resync) {
+		nextCycleWait := a.resync - time.Since(cycleStarted)
+		if nextCycleWait < 0 {
+			nextCycleWait = 0
+		}
+		log.Printf("[LLDP-AGENT] WAIT nextCycle=%s cadence=%s", nextCycleWait, a.resync)
+		if !wait(ctx, nextCycleWait) {
 			break
 		}
 	}
@@ -98,26 +104,84 @@ func (a *topologyAgent) collect(ctx context.Context) (observation, error) {
 	if err != nil {
 		return observation{}, err
 	}
-	links := make([]leafLink, 0, len(neighbors))
+	links, err := buildLeafLinks(neighbors, selections)
+	if err != nil {
+		return observation{}, err
+	}
+	return observation{Links: links, Source: "LLDP"}, nil
+}
+
+// buildLeafLinks converts lldp-new-2-compatible neighbor observations into
+// the direct-Leaf facts owned by this Agent. Chassis ID is the physical Leaf
+// identity; System Name remains the ID shared with Algorithm topology config.
+func buildLeafLinks(neighbors []lldpNeighbor, selections map[string]interfaceSelection) ([]leafLink, error) {
+	type resolvedLeaf struct {
+		id             string
+		fromSystemName bool
+	}
+	leafByChassis := map[string]resolvedLeaf{}
 	for _, neighbor := range neighbors {
 		if neighbor.LooksLikeLocalHost {
 			log.Printf("[LLDP-AGENT] REJECT neighbor systemName=%q chassisID=%q reason=looks-like-local-host", neighbor.SystemName, neighbor.ChassisID)
 			continue
 		}
+		_, exists := selections[neighbor.LocalInterface]
+		if !exists {
+			return nil, fmt.Errorf("LLDP neighbor arrived on unselected interface %q", neighbor.LocalInterface)
+		}
+		chassisIdentity := leafChassisIdentity(neighbor)
+		if chassisIdentity == "" {
+			return nil, fmt.Errorf("LLDP neighbor on %s has no usable chassis identity", neighbor.LocalInterface)
+		}
+		resolved := leafByChassis[chassisIdentity]
+		systemName := strings.TrimSpace(neighbor.SystemName)
+		if systemName != "" {
+			if resolved.fromSystemName && !strings.EqualFold(resolved.id, systemName) {
+				return nil, fmt.Errorf("one LLDP chassis %q advertised conflicting Leaf names %q and %q", neighbor.ChassisID, resolved.id, systemName)
+			}
+			resolved = resolvedLeaf{id: systemName, fromSystemName: true}
+		} else if resolved.id == "" {
+			resolved.id = strings.TrimSpace(neighbor.ChassisID)
+		}
+		if resolved.id == "" {
+			return nil, fmt.Errorf("LLDP neighbor on %s has no usable Leaf ID", neighbor.LocalInterface)
+		}
+		leafByChassis[chassisIdentity] = resolved
+	}
+	if len(leafByChassis) == 0 {
+		return nil, fmt.Errorf("no external upper-switch LLDP neighbor found")
+	}
+	if len(leafByChassis) > 2 {
+		return nil, fmt.Errorf("Node resolved %d distinct LLDP chassis; current design supports at most 2 Leaf switches", len(leafByChassis))
+	}
+	chassisByLeafName := map[string]string{}
+	for chassisIdentity, leaf := range leafByChassis {
+		leafNameKey := strings.ToLower(leaf.id)
+		if previous, found := chassisByLeafName[leafNameKey]; found && previous != chassisIdentity {
+			return nil, fmt.Errorf("Leaf name %q was advertised by two different LLDP chassis; refusing an ambiguous topology", leaf.id)
+		}
+		chassisByLeafName[leafNameKey] = chassisIdentity
+	}
+
+	links := make([]leafLink, 0, len(neighbors))
+	for _, neighbor := range neighbors {
+		if neighbor.LooksLikeLocalHost {
+			continue
+		}
 		selection := selections[neighbor.LocalInterface]
+		chassisIdentity := leafChassisIdentity(neighbor)
+		leafID := leafByChassis[chassisIdentity].id
 		mode := selection.BondMode
 		if mode == "" {
 			mode = "direct"
 		}
 		links = append(links, leafLink{
 			BondName: selection.BondName, BondMode: mode, Interface: neighbor.LocalInterface,
-			LeafSwitchID: neighbor.switchID(), RemotePortID: neighbor.PortID, Active: selection.Active,
+			LeafSwitchID: leafID, ChassisID: neighbor.ChassisID, ChassisSubtype: neighbor.ChassisIDSubtype,
+			RemotePortID: neighbor.PortID, Active: selection.Active,
 		})
 	}
-	if len(links) == 0 {
-		return observation{}, fmt.Errorf("no external upper-switch LLDP neighbor found")
-	}
-	return observation{Links: links, Source: "LLDP"}, nil
+	return links, nil
 }
 
 func wait(ctx context.Context, duration time.Duration) bool {

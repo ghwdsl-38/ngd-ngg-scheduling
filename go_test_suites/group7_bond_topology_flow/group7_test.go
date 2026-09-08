@@ -88,6 +88,31 @@ func TestGroup7_BondModesFullFlow(t *testing.T) {
 	}
 }
 
+// TestGroup7_DualLinksToSameLeafAreDeduplicated protects the boundary between
+// physical links and topology members: two Bond slaves do not imply two Leaf
+// switches when both observations resolve to the same upstream Leaf.
+func TestGroup7_DualLinksToSameLeafAreDeduplicated(t *testing.T) {
+	observed, labels, annotations, err := topologyfacts.BuildNodeMetadata(topologyfacts.Observation{
+		Source: "MockLLDP",
+		Links: []topologyfacts.Link{
+			{BondName: "bond0", BondMode: "802.3ad", Interface: "eth0", LeafSwitchID: leafA, ChassisID: "00:11:22:33:44:55", RemotePortID: "port-1", Active: true},
+			{BondName: "bond0", BondMode: "802.3ad", Interface: "eth1", LeafSwitchID: leafA, ChassisID: "00:11:22:33:44:55", RemotePortID: "port-2", Active: true},
+		},
+	}, time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observed.Links) != 2 || len(observed.LeafSwitchIDs) != 1 {
+		t.Fatalf("two links to the same Leaf must remain two links and one Leaf: %#v", observed)
+	}
+	if labels[topologyfacts.Prefix+"leaf-count"] != "1" {
+		t.Fatalf("unexpected leaf-count: %#v", labels)
+	}
+	if !strings.Contains(fmt.Sprint(annotations[topologyfacts.Prefix+"leaf-switch-ids"]), leafA) {
+		t.Fatalf("Leaf annotation does not contain expected switch: %#v", annotations)
+	}
+}
+
 func readScenario(t *testing.T, path string) scenarioInput {
 	t.Helper()
 	raw, err := os.ReadFile(path)

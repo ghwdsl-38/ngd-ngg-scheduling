@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -35,6 +36,38 @@ func TestLACPSelectsAllUpSlaves(t *testing.T) {
 	}
 	if _, exists := selected["eth2"]; exists {
 		t.Fatalf("down slave was selected: %#v", selected)
+	}
+}
+
+func TestBond0TakesPriorityOverOtherPhysicalUplinks(t *testing.T) {
+	root := t.TempDir()
+	writeBondFixture(t, root, "bond0", "802.3ad 4", "eth0 eth1", "eth0")
+	writePhysicalFixture(t, root, "eth0", "1", "up")
+	writePhysicalFixture(t, root, "eth1", "1", "up")
+	writePhysicalFixture(t, root, "management0", "1", "up")
+
+	selected, err := selectLLDPInterfacesAt(root, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected) != 2 || selected["eth0"].BondName != "bond0" || selected["eth1"].BondName != "bond0" {
+		t.Fatalf("bond0 was not selected exclusively: %#v", selected)
+	}
+	if _, exists := selected["management0"]; exists {
+		t.Fatalf("standalone management link was mixed into bond0 topology: %#v", selected)
+	}
+}
+
+func TestExistingButUnusableBond0FailsClosed(t *testing.T) {
+	root := t.TempDir()
+	writeBondFixture(t, root, "bond0", "802.3ad 4", "eth0 eth1", "eth0")
+	writePhysicalFixture(t, root, "eth0", "0", "down")
+	writePhysicalFixture(t, root, "eth1", "0", "down")
+	writePhysicalFixture(t, root, "management0", "1", "up")
+
+	selected, err := selectLLDPInterfacesAt(root, t.TempDir(), nil)
+	if err == nil || !strings.Contains(err.Error(), "preferred Bond bond0 exists") {
+		t.Fatalf("expected fail-closed bond0 error, selected=%#v err=%v", selected, err)
 	}
 }
 

@@ -41,6 +41,8 @@ type bondState struct {
 	Source      string
 }
 
+const preferredBondName = "bond0"
+
 // SelectInterfaces reads the real Linux sysfs and /proc Bond state.
 func SelectInterfaces(sysClassNet string, explicit map[string]struct{}) (map[string]InterfaceSelection, error) {
 	log.Printf("[LLDP-AGENT] STEP 1/5 START get all interfaces")
@@ -74,10 +76,18 @@ func selectInterfacesAt(sysClassNet, procBonding string, explicit map[string]str
 	bonds := discoverBonds(sysClassNet, procBonding, entries)
 	selected := map[string]InterfaceSelection{}
 	knownSlaves := map[string]struct{}{}
+	_, preferredBondExists := bonds[preferredBondName]
 	for _, state := range sortedBondStates(bonds) {
 		for _, slave := range state.Slaves {
 			knownSlaves[slave] = struct{}{}
 			if len(explicit) != 0 {
+				continue
+			}
+			// Production workers use bond0 as their service uplink. When it is
+			// present, do not mix management/storage links or another Bond into
+			// the scheduling topology. A host without bond0 keeps the verified
+			// lldp-new-2 automatic-discovery fallback below.
+			if preferredBondExists && state.Name != preferredBondName {
 				continue
 			}
 			carrier, operState := linkState(sysClassNet, slave)
@@ -143,7 +153,7 @@ func selectInterfacesAt(sysClassNet, procBonding string, explicit map[string]str
 	// Automatic mode adds only standalone physical Ethernet interfaces. It
 	// deliberately excludes CNI/veth/poh/bridge devices to avoid self-reflected
 	// LLDP frames being interpreted as upstream Leaf switches.
-	if len(explicit) == 0 {
+	if len(explicit) == 0 && !preferredBondExists {
 		for _, entry := range entries {
 			name := entry.Name()
 			if _, isSlave := knownSlaves[name]; isSlave {
@@ -172,7 +182,13 @@ func selectInterfacesAt(sysClassNet, procBonding string, explicit map[string]str
 		if len(explicit) > 0 {
 			return nil, fmt.Errorf("no eligible LLDP interface found for configured interfaces %v", sortedSet(explicit))
 		}
+		if preferredBondExists {
+			return nil, fmt.Errorf("preferred Bond %s exists but has no eligible LLDP slave; refusing to fall back to unrelated host interfaces", preferredBondName)
+		}
 		return nil, fmt.Errorf("automatic discovery found no eligible physical wired interface or Bond slave")
+	}
+	if preferredBondExists && len(explicit) == 0 {
+		log.Printf("[LLDP-AGENT] BOND PRIORITY selected=%s policy=do-not-mix-unrelated-interfaces", preferredBondName)
 	}
 	for _, item := range Sorted(selected) {
 		log.Printf("[LLDP-AGENT] FINAL USABLE INTERFACE name=%s index=%d kind=%s adminUp=%t carrier=%q operState=%q physicalWired=%t bondMaster=%q bondMode=%q bondInfoSource=%q bondMIIStatus=%q", item.Name, item.Index, item.Kind, item.AdministrativeUp, item.Carrier, item.OperState, item.PhysicalWired, item.BondName, item.BondMode, item.BondInfoSource, item.MIIStatus)

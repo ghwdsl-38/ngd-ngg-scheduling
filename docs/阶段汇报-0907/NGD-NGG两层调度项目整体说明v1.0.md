@@ -66,7 +66,7 @@ flowchart TB
 
 | 数据链 | 数据来源 | 更新方式 | 使用方 |
 |---|---|---|---|
-| Node到Leaf | 主机网卡、Bond、LLDP | Agent默认每30秒采集 | PRC静态Controller |
+| Node到Leaf | 主机网卡、Bond、LLDP | Agent每轮最多采集65秒，每3分钟启动一轮 | PRC静态Controller |
 | Leaf以上拓扑 | 运维维护的YAML | Algorithm启动时加载 | Algorithm拓扑解析器 |
 | Node静态快照 | Kubernetes Node | Node事件触发，另有15秒一致性检查 | Algorithm静态缓存 |
 | Node动态状态 | Kubernetes Node和Pod | 每次NGD计算重新生成 | Python需求过滤算法 |
@@ -197,11 +197,14 @@ Agent只运行真实采集路径：识别可用物理接口后，在网卡监听
 ### 5.3 Bond选择规则
 
 ```text
-Active-Backup：只采集active_slave对应网卡
-802.3ad/负载模式：采集所有carrier=1且operstate=up的Slave
-非Bond直连：采集满足条件的普通物理接口
+存在bond0：只使用bond0，不混入管理网、存储网或其他Bond
+Active-Backup：只采集active_slave对应网卡，记录一个Leaf
+802.3ad及其他非主备模式：采集有效Slave，要求得到两个不同Chassis的Leaf
+不存在bond0：回退采集满足条件的普通物理接口
 ```
 
+非主备Bond的两张网卡即使都收到LLDP，也必须经Chassis ID去重后确认是两台
+不同Leaf；如果65秒内没有得到两个不同Leaf，本轮不覆盖上一次成功拓扑。
 Node最多保存两个Leaf。Agent写入的主要元数据为：
 
 ```text

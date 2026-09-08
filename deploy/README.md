@@ -658,12 +658,18 @@ deploy/generated/config.local/external/compose.json
   "nodeName": "worker-001",
   "kubeconfig": "secrets/lldp.kubeconfig",
   "interfaces": "",
-  "listenSeconds": 120,
+  "listenSeconds": 65,
   "idleSeconds": 3,
   "count": 0,
-  "resyncSeconds": 30
+  "resyncSeconds": 180
 }
 ```
+
+默认情况下Agent每轮最多监听65秒；`active-backup`发现活动链路的一个Leaf
+后立即完成，其他Bond模式发现两个不同Chassis的Leaf后立即完成。完成一轮
+后按180秒的轮次周期开始下一轮。两个网卡收到同一个交换机Chassis时只识别为
+一个Leaf，不会误判为双Leaf；65秒内仍不足两个不同Leaf时，本轮不写入，
+也不覆盖上一次成功保存的Node拓扑。
 
 `nodeName` 必须与 Kubernetes Node 的 `metadata.name` 完全一致。也可以
 不反复修改文件，而是在命令中覆盖：

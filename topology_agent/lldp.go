@@ -235,12 +235,20 @@ func receiveLLDP(ctx context.Context, selections map[string]interfaceSelection, 
 	validFrames := 0
 	var lastNewNeighbor time.Time
 	stopReason := "max-timeout"
-	log.Printf("[LLDP-AGENT] WAIT protocol=0x%04x timeout=%s idleTimeout=%s collectionMode=%s maxUniqueNeighbors=%d", ethernetProtocolLLDP, timeout, idleTimeout, collectionMode(count, idleTimeout), count)
-	for count == 0 || len(result) < count {
+	distinctTarget, bondTargetApplies := requiredDistinctBondLeaves(candidates)
+	effectiveIdleTimeout := idleTimeout
+	if bondTargetApplies {
+		// lldp-new-2 uses interface coverage to finish Bond collection. Keep
+		// that flow, but do not allow the generic idle timer to finish a dual
+		// Leaf scan after only the first switch has advertised.
+		effectiveIdleTimeout = 0
+	}
+	log.Printf("[LLDP-AGENT] WAIT protocol=0x%04x timeout=%s idleTimeout=%s effectiveIdleTimeout=%s collectionMode=%s maxUniqueNeighbors=%d distinctBondLeafTarget=%d", ethernetProtocolLLDP, timeout, idleTimeout, effectiveIdleTimeout, collectionMode(count, effectiveIdleTimeout), count, distinctTarget)
+	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		remaining, idleExpired := nextReceiveWait(time.Now(), deadline, lastNewNeighbor, idleTimeout)
+		remaining, idleExpired := nextReceiveWait(time.Now(), deadline, lastNewNeighbor, effectiveIdleTimeout)
 		if idleExpired {
 			stopReason = "idle-timeout"
 			break
@@ -304,25 +312,32 @@ func receiveLLDP(ctx context.Context, selections map[string]interfaceSelection, 
 		neighborIndexes[identity] = len(result)
 		result = append(result, neighbor)
 		lastNewNeighbor = time.Now()
-		log.Printf("[LLDP-AGENT] LEAF FOUND duplicate=false interface=%s chassisID=%q portID=%q uniqueNeighbors=%d validFrames=%d idleTimerReset=%t", neighbor.LocalInterface, neighbor.ChassisID, neighbor.PortID, len(result), validFrames, idleTimeout > 0)
+		log.Printf("[LLDP-AGENT] LEAF FOUND duplicate=false interface=%s chassisID=%q portID=%q uniqueNeighbors=%d validFrames=%d idleTimerReset=%t", neighbor.LocalInterface, neighbor.ChassisID, neighbor.PortID, len(result), validFrames, effectiveIdleTimeout > 0)
 
 		covered, expected, applicable := bondInterfaceCoverage(candidates, result)
 		if applicable {
 			log.Printf("[LLDP-AGENT] BOND COVERAGE coveredInterfaces=%d expectedInterfaces=%d complete=%t", covered, expected, covered == expected)
-			if covered == expected {
-				stopReason = "bond-interface-coverage-complete"
+			distinct := distinctLeafCount(result)
+			complete := bondLeafCollectionComplete(candidates, result)
+			log.Printf("[LLDP-AGENT] BOND LEAF COVERAGE distinctLeaves=%d requiredDistinctLeaves=%d complete=%t", distinct, distinctTarget, complete)
+			if complete {
+				stopReason = "bond-distinct-leaf-coverage-complete"
 				break
 			}
 		}
-	}
-	if count > 0 && len(result) >= count {
-		stopReason = "unique-neighbor-limit-reached"
+		if count > 0 && len(result) >= count {
+			stopReason = "unique-neighbor-limit-reached"
+			break
+		}
 	}
 	if len(result) == 0 {
 		return nil, fmt.Errorf("LLDP receive timeout after %s on interfaces %v: no valid inbound EtherType 0x88cc frame", timeout, allowedNames)
 	}
+	if err := validateBondLeafCollection(candidates, result, timeout, allowedNames); err != nil {
+		return nil, err
+	}
 	sortNeighbors(result)
-	log.Printf("[LLDP-AGENT] COLLECTION COMPLETE reason=%s collectionMode=%s validFrames=%d uniqueNeighbors=%d maxUniqueNeighbors=%d", stopReason, collectionMode(count, idleTimeout), validFrames, len(result), count)
+	log.Printf("[LLDP-AGENT] COLLECTION COMPLETE reason=%s collectionMode=%s validFrames=%d uniqueNeighbors=%d distinctLeaves=%d maxUniqueNeighbors=%d", stopReason, collectionMode(count, effectiveIdleTimeout), validFrames, len(result), distinctLeafCount(result), count)
 	return result, nil
 }
 
@@ -391,6 +406,93 @@ func bondInterfaceCoverage(candidates map[int]interfaceSelection, neighbors []ll
 		}
 	}
 	return len(coveredNames), len(expectedNames), true
+}
+
+// requiredDistinctBondLeaves describes the operational topology expected from
+// the selected Bond. active-backup exposes only the active path; every other
+// mode expects two distinct upstream Leaf switches when the Bond has at least
+// two slaves.
+func requiredDistinctBondLeaves(candidates map[int]interfaceSelection) (int, bool) {
+	if len(candidates) == 0 {
+		return 0, false
+	}
+	bondName, bondMode := "", ""
+	declaredSlaves := map[string]struct{}{}
+	for _, selection := range candidates {
+		if selection.Kind != "bond-slave" || selection.BondName == "" {
+			return 0, false
+		}
+		if bondName == "" {
+			bondName, bondMode = selection.BondName, selection.BondMode
+		}
+		if selection.BondName != bondName || selection.BondMode != bondMode {
+			return 0, false
+		}
+		for _, slave := range selection.BondSlaves {
+			declaredSlaves[slave] = struct{}{}
+		}
+	}
+	if bondMode == "active-backup" {
+		return 1, true
+	}
+	available := len(declaredSlaves)
+	if available == 0 {
+		available = len(candidates)
+	}
+	if available >= 2 {
+		return 2, true
+	}
+	return 1, true
+}
+
+func bondLeafCollectionComplete(candidates map[int]interfaceSelection, neighbors []lldpNeighbor) bool {
+	target, applicable := requiredDistinctBondLeaves(candidates)
+	if !applicable || distinctLeafCount(neighbors) < target {
+		return false
+	}
+	covered, _, _ := bondInterfaceCoverage(candidates, neighbors)
+	requiredInterfaces := target
+	if requiredInterfaces > len(candidates) {
+		requiredInterfaces = len(candidates)
+	}
+	return covered >= requiredInterfaces
+}
+
+func validateBondLeafCollection(candidates map[int]interfaceSelection, neighbors []lldpNeighbor, timeout time.Duration, interfaces []string) error {
+	target, applicable := requiredDistinctBondLeaves(candidates)
+	distinct := distinctLeafCount(neighbors)
+	if applicable && distinct < target {
+		return fmt.Errorf("LLDP Bond collection incomplete after %s on interfaces %v: got %d distinct Leaf chassis, require %d; keeping previously persisted Node topology", timeout, interfaces, distinct, target)
+	}
+	return nil
+}
+
+// distinctLeafCount deliberately ignores local interface and remote port.
+// Two Bond slaves that receive the same chassis are two links to one Leaf,
+// not two Leaf switches.
+func distinctLeafCount(neighbors []lldpNeighbor) int {
+	identities := map[string]struct{}{}
+	for _, neighbor := range neighbors {
+		if neighbor.LooksLikeLocalHost {
+			continue
+		}
+		if identity := leafChassisIdentity(neighbor); identity != "" {
+			identities[identity] = struct{}{}
+		}
+	}
+	return len(identities)
+}
+
+func leafChassisIdentity(neighbor lldpNeighbor) string {
+	subtype := strings.ToLower(strings.TrimSpace(neighbor.ChassisIDSubtype))
+	identifier := strings.ToLower(strings.TrimSpace(neighbor.ChassisID))
+	if subtype == "mac-address" {
+		identifier = strings.NewReplacer(":", "", "-", "", ".", "").Replace(identifier)
+	}
+	if identifier == "" {
+		return ""
+	}
+	return subtype + "\x00" + identifier
 }
 
 func sameHostName(left, right string) bool {

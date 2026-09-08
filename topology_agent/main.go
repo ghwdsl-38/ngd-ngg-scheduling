@@ -75,9 +75,9 @@ func newCommand() *cobra.Command {
 	command.Flags().StringVar(&kubeconfig, "kubeconfig", os.Getenv("KUBECONFIG"), "path to kubeconfig; defaults to in-cluster configuration")
 	command.Flags().StringVar(&kubeContext, "kube-context", "", "optional context in kubeconfig")
 	command.Flags().StringVar(&sysClassNet, "sys-class-net", "/sys/class/net", "sysfs network class path used for Bond discovery")
-	command.Flags().Float64Var(&listenSeconds, "listen-seconds", 120, "real LLDP listen timeout")
+	command.Flags().Float64Var(&listenSeconds, "listen-seconds", 65, "maximum LLDP listen timeout; covers two common 30-second advertisement periods")
 	command.Flags().Float64Var(&idleSeconds, "idle-seconds", 3, "finish a scan after no new unique neighbor appears")
 	command.Flags().IntVar(&count, "count", 0, "maximum unique LLDP neighbors; zero uses idle/max timeout")
-	command.Flags().Float64Var(&resyncSeconds, "resync-seconds", 30, "seconds between Bond and LLDP topology probes")
+	command.Flags().Float64Var(&resyncSeconds, "resync-seconds", 180, "target interval between the start of Bond and LLDP topology probe cycles")
 	return command
 }

@@ -46,6 +46,8 @@ class DeploymentTest(unittest.TestCase):
         self.assertEqual(pod["securityContext"]["runAsUser"], 0)
         self.assertEqual(pod["containers"][0]["securityContext"]["capabilities"], {"drop": ["ALL"], "add": ["NET_RAW"]})
         self.assertIn("--sys-class-net=/host-sys/class/net", pod["containers"][0]["args"])
+        self.assertIn("--listen-seconds=65", pod["containers"][0]["args"])
+        self.assertIn("--resync-seconds=180", pod["containers"][0]["args"])
         self.assertFalse(any(a.startswith("--mode") for a in pod["containers"][0]["args"]))
 
     def test_kubeconfig_lldp(self):

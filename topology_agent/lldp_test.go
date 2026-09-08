@@ -100,6 +100,80 @@ func TestBondCoverageOnlyCompletesForAllBondSlaves(t *testing.T) {
 	}
 }
 
+func TestBondLeafCompletionRequiresDistinctChassis(t *testing.T) {
+	candidates := map[int]interfaceSelection{
+		5: {Name: "eno1", Index: 5, Kind: "bond-slave", BondName: "bond0", BondMode: "802.3ad", BondSlaves: []string{"eno1", "eno2"}},
+		6: {Name: "eno2", Index: 6, Kind: "bond-slave", BondName: "bond0", BondMode: "802.3ad", BondSlaves: []string{"eno1", "eno2"}},
+	}
+	sameLeaf := []lldpNeighbor{
+		{LocalInterface: "eno1", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:55"},
+		{LocalInterface: "eno2", ChassisIDSubtype: "mac-address", ChassisID: "00-11-22-33-44-55"},
+	}
+	if got := distinctLeafCount(sameLeaf); got != 1 {
+		t.Fatalf("same chassis through two links counted as %d Leaves, want 1", got)
+	}
+	if bondLeafCollectionComplete(candidates, sameLeaf) {
+		t.Fatal("two interfaces connected to the same Leaf must not complete dual-Leaf collection")
+	}
+	if err := validateBondLeafCollection(candidates, sameLeaf, 65*time.Second, []string{"eno1", "eno2"}); err == nil || !strings.Contains(err.Error(), "require 2") {
+		t.Fatalf("incomplete dual-Leaf result was not rejected: %v", err)
+	}
+
+	differentLeaves := append([]lldpNeighbor(nil), sameLeaf...)
+	differentLeaves[1].ChassisID = "00:11:22:33:44:66"
+	if got := distinctLeafCount(differentLeaves); got != 2 {
+		t.Fatalf("different chassis counted as %d Leaves, want 2", got)
+	}
+	if !bondLeafCollectionComplete(candidates, differentLeaves) {
+		t.Fatal("two selected interfaces with different Leaf chassis must complete collection")
+	}
+	if err := validateBondLeafCollection(candidates, differentLeaves, 65*time.Second, []string{"eno1", "eno2"}); err != nil {
+		t.Fatalf("complete dual-Leaf result was rejected: %v", err)
+	}
+}
+
+func TestActiveBackupCompletesWithOneActiveLeaf(t *testing.T) {
+	candidates := map[int]interfaceSelection{
+		6: {Name: "eno2", Index: 6, Kind: "bond-slave", BondName: "bond0", BondMode: "active-backup", BondSlaves: []string{"eno1", "eno2"}, Active: true},
+	}
+	neighbors := []lldpNeighbor{{LocalInterface: "eno2", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:66"}}
+	target, applies := requiredDistinctBondLeaves(candidates)
+	if !applies || target != 1 || !bondLeafCollectionComplete(candidates, neighbors) {
+		t.Fatalf("unexpected active-backup policy: target=%d applies=%t complete=%t", target, applies, bondLeafCollectionComplete(candidates, neighbors))
+	}
+}
+
+func TestBuildLeafLinksRejectsAmbiguousSwitchNames(t *testing.T) {
+	selections := map[string]interfaceSelection{
+		"eno1": {Name: "eno1", BondName: "bond0", BondMode: "802.3ad", Active: true},
+		"eno2": {Name: "eno2", BondName: "bond0", BondMode: "802.3ad", Active: true},
+	}
+	_, err := buildLeafLinks([]lldpNeighbor{
+		{LocalInterface: "eno1", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:55", SystemName: "leaf-a", PortID: "1"},
+		{LocalInterface: "eno2", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:66", SystemName: "leaf-a", PortID: "2"},
+	}, selections)
+	if err == nil || !strings.Contains(err.Error(), "two different LLDP chassis") {
+		t.Fatalf("unexpected ambiguity result: %v", err)
+	}
+}
+
+func TestBuildLeafLinksUsesAvailableSystemNameForSameChassis(t *testing.T) {
+	selections := map[string]interfaceSelection{
+		"eno1": {Name: "eno1", BondName: "bond0", BondMode: "802.3ad", Active: true},
+		"eno2": {Name: "eno2", BondName: "bond0", BondMode: "802.3ad", Active: true},
+	}
+	links, err := buildLeafLinks([]lldpNeighbor{
+		{LocalInterface: "eno1", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:55", PortID: "1"},
+		{LocalInterface: "eno2", ChassisIDSubtype: "mac-address", ChassisID: "00-11-22-33-44-55", SystemName: "leaf-a", PortID: "2"},
+	}, selections)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(links) != 2 || links[0].LeafSwitchID != "leaf-a" || links[1].LeafSwitchID != "leaf-a" {
+		t.Fatalf("same Chassis was not resolved to one canonical System Name: %#v", links)
+	}
+}
+
 func TestNeighborIdentityAllowsMultiplePeersOnOneInterface(t *testing.T) {
 	left := lldpNeighbor{LocalInterface: "eno1", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:55", PortIDSubtype: "interface-name", PortID: "eth1"}
 	right := left

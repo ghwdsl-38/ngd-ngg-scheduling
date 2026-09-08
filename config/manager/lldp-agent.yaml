@@ -25,9 +25,9 @@ spec:
         image: ngd-ngg-lldp-agent:v0.2.0
         imagePullPolicy: IfNotPresent
         args:
-        - --listen-seconds=120
+        - --listen-seconds=65
         - --idle-seconds=3
-        - --resync-seconds=30
+        - --resync-seconds=180
         - --sys-class-net=/host-sys/class/net
         env:
         - name: NODE_NAME
