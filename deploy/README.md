@@ -1,167 +1,399 @@
-# 统一部署入口
+# NGD-NGG 统一部署操作手册
 
-从 Git 拉取项目、准备镜像后，修改 `deploy/config.local.json` 即可部署。此目录封装两种方式：
+本文只解决三个问题：
 
-| 方式 | 管理服务 | 每个 Worker 的 LLDP | 启动命令 |
-|---|---|---|---|
-| 集群内 | PRC/Algorithm Deployment | LLDP DaemonSet | `python3 deploy/deploy.py kubernetes up` |
-| 集群外 | PRC/Algorithm Docker Compose | 节点侧 Docker Compose | 管理服务器执行 `external up`，各 Worker 执行 `node up` |
+1. 镜像是否需要自己构建；
+2. 每种部署方式具体执行什么；
+3. 每一步需要修改哪个配置。
 
-集群内 PRC 和 LLDP 各自可选择 `incluster` 或 `kubeconfig` 认证；集群外使用 Kubeconfig。Algorithm 不直接访问 Kubernetes API，无需 Kubeconfig。
-
-新入口自动生成配置并调用 kubectl / Docker Compose，不依赖 Helm 或 PyYAML。旧 `scripts/05*-deploy*.sh` 使用原有 YAML，不读取新配置；使用本目录后不要混用两套部署入口。
-
-## 1. 目录和准备工作
-
-```text
-deploy/
-├── README.md              本说明
-├── config.example.json    不含凭证的完整配置模板
-├── deploy.py              init/build/push/bootstrap/render/check/up/status/logs/down 入口
-├── render.py              Kubernetes / Compose 配置生成逻辑
-├── test_deploy.py         部署配置离线测试
-├── config.local.json      自己的配置，init 生成，Git 忽略
-├── secrets/               自己保存的凭证，Git 忽略
-└── generated/             自动生成的 Kubernetes/Compose JSON，Git 忽略
-```
-
-部署机需要 Python 3.9+。集群内需要 kubectl；集群外管理机和运行 LLDP 容器的 Worker 需要 Docker Engine + Compose v2（支持 `up --wait`）。构建机需要 Docker、Bash、Make，并能访问基础镜像和 Go 依赖源。当前构建脚本按构建机架构编译，应与目标节点架构一致。
-
-所有下列命令默认在 **Git 仓库根目录** 执行。配置里的相对文件路径相对于配置文件所在目录，不依赖执行命令时的目录。
+所有命令默认在 Git 仓库根目录执行：
 
 ```bash
-git clone <repository-url>
 cd ngd-ngg-scheduling-demo
-git checkout <release-tag-or-commit>
-
-python3 deploy/deploy.py init
 ```
 
-`init` 不覆盖已有 `config.local.json`。编辑该文件的主要字段：
+## 1. 先选择操作路线
 
-| 字段 | 要填写什么 |
-|---|---|
-| `context` | 部署人员 kubectl 的目标集群 context，bootstrap/up 不使用模糊的默认 context |
-| `namespace` | Kubernetes 组件及 RBAC 使用的命名空间 |
-| `images.prc/algorithm/lldp` | 已发布的完整镜像地址，使用唯一版本号或 digest |
-| `clusterId` | PRC 发给算法的集群标识 |
-| `topologyFile` | 真实上层拓扑 YAML；默认是怀来 102 样例，必须按实际网络替换 |
-| `prometheus.url` | 从 Algorithm 实际运行位置能访问的 Prometheus 地址；空字符串表示关闭采集 |
-| `prometheus.nodeLabel` | 查询结果中对应 Kubernetes Node 名称的标签 |
-| `kubernetes.workerNodeSelector` | LLDP 要运行的 Worker 标签；默认要求 worker 角色标签，目标集群没有此标签需修改 |
-| `kubernetes.workerTolerations` | 有 Taint 的 Worker 所需的容忍规则 |
-| `kubernetes.imagePullSecrets` | 已在目标 namespace 创建的拉取凭证 Secret 名称列表 |
+### 1.1 镜像是否需要自己 Build
 
-示例镜像域名和 `REPLACE_*` 是占位符。执行部署时入口会拒绝与本次操作相关的未替换占位符。无关模式的字段可以暂不填写。
+不是每次部署都要自己构建镜像，二选一即可：
 
-## 2. 镜像：由构建机发布一次
+| 情况 | 是否执行 `images build/push` | 要做什么 |
+|---|---:|---|
+| 需求方已经提供 PRC、Algorithm、LLDP 三个镜像地址 | 否 | 将地址写入 `deploy/config.local.json` 后直接部署 |
+| 没有可用镜像，或者本次修改了代码 | 是 | 先配置自己的镜像仓库地址，再 Build、Push、部署 |
 
-如果需求方已有发布镜像，直接跳到第 3 或第 4 节，不需要在运行服务器编译 Go、安装 Python Worker 环境。
-
-发布人员先修改 `images`，然后执行：
-
-```bash
-python3 deploy/deploy.py images build
-python3 deploy/deploy.py images push
-```
-
-构建沿用项目三个构建脚本；Python Worker 已包含在 Algorithm 镜像里，由 Go 服务启动。本次补齐 LLDP Dockerfile 的 `topology_agent/pkg` 复制，确保它能构建目前代码。
-
-构建缓存和镜像归档仍使用项目的数据盘路径；Docker 自身的数据目录由宿主机 Docker 配置决定。本入口不迁移 Docker 数据目录。
-
-## 3. 集群内部署
-
-### 3.1 默认：In-Cluster
-
-默认配置：
-
-```json
-"prcAuth": {"mode": "incluster", "secretName": "", "subject": null},
-"lldpAuth": {"mode": "incluster", "secretName": "", "subject": null}
-```
-
-这两项位于 `kubernetes` 中。PRC 使用 ServiceAccount `prc`，LLDP 使用 `lldp-agent`。API 地址、CA 和 Token 来自 Kubernetes 注入。
-
-管理员首次执行：
-
-```bash
-# 创建/更新联通最新版 CRD、Namespace、组件 RBAC。
-python3 deploy/deploy.py kubernetes bootstrap
-```
-
-CRD 直接取自 `docs/paas-schedbridge-master-new/crd-deploy/`，不再复制一份。已有集群共享这两个 CRD 时，应由管理员统一确认版本后运行 bootstrap。凭证不会由 bootstrap 自动签发。
-
-日常部署：
-
-```bash
-# 可选：只生成文件，方便提交给需求方审阅。
-python3 deploy/deploy.py kubernetes render
-
-# 检查配置与本地拓扑/指标目录文件，不访问集群。
-python3 deploy/deploy.py kubernetes check
-
-# 校验 Secret 是否存在，进行服务端 dry-run，应用清单并等待组件启动。
-python3 deploy/deploy.py kubernetes up
-```
-
-生成文件在 `deploy/generated/config.local/kubernetes/`：
-
-- `bootstrap.json`：Namespace、ServiceAccount、ClusterRole、ClusterRoleBinding。
-- `kubernetes.json`：上层拓扑 ConfigMap、Algorithm Service、两个 Deployment 和 LLDP DaemonSet。
-
-JSON 是 Kubernetes 支持的清单格式，可以直接交给 `kubectl -f`。上层拓扑内容变化会改变 Algorithm Pod 配置摘要，触发重建。PRC/Algorithm 均为一个副本、`Recreate` 更新，更新会有短暂中断。
-
-### 3.2 集群内 Pod 显式挂载 Kubeconfig
-
-本方式仍然把 PRC 和 LLDP Agent 部署为 Kubernetes Pod，只是它们不使用 Pod 自动注入的 ServiceAccount Token，而是读取管理员准备的 kubeconfig 文件：
+完整顺序如下：
 
 ```text
-PRC Pod
-  └─ Secret/prc-kubeconfig
-       └─ /etc/ngd-ngg/auth/kubeconfig ──> Kubernetes API
+已有镜像：初始化配置 → 填写镜像地址 → 配置部署模式 → bootstrap → up → 验证
 
-每个 Worker 上的 LLDP Agent Pod
-  └─ Secret/lldp-kubeconfig
-       └─ /etc/ngd-ngg/auth/kubeconfig ──> Kubernetes API
+自己构建：初始化配置 → 填写自己的镜像地址 → build → push
+          → 配置部署模式 → bootstrap → up → 验证
 ```
 
-Kubeconfig 只负责认证 Kubernetes API。LLDP 接收物理网卡报文仍依赖 `hostNetwork`、`NET_RAW` 和只读 sysfs 挂载，二者不能互相替代。
+### 1.2 选择部署模式
 
-#### 第 1 步：生成本地正式配置
+| 模式 | PRC/Algorithm | LLDP Agent | 使用场景 |
+|---|---|---|---|
+| A. 集群内 In-Cluster | Kubernetes Deployment | Kubernetes DaemonSet | 默认推荐，操作最少 |
+| B. 集群内 Kubeconfig | Kubernetes Deployment | Kubernetes DaemonSet | 需求方明确要求显式 Kubeconfig |
+| C. 集群外 | 管理服务器 Docker Compose | 每个 Worker 上的 Docker Compose | 管理组件不允许放进集群 |
 
-所有操作在仓库根目录执行：
+只执行自己选择的一条路线，不要把三种部署命令混在一起。
+
+### 1.3 每个组件需要的环境写在哪里
+
+项目里的“环境”分成三层，不能都写在 `config.local.json`：
+
+| 环境类型 | 写在哪里 | 负责什么 |
+|---|---|---|
+| 镜像构建环境 | 根目录三个 `Dockerfile.*` 和 `scripts/04*-build*.sh` | Go/Python版本、基础镜像、编译和打包过程 |
+| 代码依赖版本 | `prc/go.mod`、`algorithm_server/go/go.mod`、`topology_agent/go.mod` | controller-runtime、client-go、Cobra等依赖版本 |
+| 部署运行环境 | `deploy/config.local.json` | 镜像地址、资源限制、认证模式、拓扑、Prometheus、节点选择器 |
+| Kubernetes安全与挂载 | `deploy/render.py` 自动生成 | ServiceAccount、Kubeconfig、RBAC、Host Network、`NET_RAW`、只读 `/sys` |
+
+三个组件的镜像环境如下：
+
+| 组件 | 构建环境 | 最终运行环境 | 定义文件 |
+|---|---|---|---|
+| PRC | `golang:1.25.0` 容器编译 | `scratch`，只包含 `/prc` 二进制，以 UID/GID 65532 运行 | `scripts/04-build-prc.sh`、`Dockerfile.prc` |
+| Algorithm | `golang:1.25-alpine` 编译 Go 主服务 | `python:3.13-alpine`，包含 Go Server 和 Python Worker，以 UID/GID 65532 运行 | `Dockerfile.algorithm` |
+| LLDP Agent | `golang:1.25-alpine` 编译 | `alpine:3.22`，以容器镜像用户启动，部署时授予所需 `NET_RAW` | `Dockerfile.lldp-agent` |
+
+Python Worker 当前只使用 Python 标准库，没有额外的 `pip install` 或
+`requirements.txt`。Algorithm 镜像会把 Python Worker 一起复制进去，
+不需要单独部署 Python 容器。
+
+Docker 构建仍然需要考虑，但分两种情况：
+
+- **使用需求方已发布镜像**：你不负责构建，部署机不需要安装 Go，也不
+  需要 Docker；集群内模式只需要 Python 3 和 `kubectl`；
+- **本次自己发布镜像**：构建机需要 Docker、Bash、Python 3，以及访问
+  基础镜像和 Go 依赖源的网络；不需要在宿主机安装 Go 1.25 或 Python
+  3.13，具体版本由构建容器提供。
+
+不同机器需要的软件：
+
+| 机器 | 必需软件 |
+|---|---|
+| 镜像构建机 | Docker Engine、Bash、Python 3 |
+| 集群内部署机 | Python 3、kubectl；使用现成镜像时不需要 Docker |
+| 集群外管理服务器 | Python 3、Docker Engine、Docker Compose v2；执行 bootstrap 还需要 kubectl |
+| 集群外每个 Worker | Python 3、Docker Engine、Docker Compose v2 |
+
+`python3 deploy/deploy.py images build` 已经封装了三个组件的构建过程，
+一般不需要手工执行 `go build` 或 `docker build`。但是基础镜像能否下载、
+构建机和目标节点 CPU 架构是否一致、镜像仓库是否可访问，仍需要部署方
+提前确认。
+
+## 2. 所有路线共同的准备工作
+
+### 2.1 初始化实际配置文件
+
+项目提供的是不含真实环境信息的模板：
+
+```text
+deploy/config.example.json   示例模板，不要写入真实凭证
+deploy/config.local.json     实际配置，Git 已忽略
+```
+
+首次执行：
 
 ```bash
 python3 deploy/deploy.py init
 ```
 
-如果 `deploy/config.local.json` 已存在，`init` 会拒绝覆盖，这是为了保护已有配置。打开该文件并填写目标集群和镜像。下面只是需要修改的字段示意，**不能用这个片段覆盖完整配置文件**：
+该命令创建 `deploy/config.local.json`，已存在时不会覆盖。之后编辑：
+
+```bash
+vi deploy/config.local.json
+```
+
+修改完成先验证 JSON 语法：
+
+```bash
+python3 -m json.tool deploy/config.local.json >/dev/null
+```
+
+所有后续命令都显式使用这个配置文件：
+
+```text
+--config deploy/config.local.json
+```
+
+### 2.2 三种模式都要检查的配置
+
+打开 `deploy/config.local.json`，至少检查以下字段：
 
 ```json
 {
-  "context": "production",
   "namespace": "ngd-ngg-system",
+  "context": "production",
+  "clusterId": "production-cluster",
   "images": {
-    "prc": "registry.example.com/ngd-ngg/prc:v0.5.0",
-    "algorithm": "registry.example.com/ngd-ngg/algorithm:v0.5.0",
-    "lldp": "registry.example.com/ngd-ngg/lldp-agent:v0.5.0"
-  }
+    "prc": "registry.unicom.example.com/ngd-ngg/prc:v0.5.0",
+    "algorithm": "registry.unicom.example.com/ngd-ngg/algorithm:v0.5.0",
+    "lldp": "registry.unicom.example.com/ngd-ngg/lldp-agent:v0.5.0"
+  },
+  "topologyFile": "../config/topology/unicom-huailai-102-sample.yaml"
 }
 ```
 
-`context` 是部署管理员本机已有的 kubectl context，只用于执行 bootstrap、创建 Secret 和部署，不会作为运行时 kubeconfig 自动传入 Pod。
+| 字段 | 修改内容 |
+|---|---|
+| `namespace` | PRC、Algorithm、LLDP 和 RBAC 使用的命名空间 |
+| `context` | 部署人员本机 `kubectl` 连接目标集群的 Context |
+| `clusterId` | PRC 发给 Algorithm 的集群标识 |
+| `images.prc` | PRC 完整镜像地址和 Tag |
+| `images.algorithm` | Algorithm 完整镜像地址和 Tag |
+| `images.lldp` | LLDP Agent 完整镜像地址和 Tag |
+| `topologyFile` | 上层网络拓扑文件；相对路径以 `config.local.json` 所在目录为基准 |
 
-先确认没有选错集群：
+不要保留 `REPLACE_*` 或 `registry.example.com` 占位符。
+
+确认管理员 Context 没有选错集群：
 
 ```bash
 kubectl config get-contexts
 kubectl --context production cluster-info
-kubectl --context production get nodes
+kubectl --context production get nodes -o wide
 ```
 
-#### 第 2 步：配置两个运行身份
+### 2.3 配置 Prometheus
 
-PRC 和 LLDP 可以独立选择认证模式。下面让两者都显式使用 kubeconfig，并使用 bootstrap 会创建的两个 ServiceAccount 作为实际身份：
+Algorithm 在哪里运行，`prometheus.url` 就必须能从哪里访问。
+
+集群内无认证示例：
+
+```json
+"prometheus": {
+  "url": "http://prometheus.monitoring.svc.cluster.local:9090",
+  "refreshSeconds": 15,
+  "staleSeconds": 120,
+  "timeoutSeconds": 5,
+  "nodeLabel": "node",
+  "tlsServerName": "",
+  "secretName": "",
+  "tokenFile": "",
+  "caFile": "",
+  "metricsConfigFile": ""
+}
+```
+
+字段说明：
+
+| 字段 | 修改条件 |
+|---|---|
+| `url` | 改成 Algorithm 实际可访问的 Prometheus 地址；空字符串表示不采集 |
+| `refreshSeconds` | 指标刷新周期，当前建议 15 秒 |
+| `nodeLabel` | Prometheus 查询结果中代表 Kubernetes Node 名称的 Label |
+| `secretName` | 集群内部署且 Prometheus 需要 Token/CA 时填写 Secret 名称 |
+| `tokenFile`、`caFile` | 非空表示启用对应认证文件；集群内表示 Secret Key，集群外表示本地文件 |
+| `metricsConfigFile` | 留空使用内置 14 项指标；非空时加载指定指标目录 JSON |
+
+## 3. 可选流程：自己构建和 Push 镜像
+
+如果已经拿到三个可用镜像，跳过本章。
+
+### 3.1 修改镜像地址
+
+先在 Harbor 或其他镜像仓库创建项目，例如 `ngd-ngg`，然后修改：
+
+```json
+"images": {
+  "prc": "registry.unicom.example.com/ngd-ngg/prc:v0.5.0",
+  "algorithm": "registry.unicom.example.com/ngd-ngg/algorithm:v0.5.0",
+  "lldp": "registry.unicom.example.com/ngd-ngg/lldp-agent:v0.5.0"
+}
+```
+
+格式是：
+
+```text
+<仓库域名>/<仓库项目>/<镜像名>:<版本>
+```
+
+### 3.2 构建
+
+构建机需要 Docker，并能下载基础镜像和 Go 依赖：
+
+```bash
+docker info
+
+python3 deploy/deploy.py images build \
+  --config deploy/config.local.json
+```
+
+构建完成后同时产生：
+
+| 结果 | 位置 |
+|---|---|
+| 实际用于 Push 的镜像 | 构建机 Docker Engine 本地镜像库 |
+| PRC 离线包 | `images/ngd-ngg-prc-v0.3.0.tar` |
+| Algorithm 离线包 | `images/ngd-ngg-algorithm-v0.4.0.tar` |
+| LLDP 离线包 | `images/ngd-ngg-lldp-agent-v0.2.0.tar` |
+| 镜像 ID/Tag 记录 | `results/prc-image.txt`、`algorithm-image.txt`、`lldp-agent-image.txt` |
+
+离线包名称是脚本保留的固定历史名称，包内镜像 Tag 仍以
+`config.local.json` 为准。在线 Push 直接读取 Docker 本地镜像，不读取
+这些 tar 包。
+
+检查本地镜像：
+
+```bash
+docker image inspect registry.unicom.example.com/ngd-ngg/prc:v0.5.0
+docker image inspect registry.unicom.example.com/ngd-ngg/algorithm:v0.5.0
+docker image inspect registry.unicom.example.com/ngd-ngg/lldp-agent:v0.5.0
+ls -lh images/ results/*-image.txt
+```
+
+### 3.3 Push
+
+```bash
+docker login registry.unicom.example.com
+
+python3 deploy/deploy.py images push \
+  --config deploy/config.local.json
+```
+
+该命令依次执行三个 `docker push`，目标就是 `images.prc`、
+`images.algorithm` 和 `images.lldp` 中的完整地址。Push 完成后在 Harbor
+页面确认 Tag，或者从另一台有权限的机器执行：
+
+```bash
+docker pull registry.unicom.example.com/ngd-ngg/lldp-agent:v0.5.0
+```
+
+## 4. 路线 A：集群内 In-Cluster 部署
+
+这是默认推荐路线。PRC 和 LLDP 使用 Kubernetes 自动注入的
+ServiceAccount Token，不需要准备 Kubeconfig 文件。
+
+### A1. 修改配置
+
+修改 `deploy/config.local.json`：
+
+```json
+"kubernetes": {
+  "imagePullSecrets": [],
+  "prcAuth": {"mode": "incluster", "secretName": "", "subject": null},
+  "lldpAuth": {"mode": "incluster", "secretName": "", "subject": null},
+  "workerNodeSelector": {"node-role.kubernetes.io/worker": ""},
+  "workerTolerations": []
+}
+```
+
+需要确认：
+
+- `workerNodeSelector` 能选中所有需要采集 LLDP 的 Worker；
+- 有 Taint 的 Worker 要把对应 Toleration 写入 `workerTolerations`；
+- `images.*`、`topologyFile` 和 `prometheus.*` 已按第 2 章修改。
+
+查看 Worker Label 和 Taint：
+
+```bash
+kubectl --context production get nodes --show-labels
+kubectl --context production describe node <worker-name>
+```
+
+### A2. 安装 CRD、命名空间和 RBAC
+
+首次部署或者 CRD/RBAC 发生变化时执行：
+
+```bash
+python3 deploy/deploy.py kubernetes bootstrap \
+  --config deploy/config.local.json
+```
+
+该操作创建/更新：
+
+- NGD、NGG CRD；
+- Namespace；
+- PRC、LLDP ServiceAccount；
+- ClusterRole 和 ClusterRoleBinding。
+
+### A3. 私有镜像仓库认证（按需执行）
+
+如果集群无需认证即可拉取镜像，保持：
+
+```json
+"imagePullSecrets": []
+```
+
+需要认证时，先创建 Secret：
+
+```bash
+kubectl --context production -n ngd-ngg-system \
+  create secret docker-registry registry-credential \
+  --docker-server=registry.unicom.example.com \
+  --docker-username='<用户名>' \
+  --docker-password='<密码或Robot Token>'
+```
+
+再修改 `deploy/config.local.json`：
+
+```json
+"imagePullSecrets": ["registry-credential"]
+```
+
+### A4. 生成、检查、部署
+
+```bash
+# 只生成清单，不访问集群。
+python3 deploy/deploy.py kubernetes render \
+  --config deploy/config.local.json
+
+# 检查本地文件，不创建工作负载。
+python3 deploy/deploy.py kubernetes check \
+  --config deploy/config.local.json
+
+# 服务端 dry-run、应用清单并等待三个组件 Ready。
+python3 deploy/deploy.py kubernetes up \
+  --config deploy/config.local.json
+```
+
+生成的清单位于：
+
+```text
+deploy/generated/config.local/kubernetes/bootstrap.json
+deploy/generated/config.local/kubernetes/kubernetes.json
+```
+
+### A5. 验证
+
+```bash
+python3 deploy/deploy.py kubernetes status \
+  --config deploy/config.local.json
+
+python3 deploy/deploy.py kubernetes logs \
+  --config deploy/config.local.json
+
+kubectl --context production get nodes \
+  -L topology.demo.ngg.io/leaf-set-id,topology.demo.ngg.io/leaf-count
+```
+
+查看 Algorithm 缓存：
+
+```bash
+kubectl --context production -n ngd-ngg-system \
+  port-forward service/ngd-ngg-algorithm 8080:8080
+```
+
+另一个终端执行：
+
+```bash
+curl -fsS http://127.0.0.1:8080/internal/v1/cache/status
+```
+
+## 5. 路线 B：集群内显式 Kubeconfig 部署
+
+组件仍然是 Kubernetes Pod，但 PRC 和 LLDP 不使用自动注入的 Token，
+而是读取挂载到 Pod 中的 Kubeconfig。
+
+### B1. 修改认证模式
+
+修改 `deploy/config.local.json` 的 `kubernetes`：
 
 ```json
 "prcAuth": {
@@ -184,143 +416,102 @@ PRC 和 LLDP 可以独立选择认证模式。下面让两者都显式使用 kub
 }
 ```
 
-以上两个对象位于 `config.local.json` 的 `kubernetes` 中。其含义是：
-
-| 字段 | 含义 |
-|---|---|
-| `mode` | 选择 `kubeconfig` 后，Pod 不再自动挂载默认 ServiceAccount Token |
-| `secretName` | 保存完整 kubeconfig 的 Kubernetes Secret 名称，不是本地文件路径 |
-| `subject` | kubeconfig 凭证经过 API Server 认证后的真实身份，bootstrap 按此对象创建 RBAC 绑定 |
-
-如果管理员提供的是客户端证书，证书 Subject 的 CN 通常对应 User，此时配置类似：
+`subject` 必须是 API Server 认证后的真实身份。若管理员提供客户端证书
+身份，则改为：
 
 ```json
-"subject": {"kind": "User", "name": "actual-prc-user"}
+{"kind": "User", "name": "实际认证用户名"}
 ```
 
-`subject.name` 不是 kubeconfig 的 `users[].name` 别名。User/Group 必须填写 API Server 最终识别的真实名称；填写错误会导致 Secret 正常挂载但请求返回 403。
+这里不是 kubeconfig 中 `users[].name` 的本地别名。
 
-#### 第 3 步：安装 CRD、Namespace、ServiceAccount 和 RBAC
-
-使用部署管理员的 `context` 执行：
+### B2. 先安装 CRD、身份和 RBAC
 
 ```bash
 python3 deploy/deploy.py kubernetes bootstrap \
   --config deploy/config.local.json
 ```
 
-这一步会：
+### B3. 准备两个 Kubeconfig
 
-- 安装或更新最新版 NGD、NGG CRD；
-- 创建 `ngd-ngg-system` Namespace；
-- 创建 `prc`、`lldp-agent` ServiceAccount；
-- 按第 2 步的 `subject` 创建两个独立的 ClusterRoleBinding。
-
-这一步只创建身份对象和授权，**不会签发凭证，也不会自动生成 kubeconfig**。
-
-#### 第 4 步：取得两个真实 kubeconfig 文件
-
-生产环境推荐让集群管理员或统一凭证平台直接提供：
+生产环境应由集群管理员或凭证平台提供两个独立文件：
 
 ```text
 deploy/secrets/prc.kubeconfig
 deploy/secrets/lldp.kubeconfig
 ```
 
-两个文件都应包含可从 Pod 内访问的 API Server 地址、CA 和各自的专用凭证。不要写 `127.0.0.1`，除非 API Server 确实与该 Pod 位于同一个网络空间；不要复制管理员 kubeconfig 给 PRC 或所有 LLDP Pod。
+项目提供了不含真实凭证的结构样例：
 
-拿到文件后立即限制权限：
-
-```bash
-chmod 0600 deploy/secrets/prc.kubeconfig
-chmod 0600 deploy/secrets/lldp.kubeconfig
+```text
+deploy/examples/prc.kubeconfig.example
+deploy/examples/lldp.kubeconfig.example
 ```
 
-如果只是测试环境，也可以让管理员基于第 3 步创建的 ServiceAccount 签发短期 Token，再生成对应 kubeconfig：
+可以复制后填写：
+
+```bash
+mkdir -p deploy/secrets
+cp deploy/examples/prc.kubeconfig.example deploy/secrets/prc.kubeconfig
+cp deploy/examples/lldp.kubeconfig.example deploy/secrets/lldp.kubeconfig
+chmod 0600 deploy/secrets/*.kubeconfig
+```
+
+必须替换样例中的 API Server、CA 和 Token：API Server和Token使用
+`REPLACE_WITH_*` 明文占位符；CA字段当前保存的是占位文字的合法Base64，
+同样必须替换为真实集群CA的Base64内容。`deploy/secrets/` 已被Git忽略，
+填写真实凭证后的文件不得提交。
+
+文件中的 API Server 地址必须能从 Pod 内访问，不能随意写
+`127.0.0.1`。Kubeconfig 应内嵌 CA 和专用 Token/客户端证书，不要复制
+管理员凭证。
+
+联调环境可以基于前面创建的 ServiceAccount 生成短期凭证：
 
 ```bash
 mkdir -p deploy/secrets
 
-# 从部署管理员当前 context 取得 API 地址和 CA。--flatten 会把外部 CA 文件嵌入输出。
 NGG_API_SERVER="$(kubectl --context production config view \
   --raw --minify --flatten -o jsonpath='{.clusters[0].cluster.server}')"
+
 kubectl --context production config view --raw --minify --flatten \
   -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' \
   | base64 --decode > deploy/secrets/cluster-ca.crt
 
-# 分别签发两个短期 Token，不要共用同一个身份。
 NGG_PRC_TOKEN="$(kubectl --context production -n ngd-ngg-system \
   create token prc --duration=24h)"
 NGG_LLDP_TOKEN="$(kubectl --context production -n ngd-ngg-system \
   create token lldp-agent --duration=24h)"
 
-# 生成 PRC kubeconfig，并把 CA 嵌入文件中。
 kubectl --kubeconfig=deploy/secrets/prc.kubeconfig config set-cluster production \
   --server="${NGG_API_SERVER}" \
-  --certificate-authority=deploy/secrets/cluster-ca.crt \
-  --embed-certs=true
-kubectl --kubeconfig=deploy/secrets/prc.kubeconfig config set-credentials prc-runtime \
+  --certificate-authority=deploy/secrets/cluster-ca.crt --embed-certs=true
+kubectl --kubeconfig=deploy/secrets/prc.kubeconfig config set-credentials runtime \
   --token="${NGG_PRC_TOKEN}"
 kubectl --kubeconfig=deploy/secrets/prc.kubeconfig config set-context production \
-  --cluster=production --user=prc-runtime
+  --cluster=production --user=runtime
 kubectl --kubeconfig=deploy/secrets/prc.kubeconfig config use-context production
 
-# 生成 LLDP kubeconfig，并把 CA 嵌入文件中。
 kubectl --kubeconfig=deploy/secrets/lldp.kubeconfig config set-cluster production \
   --server="${NGG_API_SERVER}" \
-  --certificate-authority=deploy/secrets/cluster-ca.crt \
-  --embed-certs=true
-kubectl --kubeconfig=deploy/secrets/lldp.kubeconfig config set-credentials lldp-runtime \
+  --certificate-authority=deploy/secrets/cluster-ca.crt --embed-certs=true
+kubectl --kubeconfig=deploy/secrets/lldp.kubeconfig config set-credentials runtime \
   --token="${NGG_LLDP_TOKEN}"
 kubectl --kubeconfig=deploy/secrets/lldp.kubeconfig config set-context production \
-  --cluster=production --user=lldp-runtime
+  --cluster=production --user=runtime
 kubectl --kubeconfig=deploy/secrets/lldp.kubeconfig config use-context production
 
-# 清除当前 Shell 中的明文 Token，并限制生成文件权限。
-unset NGG_PRC_TOKEN NGG_LLDP_TOKEN NGG_API_SERVER
-chmod 0600 deploy/secrets/prc.kubeconfig
-chmod 0600 deploy/secrets/lldp.kubeconfig
+unset NGG_API_SERVER NGG_PRC_TOKEN NGG_LLDP_TOKEN
+chmod 0600 deploy/secrets/*.kubeconfig
 ```
 
-上面命令中的 `production` 和 `ngd-ngg-system` 必须与 `config.local.json` 一致。若管理员 kubeconfig 没有 `certificate-authority-data`，而是依赖跳过 TLS 校验或其他认证代理，不要照搬该命令，应由集群管理员给出正确的 CA 和 Pod 可达的 API 地址。
+短期 Token 只适合联调，生产环境必须安排凭证续期。
 
-该 Token 的实际有效期由 API Server 决定，即使请求了 24 小时也可能被限制。这个办法适合联调，不适合无人值守的长期生产运行；生产必须安排凭证轮换，或使用管理员认可的客户端证书/OIDC 等机制。
-
-一个文件的结构示意如下，内容必须由目标集群的真实信息替换：
-
-```yaml
-apiVersion: v1
-kind: Config
-clusters:
-- name: production
-  cluster:
-    server: https://kubernetes-api.example.com:6443
-    certificate-authority-data: <目标集群CA的Base64内容>
-users:
-- name: prc-runtime
-  user:
-    token: <PRC专用Token>
-contexts:
-- name: production
-  context:
-    cluster: production
-    user: prc-runtime
-current-context: production
-```
-
-LLDP 文件使用 LLDP 专用 Token。文件里的 `prc-runtime`、`production` 只是配置别名，不参与 RBAC 身份匹配。
-
-当前 PRC/LLDP 镜像不保证包含云厂商登录插件，因此使用 `exec` 的 kubeconfig 必须先确认对应程序已打入镜像。当前最稳妥的是管理员提供可以直接使用的 Token或客户端证书 kubeconfig。
-
-#### 第 5 步：在本地验证两个 kubeconfig
-
-不要先部署再猜测权限。直接以两个运行身份访问目标 API：
+### B4. 验证 Kubeconfig 权限
 
 ```bash
 kubectl --kubeconfig deploy/secrets/prc.kubeconfig get nodes
-kubectl --kubeconfig deploy/secrets/prc.kubeconfig auth can-i list pods --all-namespaces
 kubectl --kubeconfig deploy/secrets/prc.kubeconfig auth can-i get nodegroupdemands.scheduling.platform.example.io
-kubectl --kubeconfig deploy/secrets/prc.kubeconfig auth can-i patch nodegroupdemands.scheduling.platform.example.io/status
 kubectl --kubeconfig deploy/secrets/prc.kubeconfig auth can-i create nodegroupgrants.scheduling.platform.example.io
 
 kubectl --kubeconfig deploy/secrets/lldp.kubeconfig get nodes
@@ -329,11 +520,10 @@ kubectl --kubeconfig deploy/secrets/lldp.kubeconfig auth can-i patch nodes
 kubectl --kubeconfig deploy/secrets/lldp.kubeconfig auth can-i create nodegroupgrants.scheduling.platform.example.io
 ```
 
-最后一条 LLDP 检查应返回 `no`，证明它没有获得 NGG 权限。PRC 的检查应按接口文档返回 `yes`。这里不要为了测试而真的 Patch Node。
+前三类 PRC 权限和 LLDP 的 `get/patch nodes` 应返回 `yes`；LLDP 创建 NGG
+应返回 `no`。
 
-#### 第 6 步：把 kubeconfig 创建为 Kubernetes Secret
-
-Secret Key 必须叫 `kubeconfig`，因为生成的 Pod 挂载配置固定读取这个 Key：
+### B5. 创建 Kubeconfig Secret
 
 ```bash
 kubectl --context production -n ngd-ngg-system create secret generic prc-kubeconfig \
@@ -345,229 +535,269 @@ kubectl --context production -n ngd-ngg-system create secret generic lldp-kubeco
   --dry-run=client -o yaml | kubectl --context production apply -f -
 ```
 
-确认名称和 Key，不输出 Secret 内容：
+如果使用私有镜像仓库，还要按 A3 创建镜像拉取 Secret。
+
+### B6. 检查、部署、验证
 
 ```bash
-kubectl --context production -n ngd-ngg-system get secret \
-  prc-kubeconfig lldp-kubeconfig
-
-kubectl --context production -n ngd-ngg-system get secret prc-kubeconfig \
-  -o jsonpath='{.data.kubeconfig}' | wc -c
-kubectl --context production -n ngd-ngg-system get secret lldp-kubeconfig \
-  -o jsonpath='{.data.kubeconfig}' | wc -c
-```
-
-不要执行会把 Secret 的 Base64 内容打印到会议终端或日志系统的命令。
-
-#### 第 7 步：检查生成配置并部署
-
-```bash
-python3 deploy/deploy.py kubernetes render \
-  --config deploy/config.local.json
-
 python3 deploy/deploy.py kubernetes check \
   --config deploy/config.local.json
-
 python3 deploy/deploy.py kubernetes up \
   --config deploy/config.local.json
-```
-
-生成器会自动完成以下配置：
-
-- 将两个 Secret 分别挂载到对应 Pod 的 `/etc/ngd-ngg/auth/`；
-- 设置 `KUBECONFIG=/etc/ngd-ngg/auth/kubeconfig`；
-- 设置 `automountServiceAccountToken: false`，确保程序不回退使用默认 Token；
-- PRC 使用 `fsGroup: 65532` 读取只读 Secret；
-- LLDP 使用 root、`hostNetwork`、只读 sysfs 和仅 `NET_RAW` capability；
-- 不传入旧补丁中的无效 `--mode=LLDP` 参数。
-
-#### 第 8 步：验证 Pod 确实使用显式 kubeconfig
-
-先检查运行状态和日志：
-
-```bash
 python3 deploy/deploy.py kubernetes status \
   --config deploy/config.local.json
-
 python3 deploy/deploy.py kubernetes logs \
   --config deploy/config.local.json
 ```
 
-再检查 Deployment/DaemonSet 生成结果，以下命令只显示环境变量、挂载名称和自动挂载开关，不显示凭证：
+生成器会自动：
 
-```bash
-kubectl --context production -n ngd-ngg-system get deployment prc \
-  -o jsonpath='{.spec.template.spec.automountServiceAccountToken}{"\n"}{.spec.template.spec.containers[0].env}{"\n"}{.spec.template.spec.volumes}{"\n"}'
+- 挂载两个 Kubeconfig Secret；
+- 设置 `KUBECONFIG=/etc/ngd-ngg/auth/kubeconfig`；
+- 设置 `automountServiceAccountToken: false`；
+- 保留 LLDP 所需的 `hostNetwork`、`NET_RAW` 和宿主机 `/sys` 只读挂载；
+- 使用 Kubeconfig 对应身份的 Node RBAC。
 
-kubectl --context production -n ngd-ngg-system get daemonset lldp-agent \
-  -o jsonpath='{.spec.template.spec.automountServiceAccountToken}{"\n"}{.spec.template.spec.containers[0].env}{"\n"}{.spec.template.spec.volumes}{"\n"}'
-```
+## 6. 路线 C：集群外部署
 
-预期能看到：
+部署结构：
 
 ```text
-false
-KUBECONFIG=/etc/ngd-ngg/auth/kubeconfig
-Secret 名称分别为 prc-kubeconfig、lldp-kubeconfig
+管理服务器：PRC + Algorithm（Docker Compose）
+    PRC ──Kubeconfig──> Kubernetes API
+    Algorithm ──HTTP(S)──> Prometheus
+
+每个 Worker：LLDP Agent（Docker Compose）
+    LLDP ──Kubeconfig──> Kubernetes API
 ```
 
-最终结合日志确认没有 `Unauthorized`、`Forbidden`、证书错误或 API Server 地址不可达。LLDP 的 `LLDP listen timeout` 表示没有收到交换机报文，与 kubeconfig 认证失败不是同一个问题。
+### C1. 修改管理服务器配置
 
-#### 第 9 步：更新和轮换凭证
-
-Secret 内容更新后，已挂载文件可能延迟刷新，而两个程序也不承诺自动重建 Kubernetes Client。更新 Secret 后显式重启对应工作负载：
-
-```bash
-kubectl --context production -n ngd-ngg-system rollout restart deployment/prc
-kubectl --context production -n ngd-ngg-system rollout restart daemonset/lldp-agent
-
-kubectl --context production -n ngd-ngg-system rollout status deployment/prc --timeout=300s
-kubectl --context production -n ngd-ngg-system rollout status daemonset/lldp-agent --timeout=300s
-```
-
-确认新实例正常后再吊销旧 Token 或证书，避免凭证切换期间所有实例同时失联。
-
-当前 PRC Manager 在没有 ServiceAccount Namespace 文件时无法自动确定 Lease Namespace，因此 **Pod 使用 Kubeconfig 时部署器关闭 Leader Election，并保持 PRC 单副本**。不要同时启动第二套 PRC 处理同一个集群。LLDP 是 DaemonSet，每个 Worker 一个实例，不使用 Leader Election。
-
-### 3.3 Prometheus 认证与自定义指标目录
-
-没有认证时保持 `tokenFile/caFile/secretName` 为空。有认证时，例如：
+修改 `deploy/config.local.json`：
 
 ```json
-"secretName": "prometheus-auth",
-"tokenFile": "secrets/prometheus.token",
-"caFile": "secrets/prometheus-ca.crt",
-"tlsServerName": "prometheus.internal",
-"metricsConfigFile": ""
+"external": {
+  "projectName": "ngd-ngg",
+  "prcKubeconfig": "secrets/prc.kubeconfig",
+  "prcSubject": {"kind": "User", "name": "实际PRC认证用户名"},
+  "lldpSubject": {"kind": "User", "name": "实际LLDP认证用户名"},
+  "bindAddress": "127.0.0.1",
+  "algorithmPort": 8080,
+  "prcPort": 8081
+}
 ```
 
-这些字段位于 `prometheus` 内；只需要 Token 时不填 `caFile`。在 Kubernetes 模式中，非空 `tokenFile/caFile` 表示启用相应 Secret Key，不读取本地凭证。创建 Secret：
+同时修改：
 
-```bash
-kubectl --context production -n ngd-ngg-system create secret generic prometheus-auth \
-  --from-file=token=deploy/secrets/prometheus.token \
-  --from-file=ca.crt=deploy/secrets/prometheus-ca.crt
-```
+- `images.*`：管理服务器和 Worker 能拉取的完整镜像地址；
+- `topologyFile`：管理服务器上的真实上层拓扑；
+- `prometheus.url`：必须从管理服务器的 Algorithm 容器访问；集群内
+  `.svc` 地址通常不能在集群外直接使用；
+- `external.prcKubeconfig`：管理服务器上的 PRC Kubeconfig 文件；
+- `external.prcSubject/lldpSubject`：两个凭证的真实认证身份。
 
-只使用 Token 时删去 `--from-file=ca.crt`。Secret Key 必须叫 `token` / `ca.crt`。证书校验保持开启。`metricsConfigFile` 非空时，将本地 JSON 指标目录挂载给 Algorithm；为空时使用代码内嵌目录。
-
-## 4. 集群外部署
+在管理服务器准备文件：
 
 ```text
-管理服务器：Docker Compose
-  PRC ──HTTP──> Algorithm ──HTTP(S)──> Prometheus
-   │                ↑
-   │ Kubeconfig     本地上层拓扑文件
-   ↓
-Kubernetes API：NGD、NGG、Node、Pod
-   ↑
-每个 Worker：LLDP Agent，Host Network + Kubeconfig
+deploy/secrets/prc.kubeconfig
 ```
 
-LLDP 必须部署到每个要采集的 Worker 主机。管理服务器和 Worker 都不需要为这些组件创建 Pod。
+若 Prometheus 需要认证，再填写并准备：
 
-### 4.1 管理服务器配置
+```json
+"tokenFile": "secrets/prometheus.token",
+"caFile": "secrets/prometheus-ca.crt"
+```
 
-修改配置：
+PRC/Algorithm 镜像默认使用 UID/GID 65532，挂载文件必须允许该身份读取。
 
-- `external.prcKubeconfig`：本地 PRC 身份文件，如 `secrets/prc.kubeconfig`。
-- `external.prcSubject/lldpSubject`：两类 Kubeconfig 的实际认证身份，用于管理员 bootstrap 创建 RBAC。
-- `prometheus.url`：必须从管理服务器容器可达；集群内部的 `.svc` 地址通常不能直接从集群外使用，需要管理员提供可达地址。
-- `prometheus.tokenFile/caFile`：需要时填写本地文件路径；此模式不使用 `secretName`。
-- `topologyFile`：管理服务器上的上层拓扑文件。
-
-凭证需嵌入 CA/Client Certificate 数据，避免依赖原机器文件路径。Kubeconfig 使用 `exec` 登录插件时当前 scratch PRC 镜像没有对应外部程序，应提供可直接使用的专用 Token/客户端证书并安排续期。PRC/Algorithm 镜像默认 UID/GID 65532，挂载文件要允许该身份读取，例如在 Linux 部署机由管理员将所需文件组设为 65532，权限设为 `0640`。不要把凭证设为全员可读。
-
-管理员首次执行：
+### C2. 管理员安装 CRD 和外部身份 RBAC
 
 ```bash
-python3 deploy/deploy.py external bootstrap
+python3 deploy/deploy.py external bootstrap \
+  --config deploy/config.local.json
 ```
 
-该命令只安装 CRD、Namespace 和外部身份 RBAC，不创建 Deployment、DaemonSet 或 ServiceAccount。`context` 是管理员连接上下文，`prcKubeconfig` 是运行时身份，二者用途不同。
+这一步只操作 Kubernetes API，不启动容器。
 
-启动管理服务：
+### C3. 启动管理服务器
+
+私有镜像先登录：
 
 ```bash
-python3 deploy/deploy.py external check
-python3 deploy/deploy.py external up
+docker login registry.unicom.example.com
 ```
 
-自动生成 `deploy/generated/config.local/external/compose.json`，Compose 启动 Algorithm 和 PRC。PRC 通过同一 Compose 网络中的 `http://algorithm:8080` 调用算法。Algorithm HTTP 健康检查成功后才启动 PRC；完整数据是否准备好需要查看缓存状态。
-
-对外端口默认只绑定管理机 `127.0.0.1:8080/8081`。内部接口没有用户认证，不要直接暴露公网。改变端口可修改 `external.algorithmPort/prcPort`。
-
-**本模式 PRC 单实例、关闭选主。运行 `up` 会重建容器，使拓扑文件和认证更新生效；更新存在短暂中断。** 不要同时运行集群内 PRC；首次切换部署方式时先停掉旧实例，再启动新实例。
-
-### 4.2 每个 Worker 配置
-
-将发布包中的 `deploy/` 目录放到 Worker，准备该节点的 `secrets/lldp.kubeconfig`。Worker 只需要 Python、Docker/Compose、配置和 LLDP 镜像，不需要源码或 Algorithm。
+然后执行：
 
 ```bash
-# 若只复制了 deploy 目录，进入它的上一级目录执行。
-python3 deploy/deploy.py init
+python3 deploy/deploy.py external check \
+  --config deploy/config.local.json
+python3 deploy/deploy.py external up \
+  --config deploy/config.local.json
+python3 deploy/deploy.py external status \
+  --config deploy/config.local.json
 ```
 
-填写 `images.lldp` 和 `lldp.kubeconfig`，然后执行：
+生成文件：
+
+```text
+deploy/generated/config.local/external/compose.json
+```
+
+### C4. 在每个 Worker 启动 LLDP
+
+每个 Worker 都要放置 `deploy/` 目录、配置文件和该节点的
+`lldp.kubeconfig`。修改同一份 `deploy/config.local.json`：
+
+```json
+"images": {
+  "lldp": "registry.unicom.example.com/ngd-ngg/lldp-agent:v0.5.0"
+},
+"lldp": {
+  "nodeName": "worker-001",
+  "kubeconfig": "secrets/lldp.kubeconfig",
+  "interfaces": "",
+  "listenSeconds": 35,
+  "resyncSeconds": 30
+}
+```
+
+`nodeName` 必须与 Kubernetes Node 的 `metadata.name` 完全一致。也可以
+不反复修改文件，而是在命令中覆盖：
 
 ```bash
-python3 deploy/deploy.py node check --node-name worker-001
-python3 deploy/deploy.py node up --node-name worker-001
+docker login registry.unicom.example.com
+
+python3 deploy/deploy.py node check \
+  --config deploy/config.local.json \
+  --node-name worker-001
+
+python3 deploy/deploy.py node up \
+  --config deploy/config.local.json \
+  --node-name worker-001
+
+python3 deploy/deploy.py node status \
+  --config deploy/config.local.json \
+  --node-name worker-001
 ```
 
-`--node-name` 必须与 Kubernetes Node `metadata.name` 完全一致，也可以写入 `lldp.nodeName`。`lldp.interfaces` 空值使用现有网卡选择逻辑，也可填写例如 `bond0`。探测模式保持当前实现：主备只选活动 Slave，其余模式按现有多链路逻辑。
+其他 Worker 分别替换 `worker-001`。生产批量下发可由 Ansible 或已有运维
+平台调用该单节点入口。
 
-节点 Compose 自动配置 Host Network、只读挂载 `/sys` 到 `/host-sys`、Kubeconfig 和 `NODE_NAME`，只保留 `NET_RAW` capability。挂载整个 sysfs 是为了让 `/sys/class/net` 指向 `devices` 的符号链接能够解析。
+## 7. 日常操作命令
 
-多节点部署时用现有运维平台/Ansible 将该步骤下发到各 Worker，并为每台机器传入正确的 Node 名称。当前封装提供可批量调用的单节点入口，不内置 SSH 登录、凭证分发或 Ansible inventory。
+### 7.1 每个动作是什么意思
 
-## 5. 查看结果、更新和停止
+| 动作 | 是否改变环境 | 作用 |
+|---|---:|---|
+| `render` | 否 | 根据配置生成 Kubernetes/Compose 文件 |
+| `check` | 否 | 检查配置和挂载文件，不启动服务 |
+| `bootstrap` | 是 | 安装 CRD、Namespace、ServiceAccount 和 RBAC |
+| `up` | 是 | 创建或更新工作负载并等待启动 |
+| `status` | 否 | 查看运行状态 |
+| `logs` | 否 | 查看最近日志 |
+| `down` | 是 | 停止本部署方式创建的工作负载 |
+| `images build` | 是 | 在本机 Docker 中构建三个镜像并导出 tar |
+| `images push` | 是 | 将三个本地镜像推送到配置的远端仓库 |
 
-| 目的 | 集群内 | 集群外管理机 | Worker |
-|---|---|---|---|
-| 生成配置 | `kubernetes render` | `external render` | `node render` |
-| 本地检查 | `kubernetes check` | `external check` | `node check` |
-| 启动/更新 | `kubernetes up` | `external up` | `node up` |
-| 状态 | `kubernetes status` | `external status` | `node status` |
-| 最近日志 | `kubernetes logs` | `external logs` | `node logs` |
-| 停止并删除本方式服务 | `kubernetes down` | `external down` | `node down` |
+### 7.2 集群内常用命令
 
-表中命令前统一加 `python3 deploy/deploy.py`。自定义配置路径使用 `--config /absolute/path/config.json`；路径改变时本地挂载源也按新配置目录解析。
+```bash
+python3 deploy/deploy.py kubernetes status --config deploy/config.local.json
+python3 deploy/deploy.py kubernetes logs --config deploy/config.local.json
+python3 deploy/deploy.py kubernetes up --config deploy/config.local.json
+python3 deploy/deploy.py kubernetes down --config deploy/config.local.json
+```
 
-`down` 不删除 CRD、NGD、NGG、Namespace、RBAC、凭证和 Node 标记。它会停止对应计算/采集服务；旧 Node 标记会保留，重新启用采集后才能刷新。不要把保留的标签当作仍在实时采集的证明。
+### 7.3 集群外管理服务器常用命令
 
-更新代码时发布新镜像 Tag，修改 `images` 后重新执行 `up`。Kubernetes Secret 内容更新后，Algorithm 会在启动时重新读取 Token，因此需执行 `kubectl rollout restart deployment/ngd-ngg-algorithm -n <namespace>`；PRC Kubeconfig 凭证更新也需重启对应进程。集群外 `up` 已强制重建容器。
+```bash
+python3 deploy/deploy.py external status --config deploy/config.local.json
+python3 deploy/deploy.py external logs --config deploy/config.local.json
+python3 deploy/deploy.py external up --config deploy/config.local.json
+python3 deploy/deploy.py external down --config deploy/config.local.json
+```
 
-检查真实业务结果（以下替换 context）：
+### 7.4 Worker LLDP 常用命令
+
+```bash
+python3 deploy/deploy.py node status --config deploy/config.local.json --node-name worker-001
+python3 deploy/deploy.py node logs --config deploy/config.local.json --node-name worker-001
+python3 deploy/deploy.py node up --config deploy/config.local.json --node-name worker-001
+python3 deploy/deploy.py node down --config deploy/config.local.json --node-name worker-001
+```
+
+`down` 不删除 CRD、Namespace、RBAC、Secret、NGD、NGG 或已有 Node
+标签。停止 LLDP 后旧标签仍会存在，不能据此判断采集服务仍然正常。
+
+## 8. 更新操作
+
+### 8.1 代码更新
+
+```text
+修改代码 → 设置新镜像 Tag → images build → images push → up
+```
+
+不要覆盖正在使用的旧 Tag，推荐每次发布使用唯一版本号或镜像 Digest。
+
+### 8.2 上层拓扑更新
+
+1. 修改 `topologyFile` 指向的 YAML；
+2. 执行对应模式的 `up`；
+3. Kubernetes 模式会因为配置 Hash 改变而重建 Algorithm Pod；
+4. 集群外模式会强制重建 Compose 容器。
+
+### 8.3 Kubeconfig 或 Prometheus 凭证更新
+
+集群内先更新 Secret，再重新执行 `kubernetes up`。必要时执行：
+
+```bash
+kubectl --context production -n ngd-ngg-system \
+  rollout restart deployment/prc
+kubectl --context production -n ngd-ngg-system \
+  rollout restart deployment/ngd-ngg-algorithm
+kubectl --context production -n ngd-ngg-system \
+  rollout restart daemonset/lldp-agent
+```
+
+集群外修改本地文件后重新执行 `external up` 或对应 Worker 的 `node up`。
+
+## 9. 最终业务验收
+
+### 9.1 检查 LLDP Node 标签
 
 ```bash
 kubectl --context production get nodes \
   -L topology.demo.ngg.io/leaf-set-id,topology.demo.ngg.io/leaf-count
+```
 
+### 9.2 提交 NGD 并检查 NGG
+
+```bash
 kubectl --context production apply -f /path/to/production-ngd.yaml
 kubectl --context production get nodegroupdemands.scheduling.platform.example.io -o yaml
 kubectl --context production get nodegroupgrants.scheduling.platform.example.io -o yaml
 ```
 
-Algorithm 缓存状态：集群外直接执行下面的 curl；集群内先在另一终端执行 `kubectl --context production -n ngd-ngg-system port-forward service/ngd-ngg-algorithm 8080:8080`。
+`/healthz` 和 `/readyz` 只代表服务进程可用。最终验收必须同时确认：
 
-```bash
-curl -fsS http://127.0.0.1:8080/internal/v1/cache/status
-```
+- LLDP Agent 已写入预期 Node 标签；
+- Algorithm 缓存中有静态拓扑和 Prometheus 指标；
+- PRC 能 Watch NGD；
+- Algorithm 返回节点组；
+- PRC 创建符合接口定义的 NGG。
 
-`/healthz` 和 `/readyz` 不代表 Prometheus/Node 静态数据已齐全。验收要检查缓存状态、PRC 日志以及 NGD 是否生成了预期的 NGG。
+## 10. 验证部署工具本身
 
-## 6. 验证封装本身
-
-以下检查不启动业务服务，也不创建集群资源：
+以下命令不会创建 Kubernetes 资源或启动业务服务：
 
 ```bash
 python3 -m unittest discover -s deploy -p 'test_*.py' -v
 python3 deploy/deploy.py kubernetes render --config deploy/config.example.json
 python3 deploy/deploy.py external render --config deploy/config.example.json
 python3 deploy/deploy.py node render --config deploy/config.example.json
-docker compose -f deploy/generated/config.example/external/compose.json config --quiet
-docker compose -f deploy/generated/config.example/node/node.compose.json config --quiet
 ```
 
-测试覆盖 Namespace/身份/RBAC、凭证引用、单实例选主设置、拓扑更新重启摘要、Compose 服务通信、原始 socket 权限、sysfs 挂载、缺失文件和占位符拒绝。生产真实网卡、交换机和集群准入策略仍需在目标环境联调。
+真实部署前仍需要需求方确认镜像仓库、API Server 地址、凭证、Prometheus
+地址、Worker Label/Taint 和集群准入策略。
