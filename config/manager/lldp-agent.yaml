@@ -25,9 +25,10 @@ spec:
         image: ngd-ngg-lldp-agent:v0.2.0
         imagePullPolicy: IfNotPresent
         args:
-        - --listen-seconds=35
+        - --listen-seconds=120
+        - --idle-seconds=3
         - --resync-seconds=30
-        - --sys-class-net=/host-sys-class-net
+        - --sys-class-net=/host-sys/class/net
         env:
         - name: NODE_NAME
           valueFrom:
@@ -47,11 +48,11 @@ spec:
             drop: ["ALL"]
             add: ["NET_RAW"]
         volumeMounts:
-        - name: host-sys-class-net
-          mountPath: /host-sys-class-net
+        - name: host-sys
+          mountPath: /host-sys
           readOnly: true
       volumes:
-      - name: host-sys-class-net
+      - name: host-sys
         hostPath:
-          path: /sys/class/net
+          path: /sys
           type: Directory

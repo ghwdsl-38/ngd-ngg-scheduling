@@ -8,6 +8,10 @@ func selectLLDPInterfaces(sysClassNet string, explicit map[string]struct{}) (map
 	return bonddiscovery.SelectInterfaces(sysClassNet, explicit)
 }
 
+func selectLLDPInterfacesAt(sysClassNet, procBonding string, explicit map[string]struct{}) (map[string]interfaceSelection, error) {
+	return bonddiscovery.SelectInterfacesAt(sysClassNet, procBonding, explicit)
+}
+
 func sortedSelections(values map[string]interfaceSelection) []interfaceSelection {
 	return bonddiscovery.Sorted(values)
 }

@@ -128,7 +128,9 @@ def prometheus_env(c, kubernetes=False):
 
 def lldp_args(c, sysfs):
     l = c["lldp"]
-    return [f"--listen-seconds={l['listenSeconds']}", f"--resync-seconds={l['resyncSeconds']}",
+    return [f"--listen-seconds={l['listenSeconds']}", f"--idle-seconds={l.get('idleSeconds', 3)}",
+            f"--count={l.get('count', 0)}",
+            f"--resync-seconds={l['resyncSeconds']}",
             f"--sys-class-net={sysfs}", f"--interfaces={l['interfaces']}"]
 
 

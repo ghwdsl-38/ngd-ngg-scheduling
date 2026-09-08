@@ -37,18 +37,19 @@ type Observation struct {
 
 // Normalize validates, deduplicates and stably orders a collected result.
 func Normalize(value Observation) (Observation, error) {
-	linksByInterface := map[string]Link{}
+	linksByIdentity := map[string]Link{}
 	for _, link := range value.Links {
 		link.Interface = strings.TrimSpace(link.Interface)
 		link.LeafSwitchID = strings.TrimSpace(link.LeafSwitchID)
 		if link.Interface == "" || link.LeafSwitchID == "" {
 			return Observation{}, fmt.Errorf("every Leaf link needs interface and leafSwitchId")
 		}
-		linksByInterface[link.Interface] = link
+		identity := strings.Join([]string{link.Interface, link.LeafSwitchID, strings.TrimSpace(link.RemotePortID)}, "\x00")
+		linksByIdentity[identity] = link
 	}
-	value.Links = make([]Link, 0, len(linksByInterface))
+	value.Links = make([]Link, 0, len(linksByIdentity))
 	leafSet := map[string]struct{}{}
-	for _, link := range linksByInterface {
+	for _, link := range linksByIdentity {
 		value.Links = append(value.Links, link)
 		leafSet[link.LeafSwitchID] = struct{}{}
 	}

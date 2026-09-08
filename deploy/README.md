@@ -658,7 +658,9 @@ deploy/generated/config.local/external/compose.json
   "nodeName": "worker-001",
   "kubeconfig": "secrets/lldp.kubeconfig",
   "interfaces": "",
-  "listenSeconds": 35,
+  "listenSeconds": 120,
+  "idleSeconds": 3,
+  "count": 0,
   "resyncSeconds": 30
 }
 ```

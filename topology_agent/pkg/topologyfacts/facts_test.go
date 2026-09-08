@@ -48,3 +48,16 @@ func TestNormalizeCreatesStableDualLeafIdentity(t *testing.T) {
 		t.Fatalf("input order changed Leaf set identity: first=%v second=%v", first.LeafSwitchIDs, second.LeafSwitchIDs)
 	}
 }
+
+func TestNormalizeRetainsDistinctPeersOnSameInterface(t *testing.T) {
+	observed, err := Normalize(Observation{Links: []Link{
+		{Interface: "eth0", LeafSwitchID: "leaf-a", RemotePortID: "Ethernet1", Active: true},
+		{Interface: "eth0", LeafSwitchID: "leaf-b", RemotePortID: "Ethernet2", Active: true},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observed.Links) != 2 || len(observed.LeafSwitchIDs) != 2 {
+		t.Fatalf("distinct LLDP peers were collapsed: %#v", observed)
+	}
+}

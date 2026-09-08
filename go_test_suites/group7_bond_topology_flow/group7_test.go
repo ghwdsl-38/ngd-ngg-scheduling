@@ -112,10 +112,12 @@ func prepareBondTopology(t *testing.T, input scenarioInput, fixture *common.Fixt
 	for name, state := range input.Interfaces {
 		path := filepath.Join(sysfs, name)
 		mustMkdir(t, path)
+		mustMkdir(t, filepath.Join(path, "device"))
+		mustWrite(t, filepath.Join(path, "type"), "1")
 		mustWrite(t, filepath.Join(path, "carrier"), state.Carrier)
 		mustWrite(t, filepath.Join(path, "operstate"), state.Operstate)
 	}
-	selected, err := bonddiscovery.SelectInterfaces(sysfs, nil)
+	selected, err := bonddiscovery.SelectInterfacesAt(sysfs, t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("production Bond discovery: %v", err)
 	}
