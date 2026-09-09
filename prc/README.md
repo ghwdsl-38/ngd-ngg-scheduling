@@ -11,7 +11,7 @@ pkg/application.Application
   |- controller-runtime Manager
   |- NodeStaticSnapshotReconciler
   |- NodeGroupDemandReconciler（只Watch NGD）
-  |- RefreshScheduler（只产生立即/15秒GenericEvent）
+  |- RefreshScheduler（按配置产生立即/周期GenericEvent）
   |- RefreshReconciler（原生WorkQueue和Worker）
   |- DemandProcessor（一次NGD到NGG业务处理）
   `- 私有StaticSnapshotState
@@ -38,10 +38,12 @@ Kubernetes Watch/Reconcile + Algorithm HTTP调用
 
 ```go
 app, err := application.New(application.Config{
-    KubernetesConfig: restConfig,
-    Scheme:           scheme,
-    AlgorithmURL:     algorithmURL,
-    ClusterID:        clusterID,
+    KubernetesConfig:      restConfig,
+    Scheme:                scheme,
+    AlgorithmURL:          algorithmURL,
+    ClusterID:             clusterID,
+    DemandRefreshInterval: 15 * time.Second,
+    MaxConcurrentRefreshes: 5,
 })
 if err != nil {
     return err
@@ -51,4 +53,25 @@ return app.Start(ctx)
 
 集成测试可在启动后调用`WaitForReady(ctx)`。它会同时等待Kubernetes informer cache同步，以及静态快照被当前Algorithm进程确认。`StaticSnapshotStatus()`只暴露只读状态，测试无法再直接修改PRC内部共享对象。
 
-Group3、Group4和Group5均使用该封装，因此测试执行的是与正式`cmd/main.go`相同的Manager和Controller注册逻辑。生产默认每15秒刷新；Group5通过配置缩短周期，验证不修改NGD的循环刷新、NGD spec修改、`status.consumer`字段隔离以及NGD/NGG删除清理。
+Group3、Group4和Group5均使用该封装，因此测试执行的是与正式`cmd/main.go`相同的Manager和Controller注册逻辑。Group5通过配置缩短周期，验证不修改NGD的循环刷新、NGD spec修改、`status.consumer`字段隔离以及NGD/NGG删除清理。
+
+## 周期刷新并发配置
+
+正式进程提供两个启动参数：
+
+| 参数 | 默认值 | 含义 |
+|---|---:|---|
+| `--demand-refresh-interval` | `15s` | 某个NGD本轮处理完成后，到下一轮普通刷新之间的等待时间 |
+| `--max-concurrent-refreshes` | `5` | Refresh Controller同时处理不同NGD的最大Worker数 |
+
+例如允许最多12个NGD并行刷新、每45秒刷新一次：
+
+```bash
+/prc --demand-refresh-interval=45s --max-concurrent-refreshes=12
+```
+
+两个值都必须大于0，否则PRC拒绝启动。同一个NGD仍由controller-runtime
+WorkQueue去重；并发数是整个PRC实例的上限，不是为每个NGD各创建12个Worker。
+部署时通过`deploy/config.local.json`的`prc.demandRefreshSeconds`和
+`prc.maxConcurrentRefreshes`设置，集群内Deployment与集群外Compose都会
+转换成上述参数。已有旧配置缺少`prc`段时继续使用15秒、5个Worker的默认值。

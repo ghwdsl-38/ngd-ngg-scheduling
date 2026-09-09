@@ -24,6 +24,8 @@ class DeploymentTest(unittest.TestCase):
         container = pod["containers"][0]
         self.assertTrue(pod["automountServiceAccountToken"])
         self.assertIn("--leader-elect=true", container["args"])
+        self.assertIn("--demand-refresh-interval=15s", container["args"])
+        self.assertIn("--max-concurrent-refreshes=5", container["args"])
         self.assertIn("another-namespace.svc", next(e["value"] for e in container["env"] if e["name"] == "ALGORITHM_URL"))
         self.assertEqual(prc["spec"]["strategy"]["type"], "Recreate")
         for item in kubernetes(self.c)["items"]:
@@ -38,6 +40,39 @@ class DeploymentTest(unittest.TestCase):
         self.assertEqual(pod["volumes"][0]["secret"]["secretName"], "prc-config")
         binding = next(i for i in bootstrap(self.c)["items"] if i["kind"] == "ClusterRoleBinding" and i["metadata"]["name"].endswith("-prc"))
         self.assertEqual(binding["subjects"][0]["name"], "prc-user")
+
+    def test_prc_refresh_configuration_propagates_to_kubernetes_and_compose(self):
+        self.c["prc"] = {"demandRefreshSeconds": 45, "maxConcurrentRefreshes": 12}
+        args = self.item("Deployment", "prc")["spec"]["template"]["spec"]["containers"][0]["args"]
+        self.assertIn("--demand-refresh-interval=45s", args)
+        self.assertIn("--max-concurrent-refreshes=12", args)
+        command = compose(self.c)["services"]["prc"]["command"]
+        self.assertIn("--demand-refresh-interval=45s", command)
+        self.assertIn("--max-concurrent-refreshes=12", command)
+
+    def test_old_config_without_prc_section_uses_refresh_defaults(self):
+        raw = json.loads((ROOT / "deploy/config.example.json").read_text())
+        del raw["prc"]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            path.write_text(json.dumps(raw))
+            config = load(path)
+        self.assertEqual(config["prc"], {
+            "demandRefreshSeconds": 15,
+            "maxConcurrentRefreshes": 5,
+        })
+
+    def test_invalid_prc_refresh_configuration_is_rejected(self):
+        for key, value in (("demandRefreshSeconds", 0), ("maxConcurrentRefreshes", -1),
+                           ("maxConcurrentRefreshes", True), ("demandRefreshSeconds", 1.5)):
+            with self.subTest(key=key, value=value):
+                raw = json.loads((ROOT / "deploy/config.example.json").read_text())
+                raw["prc"][key] = value
+                with tempfile.TemporaryDirectory() as directory:
+                    path = Path(directory) / "config.json"
+                    path.write_text(json.dumps(raw))
+                    with self.assertRaises(ValueError):
+                        load(path)
 
     def test_lldp_preserves_sysfs_and_raw_socket_capability(self):
         pod = self.item("DaemonSet", "lldp-agent")["spec"]["template"]["spec"]

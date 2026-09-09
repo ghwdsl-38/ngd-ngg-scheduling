@@ -326,10 +326,24 @@ prc/cmd/main.go
 `RefreshReconciler`接收事件后，通过controller-runtime原生WorkQueue调用`DemandProcessor.Process`。一次计算结束后，Scheduler才安排下一次刷新：
 
 ```text
-NextRun = 本次业务处理结束时间 + 15秒
+NextRun = 本次业务处理结束时间 + demandRefreshInterval
 ```
 
-因此，同一个NGD不会因为固定时钟到期而重叠执行。默认最多并行处理5个不同NGD；去重、Worker和错误限速重试均使用controller-runtime原生能力。
+因此，同一个NGD不会因为固定时钟到期而重叠执行。默认刷新周期为15秒、最多并行处理5个不同NGD；去重、Worker和错误限速重试均使用controller-runtime原生能力。
+
+正式进程已经暴露`--demand-refresh-interval`和
+`--max-concurrent-refreshes`两个参数。统一部署入口对应读取：
+
+```json
+"prc": {
+  "demandRefreshSeconds": 15,
+  "maxConcurrentRefreshes": 5
+}
+```
+
+集群内Deployment和集群外Compose均由`deploy/render.py`转换为相同的PRC
+启动参数。两个配置必须为正整数；旧配置缺少该段时兼容使用默认值。并发数是
+单个PRC实例同时处理的不同NGD数，不改变同一NGD串行、去重的语义。
 
 ### 6.3 创建、更新和删除
 

@@ -136,7 +136,11 @@ python3 -m json.tool deploy/config.local.json >/dev/null
     "algorithm": "registry.unicom.example.com/ngd-ngg/algorithm:v0.5.0",
     "lldp": "registry.unicom.example.com/ngd-ngg/lldp-agent:v0.5.0"
   },
-  "topologyFile": "../config/topology/unicom-huailai-102-sample.yaml"
+  "topologyFile": "../config/topology/unicom-huailai-102-sample.yaml",
+  "prc": {
+    "demandRefreshSeconds": 15,
+    "maxConcurrentRefreshes": 5
+  }
 }
 ```
 
@@ -149,6 +153,8 @@ python3 -m json.tool deploy/config.local.json >/dev/null
 | `images.algorithm` | Algorithm 完整镜像地址和 Tag |
 | `images.lldp` | LLDP Agent 完整镜像地址和 Tag |
 | `topologyFile` | 上层网络拓扑文件；相对路径以 `config.local.json` 所在目录为基准 |
+| `prc.demandRefreshSeconds` | 每个NGD完成一次业务计算后，等待多少秒再周期刷新，必须为正整数 |
+| `prc.maxConcurrentRefreshes` | 单个PRC实例可同时处理的不同NGD数量，必须为正整数；默认5 |
 
 不要保留 `REPLACE_*` 或 `registry.example.com` 占位符。
 
@@ -159,6 +165,12 @@ kubectl config get-contexts
 kubectl --context production cluster-info
 kubectl --context production get nodes -o wide
 ```
+
+`maxConcurrentRefreshes`控制的是controller-runtime Refresh Controller的
+原生Worker数量，不是自行维护的线程池。提高该值会增加并行Algorithm HTTP
+请求和Kubernetes API读写；生产环境应结合Algorithm容量、API Server限流和
+NGD积压量逐步调整。配置修改后重新执行对应部署模式的`up`，使PRC重建并读取
+新启动参数。
 
 ### 2.3 配置 Prometheus
 

@@ -23,6 +23,14 @@ def load(path):
     for name in ("prc", "algorithm", "lldp"):
         if not config["images"].get(name):
             raise ValueError(f"images.{name} is required")
+    # Keep older local configs usable while making both values explicit in the
+    # distributed example and every newly initialized config.local.json.
+    prc = config.setdefault("prc", {})
+    prc.setdefault("demandRefreshSeconds", 15)
+    prc.setdefault("maxConcurrentRefreshes", 5)
+    for key in ("demandRefreshSeconds", "maxConcurrentRefreshes"):
+        if isinstance(prc[key], bool) or not isinstance(prc[key], int) or prc[key] <= 0:
+            raise ValueError(f"prc.{key} must be a positive integer")
     for name in ("prcAuth", "lldpAuth"):
         auth = config["kubernetes"][name]
         if auth["mode"] not in ("incluster", "kubeconfig"):
@@ -134,6 +142,13 @@ def lldp_args(c, sysfs):
             f"--sys-class-net={sysfs}", f"--interfaces={l['interfaces']}"]
 
 
+def prc_args(c, leader_election):
+    p = c["prc"]
+    return [f"--leader-elect={str(leader_election).lower()}", "--health-probe-bind-address=:8081",
+            f"--demand-refresh-interval={p['demandRefreshSeconds']}s",
+            f"--max-concurrent-refreshes={p['maxConcurrentRefreshes']}"]
+
+
 def k8s_auth(pod, container, auth):
     pod["automountServiceAccountToken"] = auth["mode"] == "incluster"
     if auth["mode"] == "kubeconfig":
@@ -184,7 +199,7 @@ def kubernetes(c):
             auth = c["kubernetes"]["prcAuth"]
             pod["serviceAccountName"] = "prc"
             # Without projected SA namespace, current Manager cannot discover Lease namespace.
-            container["args"] = ["--leader-elect=" + str(auth["mode"] == "incluster").lower(), "--health-probe-bind-address=:8081"]
+            container["args"] = prc_args(c, auth["mode"] == "incluster")
             container["env"] = envlist({"CLUSTER_ID": c["clusterId"], "ALGORITHM_URL": f"http://ngd-ngg-algorithm.{ns}.svc:8080"})
             k8s_auth(pod, container, auth)
         else:
@@ -246,7 +261,7 @@ def compose(c, node=False):
            "cap_drop": ["ALL"], "security_opt": ["no-new-privileges:true"],
            "depends_on": {"algorithm": {"condition": "service_healthy"}},
            "environment": {"KUBECONFIG": "/etc/ngd-ngg/auth/kubeconfig", "ALGORITHM_URL": "http://algorithm:8080", "CLUSTER_ID": c["clusterId"]},
-           "command": ["--leader-elect=false", "--health-probe-bind-address=:8081"],
+           "command": prc_args(c, False),
            "volumes": [bind(c, e["prcKubeconfig"], "/etc/ngd-ngg/auth/kubeconfig")],
            "ports": [{"target": 8081, "published": str(e["prcPort"]), "host_ip": e["bindAddress"]}]}
     return {"name": e["projectName"], "services": {"algorithm": alg, "prc": prc}}

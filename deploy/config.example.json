@@ -8,6 +8,10 @@
     "lldp": "registry.example.com/ngd-ngg/lldp-agent:v0.5.0"
   },
   "topologyFile": "../config/topology/unicom-huailai-102-sample.yaml",
+  "prc": {
+    "demandRefreshSeconds": 15,
+    "maxConcurrentRefreshes": 5
+  },
   "prometheus": {
     "url": "http://prometheus.monitoring.svc.cluster.local:9090",
     "refreshSeconds": 15,

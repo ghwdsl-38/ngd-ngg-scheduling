@@ -98,18 +98,25 @@ func (r *RefreshReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Processor == nil || r.Scheduler == nil {
 		return fmt.Errorf("DemandProcessor and RefreshScheduler are required")
 	}
+	options := r.controllerOptions()
+	refreshSource := source.Channel(r.Scheduler.Events(), &handler.EnqueueRequestForObject{})
+	return ctrl.NewControllerManagedBy(mgr).
+		Named("node-group-demand-refresh").
+		WatchesRawSource(refreshSource).
+		WithOptions(options).
+		Complete(r)
+}
+
+// controllerOptions resolves backward-compatible defaults and returns the
+// controller-runtime configuration that creates the native refresh workers.
+func (r *RefreshReconciler) controllerOptions() controlleroptions.Options {
 	if r.RefreshInterval <= 0 {
 		r.RefreshInterval = defaultDemandRefreshInterval
 	}
 	if r.MaxConcurrent <= 0 {
 		r.MaxConcurrent = defaultRefreshConcurrency
 	}
-	refreshSource := source.Channel(r.Scheduler.Events(), &handler.EnqueueRequestForObject{})
-	return ctrl.NewControllerManagedBy(mgr).
-		Named("node-group-demand-refresh").
-		WatchesRawSource(refreshSource).
-		WithOptions(controlleroptions.Options{MaxConcurrentReconciles: r.MaxConcurrent}).
-		Complete(r)
+	return controlleroptions.Options{MaxConcurrentReconciles: r.MaxConcurrent}
 }
 
 func (r *RefreshReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
