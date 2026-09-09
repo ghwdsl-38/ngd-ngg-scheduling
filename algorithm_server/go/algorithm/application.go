@@ -6,9 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -107,6 +109,10 @@ func NewApplication(config Config) (*Application, error) {
 		cancel()
 		return nil, fmt.Errorf("load Algorithm network topology: %w", err)
 	}
+	topologyStatus := topology.status()
+	log.Printf("component=algorithm event=topology_loaded version=%s snapshotId=%s leafCount=%v roomCount=%v borderDomainCount=%v",
+		topology.version, shortLogID(topology.snapshotID), topologyStatus["leafCount"],
+		topologyStatus["roomCount"], topologyStatus["borderDomainCount"])
 	worker, err := NewPythonWorker(ctx, WorkerConfig{
 		EvidenceDir: config.WorkerEvidenceDir,
 		Executable:  config.PythonExecutable,
@@ -130,6 +136,8 @@ func NewApplication(config Config) (*Application, error) {
 	if !config.DisableBackgroundMetrics {
 		app.StartBackgroundMetrics()
 	}
+	log.Printf("component=algorithm event=application_ready bootId=%s prometheusEnabled=%t metricCount=%d topologySnapshotId=%s",
+		config.BootID, metrics.enabled(), len(metrics.configuredDefinitions()), shortLogID(topology.snapshotID))
 	return app, nil
 }
 
@@ -142,7 +150,11 @@ func (a *Application) StartBackgroundMetrics() {
 	if a == nil || a.service == nil || a.service.metrics == nil {
 		return
 	}
-	a.metricsOnce.Do(func() { go a.service.metrics.run(a.ctx) })
+	a.metricsOnce.Do(func() {
+		log.Printf("component=algorithm event=prometheus_refresh_loop_started enabled=%t interval=%s",
+			a.service.metrics.enabled(), a.service.metrics.interval)
+		go a.service.metrics.run(a.ctx)
+	})
 }
 
 // RefreshMetrics 立即执行一次Prometheus拉取，供测试在计时前确定缓存已经Ready。
@@ -187,16 +199,25 @@ func registerRoutes(mux *http.ServeMux, app *service) {
 		writeJSON(w, 200, map[string]any{"algorithmBootId": app.bootID, "ready": node["ready"], "acceptedSnapshotId": node["currentSnapshotId"], "previousSnapshotId": node["previousSnapshotId"], "nodeCount": node["nodeCount"], "metricSnapshotId": metrics["currentSnapshotId"]})
 	})
 	mux.HandleFunc("PUT /internal/v1/node-static-snapshots/{snapshotID}", func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		snapshotID := r.PathValue("snapshotID")
+		log.Printf("component=algorithm event=static_snapshot_received snapshotId=%s", shortLogID(snapshotID))
 		body, apiErr := decodeBody(r)
 		if apiErr != nil {
+			log.Printf("component=algorithm event=static_snapshot_rejected snapshotId=%s code=%s elapsedMs=%.3f error=%q",
+				shortLogID(snapshotID), apiErr.Code, durationMilliseconds(started), apiErr.Message)
 			writeAPIError(w, apiErr)
 			return
 		}
-		snapshot, err := app.static.put(r.PathValue("snapshotID"), body)
+		snapshot, err := app.static.put(snapshotID, body)
 		if err != nil {
+			log.Printf("component=algorithm event=static_snapshot_rejected snapshotId=%s code=INVALID_REQUEST elapsedMs=%.3f error=%q",
+				shortLogID(snapshotID), durationMilliseconds(started), err.Error())
 			writeAPIError(w, &apiError{Code: "INVALID_REQUEST", Message: err.Error(), Status: 400})
 			return
 		}
+		log.Printf("component=algorithm event=static_snapshot_accepted snapshotId=%s nodeCount=%d bootId=%s elapsedMs=%.3f",
+			shortLogID(snapshot.SnapshotID), len(snapshot.Nodes), app.bootID, durationMilliseconds(started))
 		writeJSON(w, 200, map[string]any{"accepted": true, "snapshotId": snapshot.SnapshotID, "acceptedSnapshotId": snapshot.SnapshotID, "algorithmBootId": app.bootID, "bootId": app.bootID, "nodeCount": len(snapshot.Nodes), "checksum": snapshot.SnapshotID})
 	})
 	mux.HandleFunc("POST /api/v1/allocate", calculateHandler(app))
@@ -207,18 +228,29 @@ func calculateHandler(app *service) http.HandlerFunc {
 		acceptedAt := time.Now()
 		body, apiErr := decodeBody(r)
 		if apiErr != nil {
+			log.Printf("component=algorithm event=allocation_rejected code=%s elapsedMs=%.3f error=%q",
+				apiErr.Code, durationMilliseconds(acceptedAt), apiErr.Message)
 			writeAPIError(w, apiErr)
 			return
 		}
+		requestID := stringValue(body["requestId"])
+		log.Printf("component=algorithm event=allocation_received requestId=%s ngdUID=%s generation=%v",
+			requestID, stringValue(body["ngdUID"]), body["ngdGeneration"])
 		response, apiErr := app.allocate(r.Context(), body)
 		if apiErr != nil {
+			log.Printf("component=algorithm event=allocation_failed requestId=%s code=%s statusCode=%d retryable=%t elapsedMs=%.3f error=%q",
+				requestID, apiErr.Code, apiErr.Status, apiErr.Retryable, durationMilliseconds(acceptedAt), apiErr.Message)
 			writeAPIError(w, apiErr)
 			return
 		}
+		processingMs := durationMilliseconds(acceptedAt)
 		response["timing"] = map[string]any{
-			"unit": "ms", "algorithmProcessingMs": float64(time.Since(acceptedAt).Microseconds()) / 1000,
+			"unit": "ms", "algorithmProcessingMs": processingMs,
 			"boundary": "HTTP handler accepted request -> candidate result ready",
 		}
+		groups, _ := response["candidateNodeGroups"].([]map[string]any)
+		log.Printf("component=algorithm event=allocation_completed requestId=%s status=%s candidateGroupCount=%d degraded=%v warningCount=%d elapsedMs=%.3f",
+			requestID, stringValue(response["status"]), len(groups), response["degraded"], len(stringSlice(response["warnings"])), processingMs)
 		writeJSON(w, 200, response)
 	}
 }
@@ -265,4 +297,33 @@ func secondsEnv(name string, fallback float64) time.Duration {
 		value = fallback
 	}
 	return time.Duration(value * float64(time.Second))
+}
+
+func shortLogID(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > 20 {
+		return value[:20]
+	}
+	return value
+}
+
+func durationMilliseconds(started time.Time) float64 {
+	return float64(time.Since(started).Microseconds()) / 1000
+}
+
+func stringSlice(value any) []string {
+	switch items := value.(type) {
+	case []string:
+		return items
+	case []any:
+		result := make([]string, 0, len(items))
+		for _, item := range items {
+			if text, ok := item.(string); ok {
+				result = append(result, text)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
 }

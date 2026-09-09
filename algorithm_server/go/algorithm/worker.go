@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -149,6 +150,7 @@ func startPythonWorkerCommand(cmd *exec.Cmd) (*workerProcess, error) {
 		_ = stdoutPipe.Close()
 		return nil, err
 	}
+	log.Printf("component=algorithm event=python_worker_started pid=%d", cmd.Process.Pid)
 	return &workerProcess{command: cmd, stdin: stdin, stdout: scanner, stdoutPipe: stdoutPipe, reaped: make(chan struct{})}, nil
 }
 
@@ -169,7 +171,19 @@ func workerTimeout(err error) *apiError {
 	return &apiError{Code: "ALGORITHM_TIMEOUT", Message: err.Error(), Retryable: true, Status: 504}
 }
 
-func (w *pythonWorker) calculate(ctx context.Context, payload workerPayload) (workerResult, *apiError) {
+func (w *pythonWorker) calculate(ctx context.Context, payload workerPayload) (result workerResult, resultErr *apiError) {
+	started := time.Now()
+	requestID := stringValue(payload.Request["requestId"])
+	log.Printf("component=algorithm event=python_worker_request_queued requestId=%s", requestID)
+	defer func() {
+		if resultErr != nil {
+			log.Printf("component=algorithm event=python_worker_request_completed requestId=%s status=failed code=%s elapsedMs=%.3f",
+				requestID, resultErr.Code, durationMilliseconds(started))
+			return
+		}
+		log.Printf("component=algorithm event=python_worker_request_completed requestId=%s status=success candidateGroupCount=%d elapsedMs=%.3f",
+			requestID, len(result.CandidateNodeGroups), durationMilliseconds(started))
+	}()
 	// 当前为单 Worker 串行模型；消息 ID 用于检测协议错位。
 	select {
 	case <-ctx.Done():
@@ -191,6 +205,7 @@ func (w *pythonWorker) calculate(ctx context.Context, payload workerPayload) (wo
 		}
 	}
 	if w.process == nil {
+		log.Printf("component=algorithm event=python_worker_restart_wait requestId=%s backoffUntil=%s", requestID, w.nextStart.UTC().Format(time.RFC3339Nano))
 		timer := time.NewTimer(time.Until(w.nextStart))
 		defer timer.Stop()
 		select {
@@ -208,6 +223,7 @@ func (w *pythonWorker) calculate(ctx context.Context, payload workerPayload) (wo
 		}
 	}
 	id := strconv.FormatUint(w.nextID.Add(1), 10)
+	log.Printf("component=algorithm event=python_worker_jsonl_started requestId=%s workerRequestId=%s", requestID, id)
 	request := workerEnvelope{ID: id, Payload: payload}
 	raw, err := json.Marshal(request)
 	if err != nil {

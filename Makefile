@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: check algorithm-1000-demo go-test-topology-agent go-test-group1 go-test-group2 go-test-group3 go-test-group4 go-test-group5 go-test-group7 go-test-all benchmark-3000-group1 benchmark-3000-group2 benchmark-3000-group3 benchmark-3000-group4 benchmark-3000-all benchmark-3000-report crds algorithm-image algorithm lldp-agent-image lldp-agent prc-image prc deploy
+.PHONY: check algorithm-1000-demo go-test-topology-agent go-test-group1 go-test-group2 go-test-group3 go-test-group4 go-test-group5 go-test-group7 go-test-all benchmark-3000-group1 benchmark-3000-group2 benchmark-3000-group3 benchmark-3000-group4 benchmark-3000-all benchmark-3000-report release-binaries release-images release-verify release-push crds algorithm-image algorithm lldp-agent-image lldp-agent prc-image prc deploy
 
 check:
 	./scripts/00-check-env.sh
@@ -49,6 +49,18 @@ benchmark-3000-all:
 
 benchmark-3000-report:
 	. ./scripts/go-test-env.sh; go run ./go_test_suites/scale_benchmark_3000/cmd/report
+
+release-binaries:
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.1}" ./scripts/04-release-build-binaries.sh
+
+release-images: release-binaries
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.1}" ./scripts/04-release-package-images.sh
+
+release-verify:
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.1}" ./image_validation/verify.sh
+
+release-push:
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.1}" ./scripts/04-release-push-images.sh
 
 crds:
 	./scripts/03-install-apis.sh

@@ -4,9 +4,11 @@ package algorithm
 import (
 	"context"
 	"fmt"
+	"log"
 	"math"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type service struct {
@@ -29,15 +31,21 @@ func (s *service) allocate(ctx context.Context, request map[string]any) (map[str
 	if !found {
 		return nil, &apiError{RequestID: requestID, Code: "STATIC_SNAPSHOT_NOT_FOUND", Message: fmt.Sprintf("node static snapshot %q is not available", request["nodeStaticSnapshotId"]), Retryable: true, Status: 409}
 	}
+	log.Printf("component=algorithm event=static_snapshot_resolved requestId=%s snapshotId=%s nodeCount=%d",
+		requestID, shortLogID(static.SnapshotID), len(static.Nodes))
 	resolvedStatic, topologyWarnings, topologyErr := s.topology.resolve(static)
 	if topologyErr != nil {
 		return nil, &apiError{RequestID: requestID, Code: "TOPOLOGY_RESOLUTION_FAILED", Message: topologyErr.Error(), Retryable: true, Status: 409}
 	}
+	log.Printf("component=algorithm event=topology_resolution_completed requestId=%s inputNodeCount=%d resolvedNodeCount=%d filteredNodeCount=%d warningCount=%d topologySnapshotId=%s",
+		requestID, len(static.Nodes), len(resolvedStatic.Nodes), len(static.Nodes)-len(resolvedStatic.Nodes),
+		len(topologyWarnings), shortLogID(s.topology.snapshotID))
 	// 新协议直接发送 nodeUsageStates；旧协议 schedulerState 在 Go 中适配。
 	normalized, err := normalizeUsageStates(request, static.Nodes)
 	if err != nil {
 		return nil, &apiError{RequestID: requestID, Code: "INVALID_REQUEST", Message: err.Error(), Status: 400}
 	}
+	log.Printf("component=algorithm event=scheduler_state_normalized requestId=%s nodeCount=%d", requestID, len(normalized))
 	requestCopy := copyMap(request)
 	requestCopy["nodeUsageStates"] = normalized
 	// topologyConstraints是Go层生成的内部协议字段，不接受HTTP调用方注入。
@@ -49,16 +57,43 @@ func (s *service) allocate(ctx context.Context, request map[string]any) (map[str
 	if len(topologyConstraints) > 0 {
 		requestCopy["topologyConstraints"] = topologyConstraints
 	}
+	log.Printf("component=algorithm event=topology_constraints_resolved requestId=%s constraintCount=%d warningCount=%d",
+		requestID, len(topologyConstraints), len(constraintWarnings))
 	metric, degraded, warnings := s.metrics.resolve()
 	warnings = append(warnings, topologyWarnings...)
 	warnings = append(warnings, constraintWarnings...)
 	warnings = append(warnings, ignoredNGDWarnings(requestCopy)...)
+	metricIDForLog := "metrics-unavailable"
+	metricNodeCount := 0
+	if !s.metrics.enabled() {
+		metricIDForLog = "metrics-disabled"
+	}
+	if metric != nil {
+		metricIDForLog = shortLogID(metric.SnapshotID)
+		metricNodeCount = len(metric.Nodes)
+	}
+	log.Printf("component=algorithm event=metric_snapshot_resolved requestId=%s snapshotId=%s nodeCount=%d degraded=%t warningCount=%d",
+		requestID, metricIDForLog, metricNodeCount, degraded, len(warnings))
 	// Worker 每次收到完整上下文，因此 Python 不需要维护跨请求缓存。
+	workerStarted := time.Now()
+	log.Printf("component=algorithm event=python_calculation_started requestId=%s nodeCount=%d", requestID, len(resolvedStatic.Nodes))
 	result, workerErr := s.worker.calculate(ctx, workerPayload{Request: requestCopy, StaticSnapshot: resolvedStatic, MetricSnapshot: metric, MetricsDegraded: degraded, Warnings: warnings})
 	if workerErr != nil {
+		log.Printf("component=algorithm event=python_calculation_failed requestId=%s code=%s retryable=%t elapsedMs=%.3f error=%q",
+			requestID, workerErr.Code, workerErr.Retryable, durationMilliseconds(workerStarted), workerErr.Message)
 		return nil, workerErr
 	}
 	groups := result.CandidateNodeGroups
+	topGroupID := ""
+	topGroupNodeCount := 0
+	if len(groups) > 0 {
+		topGroupID = stringValue(groups[0]["groupId"])
+		if nodes, ok := groups[0]["nodes"].([]any); ok {
+			topGroupNodeCount = len(nodes)
+		}
+	}
+	log.Printf("component=algorithm event=python_calculation_completed requestId=%s candidateGroupCount=%d topGroupId=%s topGroupNodeCount=%d elapsedMs=%.3f",
+		requestID, len(groups), topGroupID, topGroupNodeCount, durationMilliseconds(workerStarted))
 	metricID := "metrics-disabled"
 	metricCapturedAt := ""
 	if s.metrics.enabled() {

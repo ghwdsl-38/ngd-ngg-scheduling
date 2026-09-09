@@ -67,7 +67,11 @@ func (r *DemandProcessor) Process(ctx context.Context, request ctrl.Request) (ct
 // reconcilePlatformDemand handles the formal, cluster-scoped China Unicom
 // resource-pool contract. The NGD UID itself is the request identity.
 func (r *DemandProcessor) reconcilePlatformDemand(ctx context.Context, demand *unstructured.Unstructured) (ctrl.Result, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("formalNGD", demand.GetName())
+	started := time.Now()
+	log := ctrl.LoggerFrom(ctx).WithValues(
+		"formalNGD", demand.GetName(), "ngdUID", demand.GetUID(), "generation", demand.GetGeneration(),
+	)
+	log.Info("starting NGD calculation")
 	if r.ReconcileObserver != nil {
 		r.ReconcileObserver(string(demand.GetUID()), demand.GetGeneration(), time.Now())
 	}
@@ -84,6 +88,7 @@ func (r *DemandProcessor) reconcilePlatformDemand(ctx context.Context, demand *u
 	if err := r.List(ctx, pods); err != nil {
 		return ctrl.Result{}, fmt.Errorf("list Pods: %w", err)
 	}
+	log.Info("captured Kubernetes scheduling inputs", "nodeCount", len(nodes.Items), "podCount", len(pods.Items))
 	staticStatus, ready := r.StaticSnapshots.Current()
 	if !ready {
 		return r.failPlatformDemand(ctx, demand, "StaticSnapshotNotReady", "waiting for independent Node static snapshot synchronization", true)
@@ -93,6 +98,10 @@ func (r *DemandProcessor) reconcilePlatformDemand(ctx context.Context, demand *u
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	log.Info("prepared Algorithm snapshots",
+		"nodeStaticSnapshotId", shortHash(staticID), "staticNodeCount", staticStatus.NodeCount,
+		"schedulerStateSnapshotId", shortHash(stateID), "schedulerNodeCount", len(schedulerState),
+	)
 
 	algorithm := AlgorithmClient{BaseURL: strings.TrimRight(r.AlgorithmURL, "/"), Client: r.httpClient(), Recorder: r.AlgorithmRecorder}
 	grant := newUnstructured(grantGVK)
@@ -121,10 +130,18 @@ func (r *DemandProcessor) reconcilePlatformDemand(ctx context.Context, demand *u
 	if r.DebugAlgorithmTrace {
 		algorithmRequest["debugTrace"] = true
 	}
-	response, err := algorithm.calculate(ctx, algorithmRequest, algorithmTimeout(spec))
+	timeout := algorithmTimeout(spec)
+	algorithmStarted := time.Now()
+	log.Info("calling Algorithm Server", "requestId", requestID, "timeout", timeout)
+	response, err := algorithm.calculate(ctx, algorithmRequest, timeout)
 	if err != nil {
+		log.Error(err, "Algorithm Server request failed", "requestId", requestID, "elapsedMs", elapsedMilliseconds(algorithmStarted))
 		return r.failPlatformDemand(ctx, demand, "AlgorithmRequestFailed", err.Error(), true)
 	}
+	log.Info("received Algorithm Server result",
+		"requestId", requestID, "status", response.Status, "candidateGroupCount", len(response.CandidateNodeGroups),
+		"degraded", response.Degraded, "warningCount", len(response.Warnings), "elapsedMs", elapsedMilliseconds(algorithmStarted),
+	)
 	current, err := r.demandStillCurrent(ctx, demand)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -146,8 +163,13 @@ func (r *DemandProcessor) reconcilePlatformDemand(ctx context.Context, demand *u
 	}
 
 	selected := response.CandidateNodeGroups[0]
+	log.Info("selected highest-ranked candidate group",
+		"requestId", requestID, "groupId", selected.GroupID, "rank", selected.Rank,
+		"groupScore", selected.GroupScore, "nodeCount", len(selected.Nodes),
+	)
 	now := time.Now().UTC()
 	desiredSpec := buildPlatformGrantSpec(demand, spec, response, now)
+	log.Info("applying NGG spec", "ngg", grantName(demand.GetName()))
 	applied, err := r.upsertGrant(ctx, demand, desiredSpec)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -155,11 +177,15 @@ func (r *DemandProcessor) reconcilePlatformDemand(ctx context.Context, demand *u
 	if err := r.setPlatformGrantStatus(ctx, applied, selected, nodes.Items); err != nil {
 		return ctrl.Result{}, err
 	}
+	log.Info("updated NGG status", "ngg", applied.GetName(), "phase", "Active", "nodeCount", len(selected.Nodes))
 	message := fmt.Sprintf("selectedGroup=%s nodes=%d", selected.GroupID, len(selected.Nodes))
 	if err := r.setPlatformDemandStatus(ctx, demand, "Fulfilled", applied.GetName(), int64(len(selected.Nodes)), message); err != nil {
 		return ctrl.Result{}, err
 	}
-	log.Info("published formal platform NGG", "selectedGroup", selected.GroupID, "nodeCount", len(selected.Nodes))
+	log.Info("published formal platform NGG",
+		"ngg", applied.GetName(), "selectedGroup", selected.GroupID, "nodeCount", len(selected.Nodes),
+		"ngdPhase", "Fulfilled", "elapsedMs", elapsedMilliseconds(started),
+	)
 	return ctrl.Result{}, nil
 }
 
@@ -225,9 +251,14 @@ func (r *DemandProcessor) setPlatformDemandStatus(ctx context.Context, demand *u
 }
 
 func (r *DemandProcessor) failPlatformDemand(ctx context.Context, demand *unstructured.Unstructured, reason, message string, retry bool) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx).WithValues(
+		"formalNGD", demand.GetName(), "ngdUID", demand.GetUID(), "generation", demand.GetGeneration(),
+	)
 	if err := r.setPlatformDemandStatus(ctx, demand, "Failed", "", 0, reason+": "+message); err != nil {
+		log.Error(err, "failed to update NGD failure status", "reason", reason)
 		return ctrl.Result{}, err
 	}
+	log.Info("marked NGD calculation failed", "reason", reason, "retry", retry, "detail", message)
 	if retry {
 		return ctrl.Result{RequeueAfter: defaultRetry}, nil
 	}
@@ -476,6 +507,10 @@ func shortHash(value string) string {
 		return value[:8]
 	}
 	return value
+}
+
+func elapsedMilliseconds(started time.Time) float64 {
+	return float64(time.Since(started).Microseconds()) / 1000
 }
 
 func mapValue(object map[string]any, key string) map[string]any {

@@ -1,0 +1,20 @@
+ARG TARGETARCH
+ARG RELEASE_VERSION=dev
+
+# The Go API server is compiled before packaging. This runtime image only
+# supplies Python and the Python algorithm worker.
+FROM python:3.13-alpine
+ARG TARGETARCH
+ARG RELEASE_VERSION
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.title="NGD-NGG Algorithm Server" \
+      org.opencontainers.image.version="${RELEASE_VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.source="https://hub.docker.com/r/ghwdsl/ngd-ngg-scheduling"
+WORKDIR /app
+COPY algorithm_server/python /app/python
+COPY build/release/${RELEASE_VERSION}/linux-${TARGETARCH}/algorithm-server /app/algorithm-server
+ENV PYTHONPATH=/app/python \
+    PYTHONDONTWRITEBYTECODE=1
+USER 65532:65532
+ENTRYPOINT ["/app/algorithm-server"]

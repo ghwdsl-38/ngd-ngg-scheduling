@@ -41,12 +41,14 @@ func (r *NodeGroupDemandReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx).WithValues("formalNGD", request.Name)
 	demand := newUnstructured(platformDemandGVK)
 	if err := r.Get(ctx, request.NamespacedName, demand); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
 		r.Scheduler.Remove(request.NamespacedName)
+		log.Info("observed NGD deletion; cancelling refresh and deleting NGG")
 		if err := r.deleteGrant(ctx, request.NamespacedName); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -54,6 +56,8 @@ func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.
 	}
 
 	created, changed := r.Scheduler.Upsert(request.NamespacedName, demand.GetUID(), demand.GetGeneration())
+	log = log.WithValues("ngdUID", demand.GetUID(), "generation", demand.GetGeneration())
+	log.Info("observed NGD event", "newDemand", created, "generationChanged", changed)
 	status, _, _ := unstructured.NestedMap(demand.Object, "status")
 	phase := stringValue(status, "phase")
 	switch {
@@ -72,6 +76,7 @@ func (r *NodeGroupDemandReconciler) Reconcile(ctx context.Context, request ctrl.
 	if err := r.Scheduler.Trigger(ctx, request.NamespacedName); err != nil {
 		return ctrl.Result{}, err
 	}
+	log.Info("queued NGD calculation", "trigger", "event")
 	return ctrl.Result{}, nil
 }
 
@@ -120,18 +125,24 @@ func (r *RefreshReconciler) controllerOptions() controlleroptions.Options {
 }
 
 func (r *RefreshReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx).WithValues("formalNGD", request.Name)
 	executionContext, uid, generation, found := r.Scheduler.Begin(ctx, request.NamespacedName)
 	if !found {
 		return ctrl.Result{}, nil
 	}
+	started := time.Now()
+	log = log.WithValues("ngdUID", uid, "generation", generation)
+	log.Info("refresh worker started NGD calculation")
 	result, err := r.Processor.Process(executionContext, request)
 	r.Scheduler.Finish(request.NamespacedName, uid, generation)
 	if !r.Scheduler.IsCurrent(request.NamespacedName, uid, generation) {
 		// Update/delete arrived during execution. The native queue either already
 		// contains the new key or the delete path removed it.
+		log.Info("refresh result superseded by newer NGD identity", "elapsedMs", elapsedMilliseconds(started))
 		return ctrl.Result{}, nil
 	}
 	if err != nil {
+		log.Error(err, "refresh worker failed NGD calculation", "elapsedMs", elapsedMilliseconds(started))
 		return ctrl.Result{}, err
 	}
 	delay := result.RequeueAfter
@@ -139,5 +150,8 @@ func (r *RefreshReconciler) Reconcile(ctx context.Context, request ctrl.Request)
 		delay = r.RefreshInterval
 	}
 	r.Scheduler.ScheduleAfter(request.NamespacedName, uid, generation, delay)
+	log.Info("refresh worker completed NGD calculation",
+		"elapsedMs", elapsedMilliseconds(started), "nextRefreshAfter", delay,
+	)
 	return ctrl.Result{}, nil
 }

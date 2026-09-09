@@ -1,6 +1,10 @@
 .cache/
 build/
-images/*.tar
+images/*
+!images/.gitkeep
+!images/README.md
+image_validation/results/*
+!image_validation/results/.gitkeep
 results/*
 !results/.gitkeep
 __pycache__/

@@ -151,20 +151,25 @@ func staticNodeChangePredicate() predicate.Predicate {
 }
 
 func (r *NodeStaticSnapshotReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	started := time.Now()
 	now := time.Now().UTC()
 	nodes := &corev1.NodeList{}
 	if err := r.List(ctx, nodes); err != nil {
 		r.State.failed(err, now)
+		log.Error(err, "failed to list Nodes for static snapshot")
 		return ctrl.Result{}, fmt.Errorf("list Nodes for static snapshot: %w", err)
 	}
 	if len(nodes.Items) == 0 {
 		err := fmt.Errorf("static snapshot requires at least one Node")
 		r.State.failed(err, now)
+		log.Info("static snapshot is not ready", "reason", err.Error(), "retryAfter", r.ResyncInterval)
 		return ctrl.Result{RequeueAfter: r.ResyncInterval}, nil
 	}
 	staticID, staticBody, err := buildStaticSnapshot(r.ClusterID, nodes.Items)
 	if err != nil {
 		r.State.failed(err, now)
+		log.Error(err, "failed to build Node static snapshot", "listedNodeCount", len(nodes.Items), "retryAfter", r.ResyncInterval)
 		return ctrl.Result{RequeueAfter: r.ResyncInterval}, nil
 	}
 
@@ -176,16 +181,32 @@ func (r *NodeStaticSnapshotReconciler) Reconcile(ctx context.Context, _ ctrl.Req
 		remote, statusErr := algorithm.staticStatus(ctx)
 		if statusErr == nil && remote.Ready && remote.AcceptedSnapshot == staticID && remote.AlgorithmBootID == current.AlgorithmBootID {
 			r.State.confirmed(staticID, remote.AlgorithmBootID, len(nodes.Items), now)
+			log.V(1).Info("static snapshot remains synchronized",
+				"snapshotId", shortHash(staticID), "nodeCount", len(staticBody.Nodes),
+				"algorithmBootId", remote.AlgorithmBootID, "elapsedMs", elapsedMilliseconds(started),
+			)
 			return ctrl.Result{RequeueAfter: r.ResyncInterval}, nil
+		}
+		if statusErr != nil {
+			log.Info("Algorithm static cache status unavailable; republishing snapshot", "error", statusErr.Error(), "snapshotId", shortHash(staticID))
+		} else {
+			log.Info("Algorithm static cache identity changed; republishing snapshot",
+				"snapshotId", shortHash(staticID), "remoteSnapshotId", shortHash(remote.AcceptedSnapshot),
+				"remoteReady", remote.Ready, "algorithmBootId", remote.AlgorithmBootID,
+			)
 		}
 		// Algorithm重启、缓存丢失或状态不可达时重新PUT。
 	}
 
 	// 新静态Hash或远端缓存身份变化期间故障关闭，直到新的PUT被明确确认。
 	r.State.syncing(now)
+	log.Info("publishing Node static snapshot to Algorithm Server",
+		"snapshotId", shortHash(staticID), "nodeCount", len(staticBody.Nodes), "listedNodeCount", len(nodes.Items),
+	)
 	ack, err := algorithm.putStatic(ctx, staticID, staticBody)
 	if err != nil {
 		r.State.failed(err, now)
+		log.Error(err, "failed to publish Node static snapshot", "snapshotId", shortHash(staticID), "elapsedMs", elapsedMilliseconds(started))
 		return ctrl.Result{}, fmt.Errorf("sync static snapshot to Algorithm: %w", err)
 	}
 	if ack.AcceptedSnapshot != staticID || ack.AlgorithmBootID == "" {
@@ -194,6 +215,10 @@ func (r *NodeStaticSnapshotReconciler) Reconcile(ctx context.Context, _ ctrl.Req
 		return ctrl.Result{}, err
 	}
 	r.State.confirmed(staticID, ack.AlgorithmBootID, len(nodes.Items), now)
+	log.Info("Algorithm Server acknowledged Node static snapshot",
+		"snapshotId", shortHash(staticID), "nodeCount", ack.NodeCount,
+		"algorithmBootId", ack.AlgorithmBootID, "elapsedMs", elapsedMilliseconds(started),
+	)
 	return ctrl.Result{RequeueAfter: r.ResyncInterval}, nil
 }
 
