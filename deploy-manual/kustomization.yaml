@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# 修改Namespace时，也要修改00-namespace.yaml中的metadata.name。
+namespace: ngd-ngg-system
+
+resources:
+  - 00-namespace.yaml
+  - 10-serviceaccounts.yaml
+  - 20-algorithm.yaml
+  - 30-prc.yaml
+  - 40-lldp-agent.yaml
+
+configMapGenerator:
+  - name: ngd-ngg-algorithm-topology
+    files:
+      - topology.yaml=config/network-topology.yaml
+
+# 两个文件由部署人员放入secrets/，不得提交到Git。
+secretGenerator:
+  - name: prc-kubeconfig
+    files:
+      - kubeconfig=secrets/prc.kubeconfig
+  - name: lldp-kubeconfig
+    files:
+      - kubeconfig=secrets/lldp.kubeconfig
+
+# 固定名称与Pod挂载名称一致；更新内容后需执行rollout restart。
+generatorOptions:
+  disableNameSuffixHash: true

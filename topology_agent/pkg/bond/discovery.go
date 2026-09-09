@@ -68,12 +68,20 @@ func SelectInterfacesAt(sysClassNet, procBonding string, explicit map[string]str
 }
 
 func selectInterfacesAt(sysClassNet, procBonding string, explicit map[string]struct{}, inventory map[string]net.Interface, enforceRuntime bool) (map[string]InterfaceSelection, error) {
+	mode := "automatic"
+	if len(explicit) > 0 {
+		mode = "explicit"
+	}
+	log.Printf("[LLDP-AGENT] INTERFACE DISCOVERY START mode=%s configured=%v sysClassNet=%q", mode, sortedSet(explicit), sysClassNet)
 	entries, err := os.ReadDir(sysClassNet)
 	if err != nil {
 		return nil, fmt.Errorf("read network sysfs %s: %w", sysClassNet, err)
 	}
 
 	bonds := discoverBonds(sysClassNet, procBonding, entries)
+	for _, state := range sortedBondStates(bonds) {
+		log.Printf("[LLDP-AGENT] BOND DISCOVERED name=%s mode=%s slaves=%v activeSlave=%q source=%s", state.Name, state.Mode, state.Slaves, state.ActiveSlave, state.Source)
+	}
 	selected := map[string]InterfaceSelection{}
 	knownSlaves := map[string]struct{}{}
 	_, preferredBondExists := bonds[preferredBondName]
@@ -120,11 +128,28 @@ func selectInterfacesAt(sysClassNet, procBonding string, explicit map[string]str
 		}
 	}
 
-	// Keep lldp-new-2 explicit mode semantics: inspect and bind the exact named
-	// interface. In particular, an explicitly named Bond master is not expanded
-	// to slaves. Multiple explicit names are a project-compatible extension and
-	// are still treated as exact interfaces.
+	// An explicit Bond master limits collection to that Bond, but expands it to
+	// its eligible physical slaves. Unlike automatic active-backup selection,
+	// explicit mode keeps every link-valid slave so an operator can inventory all
+	// Leaf neighbors in the requested interface scope. Exact physical/slave names
+	// remain exact operator overrides.
 	for name := range explicit {
+		if state, isBond := bonds[name]; isBond {
+			log.Printf("[LLDP-AGENT] EXPLICIT BOND EXPAND START master=%s mode=%s declaredSlaves=%v activeSlave=%q", state.Name, state.Mode, state.Slaves, state.ActiveSlave)
+			expanded := make([]string, 0, len(state.Slaves))
+			for _, slave := range state.Slaves {
+				selection, reason, eligible := bondSlaveSelection(sysClassNet, state, slave, inventory, enforceRuntime, true)
+				if !eligible {
+					log.Printf("[LLDP-AGENT] EXPLICIT BOND SLAVE REJECT master=%s slave=%s reason=%s", state.Name, slave, reason)
+					continue
+				}
+				selected[slave] = selection
+				expanded = append(expanded, slave)
+			}
+			sort.Strings(expanded)
+			log.Printf("[LLDP-AGENT] EXPLICIT BOND EXPAND COMPLETE master=%s selectedSlaves=%v", state.Name, expanded)
+			continue
+		}
 		if _, err := os.Stat(filepath.Join(sysClassNet, name)); err == nil {
 			carrier, operState := linkState(sysClassNet, name)
 			index, administrativeUp, linkValid := runtimeLinkState(name, carrier, operState, inventory, enforceRuntime)
@@ -133,10 +158,7 @@ func selectInterfacesAt(sysClassNet, procBonding string, explicit map[string]str
 			}
 			kind := classifyInterface(sysClassNet, name)
 			bondName, bondMode, bondSlaves, bondActiveSlave, bondInfoSource, miiStatus := "", "direct", []string(nil), "", "", ""
-			if state, isBond := bonds[name]; isBond {
-				kind, bondName, bondMode = "bond-master", "", state.Mode
-				bondSlaves, bondActiveSlave, bondInfoSource = append([]string(nil), state.Slaves...), state.ActiveSlave, state.Source
-			} else if state, isSlave := bondForSlave(bonds, name); isSlave {
+			if state, isSlave := bondForSlave(bonds, name); isSlave {
 				kind, bondName, bondMode = "bond-slave", state.Name, state.Mode
 				bondSlaves, bondActiveSlave, bondInfoSource = append([]string(nil), state.Slaves...), state.ActiveSlave, state.Source
 				miiStatus = strings.ToLower(strings.TrimSpace(state.SlaveMII[name]))
@@ -144,9 +166,12 @@ func selectInterfacesAt(sysClassNet, procBonding string, explicit map[string]str
 			selected[name] = InterfaceSelection{
 				Name: name, Index: index, Kind: kind, BondName: bondName, BondMode: bondMode,
 				BondSlaves: bondSlaves, BondActiveSlave: bondActiveSlave, BondInfoSource: bondInfoSource,
-				Active: true, AdministrativeUp: administrativeUp, LinkValid: linkValid,
+				Active:           bondMode != "active-backup" || name == bondActiveSlave,
+				AdministrativeUp: administrativeUp, LinkValid: linkValid,
 				PhysicalWired: isPhysicalWired(sysClassNet, name), Carrier: carrier, OperState: operState, MIIStatus: miiStatus,
 			}
+		} else {
+			log.Printf("[LLDP-AGENT] EXPLICIT INTERFACE REJECT name=%s reason=not-found-in-sysfs", name)
 		}
 	}
 
@@ -193,7 +218,45 @@ func selectInterfacesAt(sysClassNet, procBonding string, explicit map[string]str
 	for _, item := range Sorted(selected) {
 		log.Printf("[LLDP-AGENT] FINAL USABLE INTERFACE name=%s index=%d kind=%s adminUp=%t carrier=%q operState=%q physicalWired=%t bondMaster=%q bondMode=%q bondInfoSource=%q bondMIIStatus=%q", item.Name, item.Index, item.Kind, item.AdministrativeUp, item.Carrier, item.OperState, item.PhysicalWired, item.BondName, item.BondMode, item.BondInfoSource, item.MIIStatus)
 	}
+	log.Printf("[LLDP-AGENT] INTERFACE DISCOVERY COMPLETE mode=%s selected=%v", mode, selectedNames(selected))
 	return selected, nil
+}
+
+func bondSlaveSelection(sysClassNet string, state bondState, slave string, inventory map[string]net.Interface, enforceRuntime, includeStandby bool) (InterfaceSelection, string, bool) {
+	carrier, operState := linkState(sysClassNet, slave)
+	index, administrativeUp, linkValid := runtimeLinkState(slave, carrier, operState, inventory, enforceRuntime)
+	miiStatus := strings.ToLower(strings.TrimSpace(state.SlaveMII[slave]))
+	active := slave == state.ActiveSlave
+	physicalWired := isPhysicalWired(sysClassNet, slave)
+	switch {
+	case !physicalWired:
+		return InterfaceSelection{}, "not-physical-wired", false
+	case state.Mode == "active-backup" && !includeStandby && !active:
+		return InterfaceSelection{}, "standby-slave-in-automatic-active-backup", false
+	case miiStatus != "" && miiStatus != "up":
+		return InterfaceSelection{}, "bond-mii-not-up", false
+	case !linkValid:
+		return InterfaceSelection{}, "link-not-up", false
+	}
+	if _, err := os.Stat(filepath.Join(sysClassNet, slave)); err != nil {
+		return InterfaceSelection{}, "missing-from-sysfs", false
+	}
+	return InterfaceSelection{
+		Name: slave, Index: index, Kind: "bond-slave", BondName: state.Name, BondMode: state.Mode,
+		BondSlaves: append([]string(nil), state.Slaves...), BondActiveSlave: state.ActiveSlave,
+		BondInfoSource: state.Source, Active: active || state.Mode != "active-backup",
+		AdministrativeUp: administrativeUp, LinkValid: linkValid, PhysicalWired: physicalWired,
+		Carrier: carrier, OperState: operState, MIIStatus: miiStatus,
+	}, "", true
+}
+
+func selectedNames(values map[string]InterfaceSelection) []string {
+	result := make([]string, 0, len(values))
+	for name := range values {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func bondForSlave(values map[string]bondState, slave string) (bondState, bool) {

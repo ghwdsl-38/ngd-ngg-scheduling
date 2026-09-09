@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prc
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ngd-ngg-prc
+  template:
+    metadata:
+      labels:
+        app: ngd-ngg-prc
+    spec:
+      serviceAccountName: prc
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+        - name: prc
+          image: ghwdsl/ngd-ngg-scheduling:prc-v0.6.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - --leader-elect=false
+            - --health-probe-bind-address=:8081
+            - --demand-refresh-interval=15s
+            - --max-concurrent-refreshes=5
+          env:
+            - name: KUBECONFIG
+              value: /etc/ngd-ngg/auth/kubeconfig
+            - name: ALGORITHM_URL
+              value: http://ngd-ngg-algorithm:8080
+            - name: CLUSTER_ID
+              value: production-cluster
+          ports:
+            - name: health
+              containerPort: 8081
+          volumeMounts:
+            - name: kubeconfig
+              mountPath: /etc/ngd-ngg/auth
+              readOnly: true
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: kubeconfig
+          secret:
+            secretName: prc-kubeconfig
+            defaultMode: 0440
+            items:
+              - key: kubeconfig
+                path: kubeconfig
+

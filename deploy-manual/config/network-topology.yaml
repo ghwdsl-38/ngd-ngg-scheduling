@@ -1,0 +1,57 @@
+# 部署前使用需求方真实拓扑替换本文件。
+# SPINE为空合法，Node只需要由LLDP Agent记录其直连Leaf。
+version: unicom-huailai-102-sample-v1
+
+scopes:
+  regions:
+    - id: CN-NORTH
+      name: 华北
+  locations:
+    - id: HB-HL
+      name: 怀来
+      regionId: CN-NORTH
+  dataCenters:
+    - id: HB-HL-DC1
+      locationId: HB-HL
+  rooms:
+    - id: HB-HL-DC1-102
+      name: 102机房
+      dataCenterId: HB-HL-DC1
+
+borderDomains:
+  HB-HL-DC1-102-BORDER-DOMAIN-01:
+    roomId: HB-HL-DC1-102
+    mode: exact-set
+    members:
+      - HB-HL-DC1-102-C03-02U-LTY-CSQ-BORDER-SW01-ZTE9904X
+      - HB-HL-DC1-102-D03-02U-LTY-CSQ-BORDER-SW02-ZTE9904X
+
+topology:
+  HB-HL-DC1-102:
+    HB-HL-DC1-102-C03-44U-LTY-CSQ-LEAF-SW01-ZTE5960X:
+      SPINE: {}
+      BORDER:
+        HB-HL-DC1-102-C03-02U-LTY-CSQ-BORDER-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/9
+        HB-HL-DC1-102-D03-02U-LTY-CSQ-BORDER-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/9
+      LEAF:
+        HB-HL-DC1-102-C04-44U-LTY-CSQ-LEAF-SW02-ZTE5960X:
+          local_port: cgei-0/1/1/54
+          peer_port: cgei-0/1/1/54
+    HB-HL-DC1-102-C04-44U-LTY-CSQ-LEAF-SW02-ZTE5960X:
+      SPINE: {}
+      BORDER:
+        HB-HL-DC1-102-C03-02U-LTY-CSQ-BORDER-SW01-ZTE9904X:
+          local_port: cgei-0/1/1/51
+          peer_port: cgei-0/3/0/10
+        HB-HL-DC1-102-D03-02U-LTY-CSQ-BORDER-SW02-ZTE9904X:
+          local_port: cgei-0/1/1/53
+          peer_port: cgei-0/3/0/10
+      LEAF:
+        HB-HL-DC1-102-C03-44U-LTY-CSQ-LEAF-SW01-ZTE5960X:
+          local_port: cgei-0/1/1/54
+          peer_port: cgei-0/1/1/54
+

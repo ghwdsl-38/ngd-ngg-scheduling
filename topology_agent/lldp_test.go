@@ -87,15 +87,22 @@ func TestBondCoverageOnlyCompletesForAllBondSlaves(t *testing.T) {
 		5: {Name: "eno1", Index: 5, Kind: "bond-slave", BondName: "bond0"},
 		6: {Name: "eno2", Index: 6, Kind: "bond-slave", BondName: "bond0"},
 	}
-	covered, expected, applicable := bondInterfaceCoverage(candidates, []lldpNeighbor{{LocalInterface: "eno1"}})
+	covered, expected, applicable := bondInterfaceCoverage(candidates, []lldpNeighbor{{
+		LocalInterface: "eno1", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:55",
+	}})
 	if !applicable || covered != 1 || expected != 2 {
 		t.Fatalf("unexpected partial coverage: covered=%d expected=%d applicable=%t", covered, expected, applicable)
 	}
-	covered, expected, applicable = bondInterfaceCoverage(candidates, []lldpNeighbor{{LocalInterface: "eno1"}, {LocalInterface: "eno2"}})
+	covered, expected, applicable = bondInterfaceCoverage(candidates, []lldpNeighbor{
+		{LocalInterface: "eno1", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:55"},
+		{LocalInterface: "eno2", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:66"},
+	})
 	if !applicable || covered != 2 || expected != 2 {
 		t.Fatalf("unexpected complete coverage: covered=%d expected=%d applicable=%t", covered, expected, applicable)
 	}
-	if _, _, applicable = bondInterfaceCoverage(map[int]interfaceSelection{2: {Name: "eth0", Kind: "physical"}}, []lldpNeighbor{{LocalInterface: "eth0"}}); applicable {
+	if _, _, applicable = bondInterfaceCoverage(map[int]interfaceSelection{2: {Name: "eth0", Kind: "physical"}}, []lldpNeighbor{{
+		LocalInterface: "eth0", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:55",
+	}}); applicable {
 		t.Fatal("standalone physical interface must finish by idle/max timeout, not bond coverage")
 	}
 }
@@ -140,6 +147,44 @@ func TestActiveBackupCompletesWithOneActiveLeaf(t *testing.T) {
 	target, applies := requiredDistinctBondLeaves(candidates)
 	if !applies || target != 1 || !bondLeafCollectionComplete(candidates, neighbors) {
 		t.Fatalf("unexpected active-backup policy: target=%d applies=%t complete=%t", target, applies, bondLeafCollectionComplete(candidates, neighbors))
+	}
+}
+
+func TestSelectedInterfaceCoverageRequiresEveryInterface(t *testing.T) {
+	candidates := map[int]interfaceSelection{
+		5: {Name: "eno1"},
+		6: {Name: "eno2"},
+	}
+	partial := []lldpNeighbor{{LocalInterface: "eno1", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:55"}}
+	covered, expected := selectedInterfaceCoverage(candidates, partial)
+	if covered != 1 || expected != 2 {
+		t.Fatalf("unexpected partial explicit coverage: covered=%d expected=%d", covered, expected)
+	}
+	complete := append(partial,
+		lldpNeighbor{LocalInterface: "eno2", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:66"},
+		lldpNeighbor{LocalInterface: "eno2", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:77", LooksLikeLocalHost: true},
+	)
+	covered, expected = selectedInterfaceCoverage(candidates, complete)
+	if covered != 2 || expected != 2 {
+		t.Fatalf("unexpected complete explicit coverage: covered=%d expected=%d", covered, expected)
+	}
+}
+
+func TestBuildLeafLinksAllowsAllExplicitLeafChassis(t *testing.T) {
+	selections := map[string]interfaceSelection{
+		"eno1": {Name: "eno1"},
+		"eno2": {Name: "eno2"},
+	}
+	links, err := buildLeafLinks([]lldpNeighbor{
+		{LocalInterface: "eno1", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:55", SystemName: "leaf-a", PortID: "1"},
+		{LocalInterface: "eno1", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:66", SystemName: "leaf-b", PortID: "2"},
+		{LocalInterface: "eno2", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:77", SystemName: "leaf-c", PortID: "3"},
+	}, selections)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(links) != 3 {
+		t.Fatalf("explicit Leaf inventory was truncated: %#v", links)
 	}
 }
 

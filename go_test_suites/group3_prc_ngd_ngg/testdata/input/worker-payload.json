@@ -62057,6 +62057,6 @@
     "topologyVersion": "unicom-border-domain-v1"
   },
   "warnings": [
-    "SPINE_NOT_FOUND_FALLBACK: Spine \"spine-01\" is absent from the configured topology; using border-switch=requiredSame"
+    "SPINE_NOT_FOUND_FALLBACK: Spine \"spine-01\" is absent from the configured topology; using existing border-switch constraint \"requiredSame\""
   ]
 }

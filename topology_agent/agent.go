@@ -44,9 +44,12 @@ func (a *topologyAgent) run(ctx context.Context) error {
 		node, err := a.client.getNode(ctx, a.nodeName)
 		if err != nil {
 			log.Printf("[LLDP-AGENT] ERROR Kubernetes Nodes.Get node=%s: %v", a.nodeName, err)
-		} else if err := a.reconcile(ctx, node); err != nil {
-			// Keep the last persisted topology when a collection window fails.
-			log.Printf("[LLDP-AGENT] ERROR reconcile Node %s: %v", a.nodeName, err)
+		} else {
+			log.Printf("[LLDP-AGENT] RETURN Kubernetes Nodes.Get node=%s uid=%s resourceVersion=%s", a.nodeName, node.Metadata.UID, node.Metadata.ResourceVersion)
+			if err := a.reconcile(ctx, node); err != nil {
+				// Keep the last persisted topology when a collection window fails.
+				log.Printf("[LLDP-AGENT] ERROR reconcile Node %s: %v", a.nodeName, err)
+			}
 		}
 		nextCycleWait := a.resync - time.Since(cycleStarted)
 		if nextCycleWait < 0 {
@@ -72,6 +75,7 @@ func (a *topologyAgent) reconcile(ctx context.Context, node nodeObject) error {
 	if err != nil {
 		return err
 	}
+	log.Printf("[LLDP-AGENT] METADATA BUILT node=%s leafCount=%d leafSet=%s linkCount=%d", a.nodeName, len(observed.LeafSwitchIDs), topologyfacts.LeafSetID(observed.LeafSwitchIDs), len(observed.Links))
 	leavesJSON, _ := json.Marshal(observed.LeafSwitchIDs)
 	linksJSON, _ := json.Marshal(observed.Links)
 	setID := topologyfacts.LeafSetID(observed.LeafSwitchIDs)
@@ -108,7 +112,24 @@ func (a *topologyAgent) collect(ctx context.Context) (observation, error) {
 	if err != nil {
 		return observation{}, err
 	}
+	if len(a.interfaces) == 0 {
+		leafSet := map[string]struct{}{}
+		for _, link := range links {
+			leafSet[link.LeafSwitchID] = struct{}{}
+		}
+		if len(leafSet) > 2 {
+			return observation{}, fmt.Errorf("automatic discovery resolved %d Leaf switches; automatic mode supports at most 2", len(leafSet))
+		}
+	}
+	log.Printf("[LLDP-AGENT] LEAF LINKS BUILT mode=%s links=%d", collectionScope(len(a.interfaces) == 0), len(links))
 	return observation{Links: links, Source: "LLDP"}, nil
+}
+
+func collectionScope(automatic bool) string {
+	if automatic {
+		return "automatic"
+	}
+	return "explicit"
 }
 
 // buildLeafLinks converts lldp-new-2-compatible neighbor observations into
@@ -150,9 +171,6 @@ func buildLeafLinks(neighbors []lldpNeighbor, selections map[string]interfaceSel
 	}
 	if len(leafByChassis) == 0 {
 		return nil, fmt.Errorf("no external upper-switch LLDP neighbor found")
-	}
-	if len(leafByChassis) > 2 {
-		return nil, fmt.Errorf("Node resolved %d distinct LLDP chassis; current design supports at most 2 Leaf switches", len(leafByChassis))
 	}
 	chassisByLeafName := map[string]string{}
 	for chassisIdentity, leaf := range leafByChassis {

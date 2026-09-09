@@ -39,6 +39,46 @@ func TestLACPSelectsAllUpSlaves(t *testing.T) {
 	}
 }
 
+func TestExplicitBondMasterExpandsAllLinkUpSlaves(t *testing.T) {
+	root := t.TempDir()
+	writeBondFixture(t, root, "bond0", "active-backup 1", "eth0 eth1 eth2", "eth0")
+	writePhysicalFixture(t, root, "eth0", "1", "up")
+	writePhysicalFixture(t, root, "eth1", "1", "up")
+	writePhysicalFixture(t, root, "eth2", "0", "down")
+
+	selected, err := selectLLDPInterfacesAt(root, t.TempDir(), map[string]struct{}{"bond0": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected) != 2 {
+		t.Fatalf("explicit bond0 did not expand to both link-up slaves: %#v", selected)
+	}
+	if !selected["eth0"].Active || selected["eth1"].Active {
+		t.Fatalf("active-backup state was not preserved in expanded slaves: %#v", selected)
+	}
+	if _, exists := selected["bond0"]; exists {
+		t.Fatalf("Bond master must not be listened to directly: %#v", selected)
+	}
+	if _, exists := selected["eth2"]; exists {
+		t.Fatalf("down Bond slave must not be selected: %#v", selected)
+	}
+}
+
+func TestExplicitBondSlaveRemainsExactInterface(t *testing.T) {
+	root := t.TempDir()
+	writeBondFixture(t, root, "bond0", "802.3ad 4", "eth0 eth1", "eth0")
+	writePhysicalFixture(t, root, "eth0", "1", "up")
+	writePhysicalFixture(t, root, "eth1", "1", "up")
+
+	selected, err := selectLLDPInterfacesAt(root, t.TempDir(), map[string]struct{}{"eth1": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected) != 1 || selected["eth1"].BondName != "bond0" {
+		t.Fatalf("explicit Bond slave must remain an exact selection: %#v", selected)
+	}
+}
+
 func TestBond0TakesPriorityOverOtherPhysicalUplinks(t *testing.T) {
 	root := t.TempDir()
 	writeBondFixture(t, root, "bond0", "802.3ad 4", "eth0 eth1", "eth0")

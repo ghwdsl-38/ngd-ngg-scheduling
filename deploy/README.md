@@ -12,6 +12,13 @@
 cd ngd-ngg-scheduling-demo
 ```
 
+> 当前PRC与Algorithm的`v0.6.0`发布已切换为“Go双架构预编译后再打包”流程：
+> `make release-images`负责本地打包，`make release-verify`负责envtest镜像
+> 验证，登录Docker Hub后才执行`make release-push`。详细说明见
+> [发布镜像验证说明](../image_validation/README.md)。原来的
+> `deploy.py images build`仍包含尚未迁移的LLDP旧构建流程，本阶段不要用它
+> 发布PRC与Algorithm。
+
 ## 1. 先选择操作路线
 
 ### 1.1 镜像是否需要自己 Build
@@ -682,6 +689,11 @@ deploy/generated/config.local/external/compose.json
 后按180秒的轮次周期开始下一轮。两个网卡收到同一个交换机Chassis时只识别为
 一个Leaf，不会误判为双Leaf；65秒内仍不足两个不同Leaf时，本轮不写入，
 也不覆盖上一次成功保存的Node拓扑。
+
+以上是`interfaces`为空的自动模式。配置为`"interfaces": "bond0"`时，Agent
+会把Bond Master展开为所有Link/MII有效Slave，并在显式范围内盘点全部Leaf；
+不监听Master本身，也不限制为1或2个Leaf。显式多个接口全部获得有效邻居后，
+连续`idleSeconds`没有新Chassis即结束，否则最长等待`listenSeconds`。
 
 `nodeName` 必须与 Kubernetes Node 的 `metadata.name` 完全一致。也可以
 不反复修改文件，而是在命令中覆盖：

@@ -65,7 +65,8 @@ Kubernetes Node
 | 重复报文 | 更新已有邻居，不重置idle计时 | 相同 | 一致 |
 | 普通物理口结束 | 首个新邻居后等待idle timeout | 相同 | 一致 |
 | Bond采集基础流程 | 每个选中Slave分别接收邻居 | 相同 | 一致 |
-| Bond完成条件 | 在接口覆盖基础上要求不同Chassis：主备1个，其他模式2个 | 仅检查接口覆盖 | 按生产双Leaf要求增强 |
+| 自动Bond完成条件 | 在接口覆盖基础上要求不同Chassis：主备1个，其他模式2个 | 仅检查接口覆盖 | 按生产双Leaf要求增强 |
+| 显式Bond主接口 | 展开为所有Link/MII有效Slave，不监听Master | 直接监听指定接口 | 按显式范围全量盘点要求增强 |
 | 本机反射 | 采集时标记，Leaf筛选阶段剔除 | 相同 | 一致 |
 | LLDP解析 | MAC、Chassis、Port、TTL、描述、能力、管理地址 | 相同 | 一致 |
 
@@ -75,7 +76,7 @@ Kubernetes Node
 - Kubernetes访问使用官方`client-go`，而不是参考版中的手写HTTP客户端；
 - 写入`topology.demo.ngg.io/*`，以便PRC继续读取；
 - 作为DaemonSet持续周期执行，而不是单独的命令行输出工具；
-- 当前业务协议最多接受两个不同Leaf。
+- 自动模式最多接受两个不同Leaf；显式接口模式保留采集窗口内的全部Leaf。
 
 日志统一使用`[LLDP-AGENT]`前缀，包含启动参数、接口选择、Socket打开、
 报文接收、解析结果、Node Patch以及错误位置。
@@ -123,10 +124,18 @@ veth或本机反射报文误写为Leaf。
 --interfaces=ens5f1np1,ens8f0np0
 ```
 
-显式接口按名称直接监听；显式填写`bond0`表示监听Bond Master本身，不会
-展开为Slave。推荐保持`--interfaces`为空，让自动模式根据Bond模式选择
-Slave。显式指定普通接口属于运维覆盖，即使该接口被识别为虚拟接口也允许
-监听，但疑似本机反射邻居仍会被过滤。
+显式接口参数只限制“在哪些接口范围采集”，不限制Leaf数量：
+
+- 显式普通网卡或Bond Slave：只监听指定接口；
+- 显式`bond0`等Bond Master：展开为所有Link/MII有效Slave，不监听Master；
+- `active-backup`显式展开时Active和Standby状态仍写入链路明细，但为了盘点
+  指定范围内的全部Leaf，两条有效Slave都会参与监听；
+- 多接口模式要求每个选中接口至少收到一个有效外部邻居后，才启动3秒idle
+  计时；覆盖未完成时最长等待65秒；
+- 最终Leaf按照LLDP Chassis ID去重，不执行自动模式的1/2个Leaf数量目标。
+
+显式指定普通接口属于运维覆盖，即使该接口被识别为虚拟接口也允许监听，
+但疑似本机反射邻居仍会被过滤。
 
 生产环境如果服务器存在管理网、存储网等多组物理口，建议明确填写承载
 业务网络的物理口或Bond，避免把非业务上联纳入Leaf集合。
@@ -152,7 +161,7 @@ unix.Socket(AF_PACKET, SOCK_RAW, htons(0x88cc))
 
 用于Leaf身份的规则保持不变：优先使用`System Name`，缺少时使用
 `Chassis ID`。邻居按“本地接口+Chassis+Port”保留，同一接口上的不同
-邻居不会在采集阶段被覆盖；当前Node业务协议最多接受两个不同Leaf。
+邻居不会在采集阶段被覆盖；最终Leaf集合按Chassis ID去重。
 
 采集仍沿用`lldp-new-2`的单Socket、ifindex过滤、邻居身份和重复帧更新流程。
 在此基础上，Bond完成条件增加了不同Leaf校验：
@@ -163,6 +172,11 @@ unix.Socket(AF_PACKET, SOCK_RAW, htons(0x88cc))
 - Bond目标未满足时禁用通用idle提前退出，最长等待`listen-seconds`；
 - 普通物理口收到首个新邻居后，连续`idle-seconds`没有新邻居即可结束；
 - 到达`listen-seconds`总超时。
+
+上述1/2个Leaf目标只适用于`--interfaces`为空的自动模式。显式模式不按Bond
+模式提前结束，而是：所有指定/展开接口完成覆盖后，连续`idle-seconds`没有
+发现新的不同Chassis才结束；没有完成接口覆盖时等待到总超时。总超时后只要
+至少发现一个有效外部Leaf，就保存已发现的全部Leaf及链路。
 
 重复邻居只更新最新内容，不重置idle计时。Chassis ID是判断物理Leaf是否
 不同的依据；System Name是写入Node并与Algorithm配置匹配的Leaf ID。两个
@@ -179,7 +193,7 @@ unix.Socket(AF_PACKET, SOCK_RAW, htons(0x88cc))
 
 ```text
 topology.demo.ngg.io/leaf-set-id=<Leaf集合Hash>
-topology.demo.ngg.io/leaf-count=1|2
+topology.demo.ngg.io/leaf-count=<去重后的Leaf数量，至少为1>
 topology.demo.ngg.io/leaf-switch=<只有一个且值合法时写入>
 ```
 
@@ -263,6 +277,7 @@ sudo tcpdump -i <物理口> -nn -e -vv ether proto 0x88cc
 
 - Agent只负责Node到直连Leaf，不处理Leaf以上拓扑；
 - 自动模式优先且独占`bond0`；没有`bond0`时才发现其他有效物理口；
-- 超过两个不同Leaf会被现有拓扑协议拒绝；
-- 完整一轮未收到邻居或非主备Bond不足两个不同Leaf时，保留Node旧拓扑；
-- Bond双Leaf未完成时不会被`idle-seconds=3`提前截断，而是最多等待65秒。
+- 自动模式超过两个不同Leaf会拒绝，非主备Bond不足两个不同Leaf时保留旧拓扑；
+- 显式模式不限制Leaf数量，按Chassis去重并保存采集窗口内的全部Leaf；
+- 自动Bond目标未完成、显式接口覆盖未完成时，都不会被3秒idle提前截断，
+  而是最多等待65秒。

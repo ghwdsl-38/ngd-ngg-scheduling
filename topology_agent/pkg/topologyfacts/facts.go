@@ -58,9 +58,6 @@ func Normalize(value Observation) (Observation, error) {
 	if len(leafSet) == 0 {
 		return Observation{}, fmt.Errorf("no valid Leaf neighbor was collected")
 	}
-	if len(leafSet) > 2 {
-		return Observation{}, fmt.Errorf("Node resolved %d Leaf switches; current design supports at most 2", len(leafSet))
-	}
 	sort.Slice(value.Links, func(i, j int) bool {
 		if value.Links[i].Interface == value.Links[j].Interface {
 			return value.Links[i].LeafSwitchID < value.Links[j].LeafSwitchID

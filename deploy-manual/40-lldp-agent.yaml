@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: lldp-agent
+spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: ngd-ngg-lldp-agent
+  template:
+    metadata:
+      labels:
+        app: ngd-ngg-lldp-agent
+    spec:
+      serviceAccountName: lldp-agent
+      automountServiceAccountToken: false
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      # 按真实Worker标签修改；目标节点有Taint时增加tolerations。
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      tolerations: []
+      containers:
+        - name: lldp-agent
+          image: REPLACE_WITH_LLDP_IMAGE
+          imagePullPolicy: IfNotPresent
+          args:
+            - --listen-seconds=65
+            - --idle-seconds=3
+            - --count=0
+            - --resync-seconds=180
+            - --sys-class-net=/host-sys/class/net
+            - --interfaces=
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: KUBECONFIG
+              value: /etc/ngd-ngg/auth/kubeconfig
+          volumeMounts:
+            - name: host-sys
+              mountPath: /host-sys
+              readOnly: true
+            - name: kubeconfig
+              mountPath: /etc/ngd-ngg/auth
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_RAW"]
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      volumes:
+        - name: host-sys
+          hostPath:
+            path: /sys
+            type: Directory
+        - name: kubeconfig
+          secret:
+            secretName: lldp-kubeconfig
+            defaultMode: 0440
+            items:
+              - key: kubeconfig
+                path: kubeconfig
+

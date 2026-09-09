@@ -233,22 +233,22 @@ func receiveLLDP(ctx context.Context, selections map[string]interfaceSelection, 
 	hostname, _ := os.Hostname()
 	neighborIndexes := make(map[string]int)
 	validFrames := 0
-	var lastNewNeighbor time.Time
+	var idleAnchor time.Time
 	stopReason := "max-timeout"
 	distinctTarget, bondTargetApplies := requiredDistinctBondLeaves(candidates)
 	effectiveIdleTimeout := idleTimeout
-	if bondTargetApplies {
+	if automatic && bondTargetApplies {
 		// lldp-new-2 uses interface coverage to finish Bond collection. Keep
 		// that flow, but do not allow the generic idle timer to finish a dual
 		// Leaf scan after only the first switch has advertised.
 		effectiveIdleTimeout = 0
 	}
-	log.Printf("[LLDP-AGENT] WAIT protocol=0x%04x timeout=%s idleTimeout=%s effectiveIdleTimeout=%s collectionMode=%s maxUniqueNeighbors=%d distinctBondLeafTarget=%d", ethernetProtocolLLDP, timeout, idleTimeout, effectiveIdleTimeout, collectionMode(count, effectiveIdleTimeout), count, distinctTarget)
+	log.Printf("[LLDP-AGENT] WAIT scope=%s protocol=0x%04x timeout=%s idleTimeout=%s effectiveIdleTimeout=%s collectionMode=%s maxUniqueNeighbors=%d automaticDistinctBondLeafTarget=%d", collectionScope(automatic), ethernetProtocolLLDP, timeout, idleTimeout, effectiveIdleTimeout, collectionMode(count, effectiveIdleTimeout), count, distinctTarget)
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		remaining, idleExpired := nextReceiveWait(time.Now(), deadline, lastNewNeighbor, effectiveIdleTimeout)
+		remaining, idleExpired := nextReceiveWait(time.Now(), deadline, idleAnchor, effectiveIdleTimeout)
 		if idleExpired {
 			stopReason = "idle-timeout"
 			break
@@ -309,20 +309,43 @@ func receiveLLDP(ctx context.Context, selections map[string]interfaceSelection, 
 			log.Printf("[LLDP-AGENT] LEAF UPDATE duplicate=true interface=%s chassisID=%q portID=%q uniqueNeighbors=%d validFrames=%d idleTimerReset=false", neighbor.LocalInterface, neighbor.ChassisID, neighbor.PortID, len(result), validFrames)
 			continue
 		}
+		distinctBefore := distinctLeafCount(result)
 		neighborIndexes[identity] = len(result)
 		result = append(result, neighbor)
-		lastNewNeighbor = time.Now()
-		log.Printf("[LLDP-AGENT] LEAF FOUND duplicate=false interface=%s chassisID=%q portID=%q uniqueNeighbors=%d validFrames=%d idleTimerReset=%t", neighbor.LocalInterface, neighbor.ChassisID, neighbor.PortID, len(result), validFrames, effectiveIdleTimeout > 0)
+		distinctAfter := distinctLeafCount(result)
+		newDistinctLeaf := distinctAfter > distinctBefore
+		now := time.Now()
+		idleReset := false
+		if automatic {
+			if newDistinctLeaf && effectiveIdleTimeout > 0 {
+				idleAnchor = now
+				idleReset = true
+			}
+		} else {
+			covered, expected := selectedInterfaceCoverage(candidates, result)
+			coverageWasComplete := !idleAnchor.IsZero()
+			coverageComplete := covered == expected
+			if coverageComplete && (!coverageWasComplete || newDistinctLeaf) && effectiveIdleTimeout > 0 {
+				idleAnchor = now
+				idleReset = true
+			}
+			log.Printf("[LLDP-AGENT] EXPLICIT INTERFACE COVERAGE coveredInterfaces=%d expectedInterfaces=%d complete=%t idleTimerStarted=%t", covered, expected, coverageComplete, !idleAnchor.IsZero())
+		}
+		log.Printf("[LLDP-AGENT] LEAF FOUND duplicate=false newDistinctChassis=%t interface=%s chassisID=%q portID=%q uniqueNeighbors=%d distinctLeaves=%d validFrames=%d idleTimerReset=%t", newDistinctLeaf, neighbor.LocalInterface, neighbor.ChassisID, neighbor.PortID, len(result), distinctAfter, validFrames, idleReset)
 
 		covered, expected, applicable := bondInterfaceCoverage(candidates, result)
 		if applicable {
 			log.Printf("[LLDP-AGENT] BOND COVERAGE coveredInterfaces=%d expectedInterfaces=%d complete=%t", covered, expected, covered == expected)
-			distinct := distinctLeafCount(result)
-			complete := bondLeafCollectionComplete(candidates, result)
-			log.Printf("[LLDP-AGENT] BOND LEAF COVERAGE distinctLeaves=%d requiredDistinctLeaves=%d complete=%t", distinct, distinctTarget, complete)
-			if complete {
-				stopReason = "bond-distinct-leaf-coverage-complete"
-				break
+			if automatic {
+				distinct := distinctLeafCount(result)
+				complete := bondLeafCollectionComplete(candidates, result)
+				log.Printf("[LLDP-AGENT] AUTOMATIC BOND LEAF TARGET distinctLeaves=%d requiredDistinctLeaves=%d complete=%t", distinct, distinctTarget, complete)
+				if complete {
+					stopReason = "bond-distinct-leaf-coverage-complete"
+					break
+				}
+			} else {
+				log.Printf("[LLDP-AGENT] EXPLICIT BOND LEAF INVENTORY distinctLeaves=%d limit=none", distinctLeafCount(result))
 			}
 		}
 		if count > 0 && len(result) >= count {
@@ -333,8 +356,13 @@ func receiveLLDP(ctx context.Context, selections map[string]interfaceSelection, 
 	if len(result) == 0 {
 		return nil, fmt.Errorf("LLDP receive timeout after %s on interfaces %v: no valid inbound EtherType 0x88cc frame", timeout, allowedNames)
 	}
-	if err := validateBondLeafCollection(candidates, result, timeout, allowedNames); err != nil {
-		return nil, err
+	if automatic {
+		if err := validateBondLeafCollection(candidates, result, timeout, allowedNames); err != nil {
+			return nil, err
+		}
+	} else {
+		covered, expected := selectedInterfaceCoverage(candidates, result)
+		log.Printf("[LLDP-AGENT] EXPLICIT COLLECTION FINAL coveredInterfaces=%d expectedInterfaces=%d complete=%t distinctLeaves=%d", covered, expected, covered == expected, distinctLeafCount(result))
 	}
 	sortNeighbors(result)
 	log.Printf("[LLDP-AGENT] COLLECTION COMPLETE reason=%s collectionMode=%s validFrames=%d uniqueNeighbors=%d distinctLeaves=%d maxUniqueNeighbors=%d", stopReason, collectionMode(count, effectiveIdleTimeout), validFrames, len(result), distinctLeafCount(result), count)
@@ -399,13 +427,29 @@ func bondInterfaceCoverage(candidates map[int]interfaceSelection, neighbors []ll
 		}
 		expectedNames[selection.Name] = struct{}{}
 	}
+	coveredNames := coveredInterfaces(expectedNames, neighbors)
+	return len(coveredNames), len(expectedNames), true
+}
+
+func selectedInterfaceCoverage(candidates map[int]interfaceSelection, neighbors []lldpNeighbor) (covered, expected int) {
+	expectedNames := make(map[string]struct{}, len(candidates))
+	for _, selection := range candidates {
+		expectedNames[selection.Name] = struct{}{}
+	}
+	return len(coveredInterfaces(expectedNames, neighbors)), len(expectedNames)
+}
+
+func coveredInterfaces(expectedNames map[string]struct{}, neighbors []lldpNeighbor) map[string]struct{} {
 	coveredNames := make(map[string]struct{}, len(expectedNames))
 	for _, neighbor := range neighbors {
+		if neighbor.LooksLikeLocalHost || leafChassisIdentity(neighbor) == "" {
+			continue
+		}
 		if _, expectedInterface := expectedNames[neighbor.LocalInterface]; expectedInterface {
 			coveredNames[neighbor.LocalInterface] = struct{}{}
 		}
 	}
-	return len(coveredNames), len(expectedNames), true
+	return coveredNames
 }
 
 // requiredDistinctBondLeaves describes the operational topology expected from

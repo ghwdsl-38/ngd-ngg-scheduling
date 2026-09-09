@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,6 +40,7 @@ func newKubeClient(config *rest.Config) (*kubeClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create Kubernetes client: %w", err)
 	}
+	log.Printf("[LLDP-AGENT] KUBERNETES CLIENT SUCCESS apiServer=%q", config.Host)
 	return &kubeClient{client: clientset}, nil
 }
 
