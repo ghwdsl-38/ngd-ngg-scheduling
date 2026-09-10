@@ -51,16 +51,16 @@ benchmark-3000-report:
 	. ./scripts/go-test-env.sh; go run ./go_test_suites/scale_benchmark_3000/cmd/report
 
 release-binaries:
-	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.1}" ./scripts/04-release-build-binaries.sh
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.2}" ./scripts/04-release-build-binaries.sh
 
 release-images: release-binaries
-	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.1}" ./scripts/04-release-package-images.sh
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.2}" ./scripts/04-release-package-images.sh
 
 release-verify:
-	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.1}" ./image_validation/verify.sh
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.2}" ./image_validation/verify.sh
 
 release-push:
-	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.1}" ./scripts/04-release-push-images.sh
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.2}" ./scripts/04-release-push-images.sh
 
 crds:
 	./scripts/03-install-apis.sh

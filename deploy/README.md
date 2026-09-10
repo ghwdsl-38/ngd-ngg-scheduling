@@ -141,7 +141,7 @@ python3 -m json.tool deploy/config.local.json >/dev/null
   "images": {
     "prc": "registry.unicom.example.com/ngd-ngg/prc:v0.5.0",
     "algorithm": "registry.unicom.example.com/ngd-ngg/algorithm:v0.5.0",
-    "lldp": "registry.unicom.example.com/ngd-ngg/lldp-agent:v0.5.0"
+    "lldp": "ghwdsl/ngd-ngg-scheduling:lldp-v0.6.2"
   },
   "topologyFile": "../config/topology/unicom-huailai-102-sample.yaml",
   "prc": {
@@ -223,7 +223,7 @@ Algorithm 在哪里运行，`prometheus.url` 就必须能从哪里访问。
 "images": {
   "prc": "registry.unicom.example.com/ngd-ngg/prc:v0.5.0",
   "algorithm": "registry.unicom.example.com/ngd-ngg/algorithm:v0.5.0",
-  "lldp": "registry.unicom.example.com/ngd-ngg/lldp-agent:v0.5.0"
+  "lldp": "ghwdsl/ngd-ngg-scheduling:lldp-v0.6.2"
 }
 ```
 
@@ -251,7 +251,7 @@ python3 deploy/deploy.py images build \
 | 实际用于 Push 的镜像 | 构建机 Docker Engine 本地镜像库 |
 | PRC 离线包 | `images/ngd-ngg-prc-v0.3.0.tar` |
 | Algorithm 离线包 | `images/ngd-ngg-algorithm-v0.4.0.tar` |
-| LLDP 离线包 | `images/ngd-ngg-lldp-agent-v0.2.0.tar` |
+| LLDP 双架构 OCI 包 | `images/ngd-ngg-lldp-v0.6.2-multiarch.oci.tar` |
 | 镜像 ID/Tag 记录 | `results/prc-image.txt`、`algorithm-image.txt`、`lldp-agent-image.txt` |
 
 离线包名称是脚本保留的固定历史名称，包内镜像 Tag 仍以
@@ -263,7 +263,7 @@ python3 deploy/deploy.py images build \
 ```bash
 docker image inspect registry.unicom.example.com/ngd-ngg/prc:v0.5.0
 docker image inspect registry.unicom.example.com/ngd-ngg/algorithm:v0.5.0
-docker image inspect registry.unicom.example.com/ngd-ngg/lldp-agent:v0.5.0
+docker image inspect ghwdsl/ngd-ngg-scheduling:lldp-v0.6.2
 ls -lh images/ results/*-image.txt
 ```
 
@@ -281,7 +281,7 @@ python3 deploy/deploy.py images push \
 页面确认 Tag，或者从另一台有权限的机器执行：
 
 ```bash
-docker pull registry.unicom.example.com/ngd-ngg/lldp-agent:v0.5.0
+docker pull ghwdsl/ngd-ngg-scheduling:lldp-v0.6.2
 ```
 
 ## 4. 路线 A：集群内 In-Cluster 部署
@@ -671,7 +671,7 @@ deploy/generated/config.local/external/compose.json
 
 ```json
 "images": {
-  "lldp": "registry.unicom.example.com/ngd-ngg/lldp-agent:v0.5.0"
+  "lldp": "ghwdsl/ngd-ngg-scheduling:lldp-v0.6.2"
 },
 "lldp": {
   "nodeName": "worker-001",

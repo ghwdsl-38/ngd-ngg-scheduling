@@ -1,0 +1,16 @@
+ARG TARGETARCH
+ARG RELEASE_VERSION=dev
+
+# The LLDP agent is cross-compiled before packaging. Kubernetes grants the
+# runtime NET_RAW capability and read-only access to the host network sysfs.
+FROM alpine:3.22
+ARG TARGETARCH
+ARG RELEASE_VERSION
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.title="NGD-NGG LLDP Agent" \
+      org.opencontainers.image.version="${RELEASE_VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.source="https://hub.docker.com/r/ghwdsl/ngd-ngg-scheduling"
+COPY build/release/${RELEASE_VERSION}/linux-${TARGETARCH}/topology-agent /topology-agent
+USER 65532:65532
+ENTRYPOINT ["/topology-agent"]

@@ -4,7 +4,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
 
-RELEASE_VERSION="${RELEASE_VERSION:-v0.6.1}"
+RELEASE_VERSION="${RELEASE_VERSION:-v0.6.2}"
 GO_BUILDER_IMAGE="${GO_BUILDER_IMAGE:-golang:1.25.0}"
 
 [[ "${RELEASE_VERSION}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
@@ -50,13 +50,16 @@ build_component() {
 for target_arch in amd64 arm64; do
   build_component prc prc ./cmd prc "${target_arch}" -mod=mod
   build_component algorithm algorithm_server/go ./cmd/algorithm-server algorithm-server "${target_arch}" -mod=vendor
+  build_component lldp topology_agent . topology-agent "${target_arch}" -mod=mod
 done
 
 sha256sum \
   "${BUILD_ROOT}/linux-amd64/prc" \
   "${BUILD_ROOT}/linux-amd64/algorithm-server" \
+  "${BUILD_ROOT}/linux-amd64/topology-agent" \
   "${BUILD_ROOT}/linux-arm64/prc" \
-  "${BUILD_ROOT}/linux-arm64/algorithm-server" >"${BUILD_ROOT}/SHA256SUMS"
+  "${BUILD_ROOT}/linux-arm64/algorithm-server" \
+  "${BUILD_ROOT}/linux-arm64/topology-agent" >"${BUILD_ROOT}/SHA256SUMS"
 
 {
   printf 'version=%s\n' "${RELEASE_VERSION}"

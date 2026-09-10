@@ -55,7 +55,7 @@ deploy-manual/secrets/lldp.kubeconfig
 3. 在 `config/network-topology.yaml` 中换成真实 Leaf 以上拓扑；
 4. 在 `20-algorithm.yaml` 中修改 Algorithm 镜像和 Prometheus 地址；
 5. 在 `30-prc.yaml` 中修改 PRC 镜像和 `CLUSTER_ID`；
-6. 在 `40-lldp-agent.yaml` 中修改 LLDP 镜像、Worker 选择器和容忍规则。
+6. 在 `40-lldp-agent.yaml` 中确认 LLDP 镜像、Worker 选择器和容忍规则。
 
 ### 第三步：安装 NGD、NGG CRD
 
@@ -197,10 +197,10 @@ PRC 在显式 Kubeconfig 模式下使用单副本并关闭 Leader Election：
 
 ### 3.6 LLDP Agent
 
-修改 `40-lldp-agent.yaml` 中的镜像占位符：
+`40-lldp-agent.yaml` 默认使用已发布的双架构镜像；发布新版本时修改该值：
 
 ```yaml
-image: REPLACE_WITH_LLDP_IMAGE
+image: ghwdsl/ngd-ngg-scheduling:lldp-v0.6.2
 ```
 
 根据真实 Worker Label 修改：

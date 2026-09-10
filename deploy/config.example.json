@@ -5,7 +5,7 @@
   "images": {
     "prc": "registry.example.com/ngd-ngg/prc:v0.5.0",
     "algorithm": "registry.example.com/ngd-ngg/algorithm:v0.5.0",
-    "lldp": "registry.example.com/ngd-ngg/lldp-agent:v0.5.0"
+    "lldp": "ghwdsl/ngd-ngg-scheduling:lldp-v0.6.2"
   },
   "topologyFile": "../config/topology/unicom-huailai-102-sample.yaml",
   "prc": {

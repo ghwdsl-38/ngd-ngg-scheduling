@@ -91,9 +91,8 @@ Kubernetes 集群
 ```text
 ghwdsl/ngd-ngg-scheduling:prc-v0.6.1
 ghwdsl/ngd-ngg-scheduling:algorithm-v0.6.1
+ghwdsl/ngd-ngg-scheduling:lldp-v0.6.2
 ```
-
-LLDP 镜像需填写实际已发布地址。
 
 ## 2. 初始化部署配置
 
@@ -116,7 +115,7 @@ python3 deploy/deploy.py init
   "images": {
     "prc": "ghwdsl/ngd-ngg-scheduling:prc-v0.6.1",
     "algorithm": "ghwdsl/ngd-ngg-scheduling:algorithm-v0.6.1",
-    "lldp": "REPLACE_WITH_PUBLISHED_LLDP_IMAGE"
+    "lldp": "ghwdsl/ngd-ngg-scheduling:lldp-v0.6.2"
   },
   "topologyFile": "../config/topology/production-topology.yaml",
   "prc": {

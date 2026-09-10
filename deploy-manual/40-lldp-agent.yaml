@@ -25,7 +25,7 @@ spec:
       tolerations: []
       containers:
         - name: lldp-agent
-          image: REPLACE_WITH_LLDP_IMAGE
+          image: ghwdsl/ngd-ngg-scheduling:lldp-v0.6.2
           imagePullPolicy: IfNotPresent
           args:
             - --timeout=65s

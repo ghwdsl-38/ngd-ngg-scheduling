@@ -3,24 +3,32 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-RELEASE_VERSION="${RELEASE_VERSION:-v0.6.1}"
+RELEASE_VERSION="${RELEASE_VERSION:-v0.6.2}"
 DOCKERHUB_REPOSITORY="${DOCKERHUB_REPOSITORY:-ghwdsl/ngd-ngg-scheduling}"
 RUN_ID="$(date '+%Y%m%d-%H%M%S.%N')"
 RUN_DIR="${SCRIPT_DIR}/results/${RUN_ID}"
 PRC_ARCHIVE="${ROOT_DIR}/images/ngd-ngg-prc-${RELEASE_VERSION}-multiarch.oci.tar"
 ALGORITHM_ARCHIVE="${ROOT_DIR}/images/ngd-ngg-algorithm-${RELEASE_VERSION}-multiarch.oci.tar"
+LLDP_ARCHIVE="${ROOT_DIR}/images/ngd-ngg-lldp-${RELEASE_VERSION}-multiarch.oci.tar"
 PRC_IMAGE="${DOCKERHUB_REPOSITORY}:prc-${RELEASE_VERSION}-local-amd64"
 ALGORITHM_IMAGE="${DOCKERHUB_REPOSITORY}:algorithm-${RELEASE_VERSION}-local-amd64"
+LLDP_IMAGE="${DOCKERHUB_REPOSITORY}:lldp-${RELEASE_VERSION}-local-amd64"
 
 mkdir -p "${RUN_DIR}"
 test -f "${PRC_ARCHIVE}" || { echo "ERROR: missing ${PRC_ARCHIVE}" >&2; exit 1; }
 test -f "${ALGORITHM_ARCHIVE}" || { echo "ERROR: missing ${ALGORITHM_ARCHIVE}" >&2; exit 1; }
+test -f "${LLDP_ARCHIVE}" || { echo "ERROR: missing ${LLDP_ARCHIVE}" >&2; exit 1; }
 
 python3 "${ROOT_DIR}/scripts/inspect-oci-platforms.py" \
-  "${PRC_ARCHIVE}" "${ALGORITHM_ARCHIVE}" | tee "${RUN_DIR}/oci-platforms.txt"
+  "${PRC_ARCHIVE}" "${ALGORITHM_ARCHIVE}" "${LLDP_ARCHIVE}" | tee "${RUN_DIR}/oci-platforms.txt"
 
-docker image inspect "${PRC_IMAGE}" "${ALGORITHM_IMAGE}" \
+docker image inspect "${PRC_IMAGE}" "${ALGORITHM_IMAGE}" "${LLDP_IMAGE}" \
   --format '{{json .}}' >"${RUN_DIR}/local-amd64-images.jsonl"
+
+docker run --rm "${LLDP_IMAGE}" --help >"${RUN_DIR}/lldp-help.txt" 2>&1
+grep -q -- '--kubeconfig' "${RUN_DIR}/lldp-help.txt"
+grep -q -- '--interfaces' "${RUN_DIR}/lldp-help.txt"
+grep -q -- '--timeout' "${RUN_DIR}/lldp-help.txt"
 
 source "${ROOT_DIR}/scripts/go-test-env.sh"
 export RELEASE_VERSION DOCKERHUB_REPOSITORY
