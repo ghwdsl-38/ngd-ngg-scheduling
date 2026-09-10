@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -20,42 +19,41 @@ type topologyAgent struct {
 	client      *kubeClient
 	nodeName    string
 	interfaces  map[string]struct{}
-	listen      time.Duration
-	idle        time.Duration
+	timeout     time.Duration
 	count       int
-	resync      time.Duration
+	interval    time.Duration
 	sysClassNet string
 }
 
-// run deliberately probes Linux Bond/LLDP state on its own cadence. A Node
-// watch cannot reveal a network failover that has not yet changed Node data.
+// run executes one probe by default. A positive interval enables periodic
+// probing because a Node watch cannot reveal a network failover that has not
+// yet changed Node data.
 func (a *topologyAgent) run(ctx context.Context) error {
 	log.Printf("[LLDP-AGENT] ENTER topologyAgent.run node=%s", a.nodeName)
-	if a.resync <= 0 {
-		a.resync = 3 * time.Minute
-	}
 	if a.sysClassNet == "" {
 		a.sysClassNet = "/sys/class/net"
 	}
+	if a.interval <= 0 {
+		log.Printf("[LLDP-AGENT] RUN mode=one-shot")
+		if err := a.reconcile(ctx); err != nil {
+			return fmt.Errorf("reconcile Node %s: %w", a.nodeName, err)
+		}
+		log.Printf("[LLDP-AGENT] ONE-SHOT complete node=%s", a.nodeName)
+		return nil
+	}
+	log.Printf("[LLDP-AGENT] RUN mode=periodic interval=%s", a.interval)
 	for cycle := 1; ctx.Err() == nil; cycle++ {
 		cycleStarted := time.Now()
 		log.Printf("[LLDP-AGENT] CYCLE start number=%d", cycle)
-		log.Printf("[LLDP-AGENT] CALL Kubernetes Nodes.Get node=%s", a.nodeName)
-		node, err := a.client.getNode(ctx, a.nodeName)
-		if err != nil {
-			log.Printf("[LLDP-AGENT] ERROR Kubernetes Nodes.Get node=%s: %v", a.nodeName, err)
-		} else {
-			log.Printf("[LLDP-AGENT] RETURN Kubernetes Nodes.Get node=%s uid=%s resourceVersion=%s", a.nodeName, node.Metadata.UID, node.Metadata.ResourceVersion)
-			if err := a.reconcile(ctx, node); err != nil {
-				// Keep the last persisted topology when a collection window fails.
-				log.Printf("[LLDP-AGENT] ERROR reconcile Node %s: %v", a.nodeName, err)
-			}
+		if err := a.reconcile(ctx); err != nil {
+			// Keep the last persisted topology when a collection window fails.
+			log.Printf("[LLDP-AGENT] ERROR reconcile Node %s: %v", a.nodeName, err)
 		}
-		nextCycleWait := a.resync - time.Since(cycleStarted)
+		nextCycleWait := a.interval - time.Since(cycleStarted)
 		if nextCycleWait < 0 {
 			nextCycleWait = 0
 		}
-		log.Printf("[LLDP-AGENT] WAIT nextCycle=%s cadence=%s", nextCycleWait, a.resync)
+		log.Printf("[LLDP-AGENT] WAIT nextCycle=%s cadence=%s", nextCycleWait, a.interval)
 		if !wait(ctx, nextCycleWait) {
 			break
 		}
@@ -63,7 +61,7 @@ func (a *topologyAgent) run(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (a *topologyAgent) reconcile(ctx context.Context, node nodeObject) error {
+func (a *topologyAgent) reconcile(ctx context.Context) error {
 	started := time.Now()
 	log.Printf("[LLDP-AGENT] ENTER topologyAgent.reconcile node=%s", a.nodeName)
 	defer func() { log.Printf("[LLDP-AGENT] EXIT topologyAgent.reconcile elapsed=%s", time.Since(started)) }()
@@ -76,18 +74,8 @@ func (a *topologyAgent) reconcile(ctx context.Context, node nodeObject) error {
 		return err
 	}
 	log.Printf("[LLDP-AGENT] METADATA BUILT node=%s leafCount=%d leafSet=%s linkCount=%d", a.nodeName, len(observed.LeafSwitchIDs), topologyfacts.LeafSetID(observed.LeafSwitchIDs), len(observed.Links))
-	leavesJSON, _ := json.Marshal(observed.LeafSwitchIDs)
-	linksJSON, _ := json.Marshal(observed.Links)
 	setID := topologyfacts.LeafSetID(observed.LeafSwitchIDs)
-	if node.Metadata.Labels[labelPrefix+"leaf-set-id"] == setID &&
-		node.Metadata.Annotations[labelPrefix+"leaf-switch-ids"] == string(leavesJSON) &&
-		node.Metadata.Annotations[labelPrefix+"leaf-links"] == string(linksJSON) &&
-		node.Metadata.Annotations[labelPrefix+"source"] == observed.Source {
-		log.Printf("[LLDP-AGENT] SKIP Kubernetes Nodes.Patch node=%s reason=topology-unchanged leafSet=%s", a.nodeName, setID)
-		return nil
-	}
-
-	log.Printf("[LLDP-AGENT] CALL Kubernetes Nodes.Patch node=%s leafSet=%s leaves=%v", a.nodeName, setID, observed.LeafSwitchIDs)
+	log.Printf("[LLDP-AGENT] KUBERNETES METADATA SYNC START node=%s leafSet=%s leaves=%v", a.nodeName, setID, observed.LeafSwitchIDs)
 	if err := a.client.patchNode(ctx, a.nodeName, labels, annotations); err != nil {
 		return err
 	}
@@ -104,7 +92,8 @@ func (a *topologyAgent) collect(ctx context.Context) (observation, error) {
 	for _, selection := range sortedSelections(selections) {
 		log.Printf("[LLDP-AGENT] SELECT interface=%s index=%d kind=%s adminUp=%t carrier=%q operState=%q bond=%q mode=%q active=%t mii=%q", selection.Name, selection.Index, selection.Kind, selection.AdministrativeUp, selection.Carrier, selection.OperState, selection.BondName, selection.BondMode, selection.Active, selection.MIIStatus)
 	}
-	neighbors, err := receiveLLDP(ctx, selections, len(a.interfaces) == 0, a.listen, a.idle, a.count)
+	bindSingle := shouldBindSingleExplicitInterface(a.interfaces, selections)
+	neighbors, err := receiveLLDP(ctx, selections, bindSingle, a.timeout, a.count)
 	if err != nil {
 		return observation{}, err
 	}
@@ -112,17 +101,23 @@ func (a *topologyAgent) collect(ctx context.Context) (observation, error) {
 	if err != nil {
 		return observation{}, err
 	}
-	if len(a.interfaces) == 0 {
-		leafSet := map[string]struct{}{}
-		for _, link := range links {
-			leafSet[link.LeafSwitchID] = struct{}{}
-		}
-		if len(leafSet) > 2 {
-			return observation{}, fmt.Errorf("automatic discovery resolved %d Leaf switches; automatic mode supports at most 2", len(leafSet))
-		}
-	}
 	log.Printf("[LLDP-AGENT] LEAF LINKS BUILT mode=%s links=%d", collectionScope(len(a.interfaces) == 0), len(links))
 	return observation{Links: links, Source: "LLDP"}, nil
+}
+
+// A literal physical interface follows lldp-new-3 and is kernel-bound. A Bond
+// master is a selection scope: it expands to the slave interfaces selected by
+// the same Bond policy as lldp-new-3, so its socket must remain unbound and be
+// filtered by ingress ifindex in userspace.
+func shouldBindSingleExplicitInterface(configured map[string]struct{}, selected map[string]interfaceSelection) bool {
+	if len(configured) != 1 || len(selected) != 1 {
+		return false
+	}
+	for name := range configured {
+		_, exists := selected[name]
+		return exists
+	}
+	return false
 }
 
 func collectionScope(automatic bool) string {
@@ -132,7 +127,7 @@ func collectionScope(automatic bool) string {
 	return "explicit"
 }
 
-// buildLeafLinks converts lldp-new-2-compatible neighbor observations into
+// buildLeafLinks converts lldp-new-3-compatible neighbor observations into
 // the direct-Leaf facts owned by this Agent. Chassis ID is the physical Leaf
 // identity; System Name remains the ID shared with Algorithm topology config.
 func buildLeafLinks(neighbors []lldpNeighbor, selections map[string]interfaceSelection) ([]leafLink, error) {

@@ -161,11 +161,10 @@ python3 deploy/deploy.py init
     "workerTolerations": []
   },
   "lldp": {
-    "interfaces": "",
-    "listenSeconds": 65,
-    "idleSeconds": 3,
+    "interfaces": "bond0",
+    "timeoutSeconds": 65,
     "count": 0,
-    "resyncSeconds": 180
+    "intervalSeconds": 180
   }
 }
 ```
@@ -177,7 +176,7 @@ python3 deploy/deploy.py init
 
 - `context` 是部署机管理员 Kubeconfig 中的 Context；
 - `topologyFile` 相对路径以 `deploy/` 目录为基准；
-- `interfaces` 留空时 LLDP 优先探测 `bond0`；
+- `interfaces` 默认限定`bond0`；没有该Bond时改为`auto`或实际接口名；
 - `workerNodeSelector` 必须能选中目标 Worker；
 - 有 Taint 的 Worker 需要填写 `workerTolerations`。
 

@@ -218,8 +218,10 @@ nodeSelector:
 - `NODE_NAME`；
 - 显式 Kubeconfig Secret。
 
-`--interfaces=` 留空时优先检查 `bond0`，不存在时再回退到自动识别的有效
-物理网卡。默认每 180 秒重新探测一次。
+清单默认使用`--interfaces=bond0`：Agent将`bond0`展开成物理Slave，
+`active-backup`只监听Active Slave，其他Bond模式监听全部链路有效的Slave。
+如果目标机器没有`bond0`，将其改成`--interfaces=auto`，按物理链路和Bond状态
+自动选择。每轮在完整的65秒窗口中采集，默认每180秒启动一轮。
 
 ### 3.7 私有镜像仓库
 

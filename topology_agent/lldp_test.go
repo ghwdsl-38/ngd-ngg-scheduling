@@ -46,7 +46,7 @@ func TestParseLLDPFrameRejectsMissingMandatoryTLVs(t *testing.T) {
 }
 
 func TestReceiveLLDPFailsClosedWithoutSelectedInterface(t *testing.T) {
-	_, err := receiveLLDP(context.Background(), nil, true, time.Second, 100*time.Millisecond, 0)
+	_, err := receiveLLDP(context.Background(), nil, false, time.Second, 0)
 	if err == nil || !strings.Contains(err.Error(), "no selected interface") {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -55,63 +55,18 @@ func TestReceiveLLDPFailsClosedWithoutSelectedInterface(t *testing.T) {
 func TestCollectionModeMatchesReferenceCollector(t *testing.T) {
 	for _, test := range []struct {
 		count int
-		idle  time.Duration
 		want  string
 	}{
-		{count: 2, idle: 3 * time.Second, want: "until-limit"},
-		{count: 0, idle: 3 * time.Second, want: "until-idle"},
-		{count: 0, idle: 0, want: "full-window"},
+		{count: 2, want: "until-limit"},
+		{count: 0, want: "full-window"},
 	} {
-		if got := collectionMode(test.count, test.idle); got != test.want {
-			t.Fatalf("collectionMode(%d, %s)=%q, want %q", test.count, test.idle, got, test.want)
+		if got := collectionMode(test.count); got != test.want {
+			t.Fatalf("collectionMode(%d)=%q, want %q", test.count, got, test.want)
 		}
 	}
 }
 
-func TestNextReceiveWaitMatchesReferenceIdleBoundary(t *testing.T) {
-	now := time.Date(2026, 9, 8, 17, 44, 56, 0, time.UTC)
-	deadline := now.Add(40 * time.Second)
-	lastNew := now.Add(-500 * time.Millisecond)
-	wait, expired := nextReceiveWait(now, deadline, lastNew, time.Second)
-	if expired || wait != 500*time.Millisecond {
-		t.Fatalf("unexpected active idle wait: wait=%s expired=%t", wait, expired)
-	}
-	wait, expired = nextReceiveWait(now.Add(600*time.Millisecond), deadline, lastNew, time.Second)
-	if !expired || wait != 0 {
-		t.Fatalf("expected idle expiration: wait=%s expired=%t", wait, expired)
-	}
-}
-
-func TestBondCoverageOnlyCompletesForAllBondSlaves(t *testing.T) {
-	candidates := map[int]interfaceSelection{
-		5: {Name: "eno1", Index: 5, Kind: "bond-slave", BondName: "bond0"},
-		6: {Name: "eno2", Index: 6, Kind: "bond-slave", BondName: "bond0"},
-	}
-	covered, expected, applicable := bondInterfaceCoverage(candidates, []lldpNeighbor{{
-		LocalInterface: "eno1", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:55",
-	}})
-	if !applicable || covered != 1 || expected != 2 {
-		t.Fatalf("unexpected partial coverage: covered=%d expected=%d applicable=%t", covered, expected, applicable)
-	}
-	covered, expected, applicable = bondInterfaceCoverage(candidates, []lldpNeighbor{
-		{LocalInterface: "eno1", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:55"},
-		{LocalInterface: "eno2", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:66"},
-	})
-	if !applicable || covered != 2 || expected != 2 {
-		t.Fatalf("unexpected complete coverage: covered=%d expected=%d applicable=%t", covered, expected, applicable)
-	}
-	if _, _, applicable = bondInterfaceCoverage(map[int]interfaceSelection{2: {Name: "eth0", Kind: "physical"}}, []lldpNeighbor{{
-		LocalInterface: "eth0", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:55",
-	}}); applicable {
-		t.Fatal("standalone physical interface must finish by idle/max timeout, not bond coverage")
-	}
-}
-
-func TestBondLeafCompletionRequiresDistinctChassis(t *testing.T) {
-	candidates := map[int]interfaceSelection{
-		5: {Name: "eno1", Index: 5, Kind: "bond-slave", BondName: "bond0", BondMode: "802.3ad", BondSlaves: []string{"eno1", "eno2"}},
-		6: {Name: "eno2", Index: 6, Kind: "bond-slave", BondName: "bond0", BondMode: "802.3ad", BondSlaves: []string{"eno1", "eno2"}},
-	}
+func TestDistinctLeafCountDeduplicatesSameChassis(t *testing.T) {
 	sameLeaf := []lldpNeighbor{
 		{LocalInterface: "eno1", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:55"},
 		{LocalInterface: "eno2", ChassisIDSubtype: "mac-address", ChassisID: "00-11-22-33-44-55"},
@@ -119,54 +74,10 @@ func TestBondLeafCompletionRequiresDistinctChassis(t *testing.T) {
 	if got := distinctLeafCount(sameLeaf); got != 1 {
 		t.Fatalf("same chassis through two links counted as %d Leaves, want 1", got)
 	}
-	if bondLeafCollectionComplete(candidates, sameLeaf) {
-		t.Fatal("two interfaces connected to the same Leaf must not complete dual-Leaf collection")
-	}
-	if err := validateBondLeafCollection(candidates, sameLeaf, 65*time.Second, []string{"eno1", "eno2"}); err == nil || !strings.Contains(err.Error(), "require 2") {
-		t.Fatalf("incomplete dual-Leaf result was not rejected: %v", err)
-	}
-
 	differentLeaves := append([]lldpNeighbor(nil), sameLeaf...)
 	differentLeaves[1].ChassisID = "00:11:22:33:44:66"
 	if got := distinctLeafCount(differentLeaves); got != 2 {
 		t.Fatalf("different chassis counted as %d Leaves, want 2", got)
-	}
-	if !bondLeafCollectionComplete(candidates, differentLeaves) {
-		t.Fatal("two selected interfaces with different Leaf chassis must complete collection")
-	}
-	if err := validateBondLeafCollection(candidates, differentLeaves, 65*time.Second, []string{"eno1", "eno2"}); err != nil {
-		t.Fatalf("complete dual-Leaf result was rejected: %v", err)
-	}
-}
-
-func TestActiveBackupCompletesWithOneActiveLeaf(t *testing.T) {
-	candidates := map[int]interfaceSelection{
-		6: {Name: "eno2", Index: 6, Kind: "bond-slave", BondName: "bond0", BondMode: "active-backup", BondSlaves: []string{"eno1", "eno2"}, Active: true},
-	}
-	neighbors := []lldpNeighbor{{LocalInterface: "eno2", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:66"}}
-	target, applies := requiredDistinctBondLeaves(candidates)
-	if !applies || target != 1 || !bondLeafCollectionComplete(candidates, neighbors) {
-		t.Fatalf("unexpected active-backup policy: target=%d applies=%t complete=%t", target, applies, bondLeafCollectionComplete(candidates, neighbors))
-	}
-}
-
-func TestSelectedInterfaceCoverageRequiresEveryInterface(t *testing.T) {
-	candidates := map[int]interfaceSelection{
-		5: {Name: "eno1"},
-		6: {Name: "eno2"},
-	}
-	partial := []lldpNeighbor{{LocalInterface: "eno1", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:55"}}
-	covered, expected := selectedInterfaceCoverage(candidates, partial)
-	if covered != 1 || expected != 2 {
-		t.Fatalf("unexpected partial explicit coverage: covered=%d expected=%d", covered, expected)
-	}
-	complete := append(partial,
-		lldpNeighbor{LocalInterface: "eno2", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:66"},
-		lldpNeighbor{LocalInterface: "eno2", ChassisIDSubtype: "mac-address", ChassisID: "00:11:22:33:44:77", LooksLikeLocalHost: true},
-	)
-	covered, expected = selectedInterfaceCoverage(candidates, complete)
-	if covered != 2 || expected != 2 {
-		t.Fatalf("unexpected complete explicit coverage: covered=%d expected=%d", covered, expected)
 	}
 }
 

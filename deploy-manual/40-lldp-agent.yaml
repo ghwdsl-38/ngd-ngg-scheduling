@@ -28,12 +28,11 @@ spec:
           image: REPLACE_WITH_LLDP_IMAGE
           imagePullPolicy: IfNotPresent
           args:
-            - --listen-seconds=65
-            - --idle-seconds=3
+            - --timeout=65s
             - --count=0
-            - --resync-seconds=180
+            - --interval=180s
             - --sys-class-net=/host-sys/class/net
-            - --interfaces=
+            - --interfaces=bond0
           env:
             - name: NODE_NAME
               valueFrom:
@@ -76,4 +75,3 @@ spec:
             items:
               - key: kubeconfig
                 path: kubeconfig
-

@@ -46,8 +46,14 @@ def load(path):
             raise ValueError(f"external.{key} must be a port")
     if config["external"]["algorithmPort"] == config["external"]["prcPort"]:
         raise ValueError("external ports must be distinct")
-    for key in ("listenSeconds", "resyncSeconds"):
-        if config["lldp"][key] <= 0:
+    lldp = config["lldp"]
+    # Keep older private config.local.json files readable while emitting only
+    # the lldp-new-3-compatible command-line flags.
+    lldp.setdefault("timeoutSeconds", lldp.get("listenSeconds", 65))
+    lldp.setdefault("intervalSeconds", lldp.get("resyncSeconds", 180))
+    lldp.setdefault("interfaces", "bond0")
+    for key in ("timeoutSeconds", "intervalSeconds"):
+        if lldp[key] <= 0:
             raise ValueError(f"lldp.{key} must be positive")
     return config
 
@@ -136,9 +142,8 @@ def prometheus_env(c, kubernetes=False):
 
 def lldp_args(c, sysfs):
     l = c["lldp"]
-    return [f"--listen-seconds={l['listenSeconds']}", f"--idle-seconds={l.get('idleSeconds', 3)}",
-            f"--count={l.get('count', 0)}",
-            f"--resync-seconds={l['resyncSeconds']}",
+    return [f"--timeout={l['timeoutSeconds']}s", f"--count={l.get('count', 0)}",
+            f"--interval={l['intervalSeconds']}s",
             f"--sys-class-net={sysfs}", f"--interfaces={l['interfaces']}"]
 
 

@@ -676,24 +676,18 @@ deploy/generated/config.local/external/compose.json
 "lldp": {
   "nodeName": "worker-001",
   "kubeconfig": "secrets/lldp.kubeconfig",
-  "interfaces": "",
-  "listenSeconds": 65,
-  "idleSeconds": 3,
+  "interfaces": "bond0",
+  "timeoutSeconds": 65,
   "count": 0,
-  "resyncSeconds": 180
+  "intervalSeconds": 180
 }
 ```
 
-默认情况下Agent每轮最多监听65秒；`active-backup`发现活动链路的一个Leaf
-后立即完成，其他Bond模式发现两个不同Chassis的Leaf后立即完成。完成一轮
-后按180秒的轮次周期开始下一轮。两个网卡收到同一个交换机Chassis时只识别为
-一个Leaf，不会误判为双Leaf；65秒内仍不足两个不同Leaf时，本轮不写入，
-也不覆盖上一次成功保存的Node拓扑。
-
-以上是`interfaces`为空的自动模式。配置为`"interfaces": "bond0"`时，Agent
-会把Bond Master展开为所有Link/MII有效Slave，并在显式范围内盘点全部Leaf；
-不监听Master本身，也不限制为1或2个Leaf。显式多个接口全部获得有效邻居后，
-连续`idleSeconds`没有新Chassis即结束，否则最长等待`listenSeconds`。
+默认限定`bond0`。Agent将Bond Master展开为Slave：`active-backup`只监听Active
+Slave，其他Bond模式监听全部Link/MII有效Slave。`count=0`时每轮跑满65秒，
+超时后只要发现至少一个有效外部邻居就写入Node；不会再因为未凑够两个Leaf
+而放弃打标。完成一轮后按180秒的轮次周期开始下一轮。没有`bond0`的机器应将
+`interfaces`改为`auto`或真实接口名。
 
 `nodeName` 必须与 Kubernetes Node 的 `metadata.name` 完全一致。也可以
 不反复修改文件，而是在命令中覆盖：

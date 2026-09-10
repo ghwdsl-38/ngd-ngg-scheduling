@@ -41,8 +41,6 @@ type bondState struct {
 	Source      string
 }
 
-const preferredBondName = "bond0"
-
 // SelectInterfaces reads the real Linux sysfs and /proc Bond state.
 func SelectInterfaces(sysClassNet string, explicit map[string]struct{}) (map[string]InterfaceSelection, error) {
 	log.Printf("[LLDP-AGENT] STEP 1/5 START get all interfaces")
@@ -84,18 +82,10 @@ func selectInterfacesAt(sysClassNet, procBonding string, explicit map[string]str
 	}
 	selected := map[string]InterfaceSelection{}
 	knownSlaves := map[string]struct{}{}
-	_, preferredBondExists := bonds[preferredBondName]
 	for _, state := range sortedBondStates(bonds) {
 		for _, slave := range state.Slaves {
 			knownSlaves[slave] = struct{}{}
 			if len(explicit) != 0 {
-				continue
-			}
-			// Production workers use bond0 as their service uplink. When it is
-			// present, do not mix management/storage links or another Bond into
-			// the scheduling topology. A host without bond0 keeps the verified
-			// lldp-new-2 automatic-discovery fallback below.
-			if preferredBondExists && state.Name != preferredBondName {
 				continue
 			}
 			carrier, operState := linkState(sysClassNet, slave)
@@ -128,17 +118,16 @@ func selectInterfacesAt(sysClassNet, procBonding string, explicit map[string]str
 		}
 	}
 
-	// An explicit Bond master limits collection to that Bond, but expands it to
-	// its eligible physical slaves. Unlike automatic active-backup selection,
-	// explicit mode keeps every link-valid slave so an operator can inventory all
-	// Leaf neighbors in the requested interface scope. Exact physical/slave names
-	// remain exact operator overrides.
+	// An explicit Bond master limits collection to that Bond, then applies the
+	// same verified lldp-new-3 selection policy used in automatic mode:
+	// active-backup keeps only the active slave; other modes keep every healthy
+	// physical slave. Exact physical/slave names remain operator overrides.
 	for name := range explicit {
 		if state, isBond := bonds[name]; isBond {
 			log.Printf("[LLDP-AGENT] EXPLICIT BOND EXPAND START master=%s mode=%s declaredSlaves=%v activeSlave=%q", state.Name, state.Mode, state.Slaves, state.ActiveSlave)
 			expanded := make([]string, 0, len(state.Slaves))
 			for _, slave := range state.Slaves {
-				selection, reason, eligible := bondSlaveSelection(sysClassNet, state, slave, inventory, enforceRuntime, true)
+				selection, reason, eligible := bondSlaveSelection(sysClassNet, state, slave, inventory, enforceRuntime)
 				if !eligible {
 					log.Printf("[LLDP-AGENT] EXPLICIT BOND SLAVE REJECT master=%s slave=%s reason=%s", state.Name, slave, reason)
 					continue
@@ -178,7 +167,7 @@ func selectInterfacesAt(sysClassNet, procBonding string, explicit map[string]str
 	// Automatic mode adds only standalone physical Ethernet interfaces. It
 	// deliberately excludes CNI/veth/poh/bridge devices to avoid self-reflected
 	// LLDP frames being interpreted as upstream Leaf switches.
-	if len(explicit) == 0 && !preferredBondExists {
+	if len(explicit) == 0 {
 		for _, entry := range entries {
 			name := entry.Name()
 			if _, isSlave := knownSlaves[name]; isSlave {
@@ -207,13 +196,7 @@ func selectInterfacesAt(sysClassNet, procBonding string, explicit map[string]str
 		if len(explicit) > 0 {
 			return nil, fmt.Errorf("no eligible LLDP interface found for configured interfaces %v", sortedSet(explicit))
 		}
-		if preferredBondExists {
-			return nil, fmt.Errorf("preferred Bond %s exists but has no eligible LLDP slave; refusing to fall back to unrelated host interfaces", preferredBondName)
-		}
 		return nil, fmt.Errorf("automatic discovery found no eligible physical wired interface or Bond slave")
-	}
-	if preferredBondExists && len(explicit) == 0 {
-		log.Printf("[LLDP-AGENT] BOND PRIORITY selected=%s policy=do-not-mix-unrelated-interfaces", preferredBondName)
 	}
 	for _, item := range Sorted(selected) {
 		log.Printf("[LLDP-AGENT] FINAL USABLE INTERFACE name=%s index=%d kind=%s adminUp=%t carrier=%q operState=%q physicalWired=%t bondMaster=%q bondMode=%q bondInfoSource=%q bondMIIStatus=%q", item.Name, item.Index, item.Kind, item.AdministrativeUp, item.Carrier, item.OperState, item.PhysicalWired, item.BondName, item.BondMode, item.BondInfoSource, item.MIIStatus)
@@ -222,7 +205,7 @@ func selectInterfacesAt(sysClassNet, procBonding string, explicit map[string]str
 	return selected, nil
 }
 
-func bondSlaveSelection(sysClassNet string, state bondState, slave string, inventory map[string]net.Interface, enforceRuntime, includeStandby bool) (InterfaceSelection, string, bool) {
+func bondSlaveSelection(sysClassNet string, state bondState, slave string, inventory map[string]net.Interface, enforceRuntime bool) (InterfaceSelection, string, bool) {
 	carrier, operState := linkState(sysClassNet, slave)
 	index, administrativeUp, linkValid := runtimeLinkState(slave, carrier, operState, inventory, enforceRuntime)
 	miiStatus := strings.ToLower(strings.TrimSpace(state.SlaveMII[slave]))
@@ -231,8 +214,8 @@ func bondSlaveSelection(sysClassNet string, state bondState, slave string, inven
 	switch {
 	case !physicalWired:
 		return InterfaceSelection{}, "not-physical-wired", false
-	case state.Mode == "active-backup" && !includeStandby && !active:
-		return InterfaceSelection{}, "standby-slave-in-automatic-active-backup", false
+	case state.Mode == "active-backup" && !active:
+		return InterfaceSelection{}, "active-backup-standby-slave", false
 	case miiStatus != "" && miiStatus != "up":
 		return InterfaceSelection{}, "bond-mii-not-up", false
 	case !linkValid:

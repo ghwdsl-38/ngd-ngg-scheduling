@@ -5,7 +5,7 @@
 Algorithm Server读取独立配置文件，不由Agent推断。
 
 本实现的**网卡发现、Bond筛选、Socket监听、邻居去重和超时退出流程**
-严格对齐物理服务器验证版`lldp-new-2`。同时保留本项目原有的数据协议：
+严格对齐已在真实集群验证的`lldp-new-3`。同时保留本项目原有的数据协议：
 
 - Kubernetes访问继续使用官方`client-go`；
 - 同时支持In-Cluster和显式Kubeconfig；
@@ -20,7 +20,8 @@ main.go
   │ 读取NODE_NAME、认证和采集参数
   ▼
 agent.go: topologyAgent.run
-  │ 周期执行，先GET当前Node
+  │ 默认执行一轮后退出
+  │ 显式--interval=3m时，每3分钟开始一轮
   ▼
 agent.go: topologyAgent.collect
   │
@@ -43,14 +44,14 @@ pkg/topologyfacts/facts.go
   │ 生成Leaf集合Hash和Node元数据
   ▼
 kube.go
-  │ client-go MergePatch
+  │ client-go GET → MergePatch → GET回读验证
   ▼
 Kubernetes Node
 ```
 
-### 1.1 与lldp-new-2的采集流程对齐情况
+### 1.1 与lldp-new-3的采集流程对齐情况
 
-| 采集节点 | 当前Topology Agent | `lldp-new-2` | 状态 |
+| 采集节点 | 当前Topology Agent | `lldp-new-3` | 状态 |
 |---|---|---|---|
 | 枚举接口 | `net.Interfaces()` | `net.Interfaces()` | 一致 |
 | Link有效性 | Admin Up且`carrier=1`或`operstate=up` | 相同 | 一致 |
@@ -62,21 +63,20 @@ Kubernetes Node
 | 单显式接口 | 对指定接口执行`unix.Bind` | 相同 | 一致 |
 | 本机报文 | 丢弃`PACKET_OUTGOING` | 相同 | 一致 |
 | 邻居身份 | 接口+Chassis subtype/ID+Port subtype/ID | 相同 | 一致 |
-| 重复报文 | 更新已有邻居，不重置idle计时 | 相同 | 一致 |
-| 普通物理口结束 | 首个新邻居后等待idle timeout | 相同 | 一致 |
+| 重复报文 | 更新已有邻居 | 相同 | 一致 |
+| `count=0`结束条件 | 跑满完整timeout | 相同 | 一致 |
 | Bond采集基础流程 | 每个选中Slave分别接收邻居 | 相同 | 一致 |
-| 自动Bond完成条件 | 在接口覆盖基础上要求不同Chassis：主备1个，其他模式2个 | 仅检查接口覆盖 | 按生产双Leaf要求增强 |
-| 显式Bond主接口 | 展开为所有Link/MII有效Slave，不监听Master | 直接监听指定接口 | 按显式范围全量盘点要求增强 |
+| Bond结果数量 | 至少一个有效外部邻居即成功，不强制双Leaf | 相同 | 一致 |
+| `--interfaces=bond0` | 按参考版Bond策略展开Slave，不监听Master | `auto`下使用相同Bond策略 | 仅增加范围限定能力 |
 | 本机反射 | 采集时标记，Leaf筛选阶段剔除 | 相同 | 一致 |
 | LLDP解析 | MAC、Chassis、Port、TTL、描述、能力、管理地址 | 相同 | 一致 |
 
 项目只保留以下非采集差异：
 
-- 使用Cobra以及`--interfaces`，并兼容多个显式接口；单显式接口行为与参考版一致；
+- 使用Cobra以及`--interfaces`，并兼容Bond范围和多个显式接口；
 - Kubernetes访问使用官方`client-go`，而不是参考版中的手写HTTP客户端；
 - 写入`topology.demo.ngg.io/*`，以便PRC继续读取；
-- 作为DaemonSet持续周期执行，而不是单独的命令行输出工具；
-- 自动模式最多接受两个不同Leaf；显式接口模式保留采集窗口内的全部Leaf。
+- 作为DaemonSet持续周期执行，而不是单独的命令行输出工具。
 
 日志统一使用`[LLDP-AGENT]`前缀，包含启动参数、接口选择、Socket打开、
 报文接收、解析结果、Node Patch以及错误位置。
@@ -86,21 +86,37 @@ Kubernetes Node
 | 文件 | 功能 |
 |---|---|
 | `main.go` | Cobra入口、参数、Kubernetes认证初始化 |
-| `agent.go` | 周期采集、Node读取、元数据比较和Patch编排 |
+| `agent.go` | 周期采集、元数据生成和Node同步编排 |
 | `lldp.go` | AF_PACKET Socket、接口过滤和LLDP TLV解析 |
 | `bond.go` | 主包到Bond发现包的薄适配层 |
 | `pkg/bond/discovery.go` | 物理网卡、链路和Bond自动发现 |
 | `pkg/topologyfacts/facts.go` | Leaf集合规范化、Hash和Node元数据协议 |
 | `kube_config.go` | In-Cluster/Kubeconfig配置加载 |
-| `kube.go` | 官方client-go的Node Get/Patch |
+| `kube.go` | 官方client-go的Node Get/Patch/Get回读验证 |
 | `bond_test.go` | 主备、LACP、物理口、虚拟口和/proc回退测试 |
 | `lldp_test.go` | LLDP报文解析、自反射和故障关闭测试 |
 
 ## 3. 网卡选择规则
 
-### 3.1 自动模式
+### 3.1 程序默认auto，部署显式限定bond0
 
-`--interfaces`为空时，Agent读取`--sys-class-net`指定的宿主机sysfs：
+程序未传`--interfaces`且未设置`LLDP_INTERFACES`时，默认等价于：
+
+```bash
+--interfaces=auto
+```
+
+此时使用与`lldp-new-3`相同的自动选择策略：选择全部有效物理直连接口，
+以及各Bond按模式选出的Slave；不会选择veth、bridge、`poh_*`等虚拟接口。
+
+当前项目部署清单为了限制在需求方业务Bond范围内，仍显式配置：
+
+```bash
+--interfaces=bond0
+```
+
+Agent读取`--sys-class-net`指定的宿主机sysfs，将Bond Master展开为Slave，
+不直接监听`bond0`本身：
 
 1. 枚举网卡；
 2. 只选择存在`device`、类型为Ethernet、非无线的物理口；
@@ -109,12 +125,10 @@ Kubernetes Node
 5. sysfs信息不完整时回退读取`/proc/net/bonding`；
 6. `active-backup`只选Active Slave；
 7. 其他Bond模式选择链路及MII状态有效的Slave；
-8. 如果存在`bond0`，只使用`bond0`，不混入管理网、存储网或其他Bond；
-9. 没有`bond0`时，保持`lldp-new-2`的物理网卡自动发现；
-10. 不再回退到“监听全部接口”。
+8. 一个协议级AF_PACKET Socket接收报文，再按入站ifindex过滤。
 
-最后一条是故障关闭策略。只有虚拟网卡时Agent明确报错，不会把`poh_*`、
-veth或本机反射报文误写为Leaf。
+如果目标机器不存在`bond0`，部署时删除该参数或改成
+`--interfaces=auto`，即可使用程序默认的自动选择策略。
 
 ### 3.2 显式模式
 
@@ -128,11 +142,9 @@ veth或本机反射报文误写为Leaf。
 
 - 显式普通网卡或Bond Slave：只监听指定接口；
 - 显式`bond0`等Bond Master：展开为所有Link/MII有效Slave，不监听Master；
-- `active-backup`显式展开时Active和Standby状态仍写入链路明细，但为了盘点
-  指定范围内的全部Leaf，两条有效Slave都会参与监听；
-- 多接口模式要求每个选中接口至少收到一个有效外部邻居后，才启动3秒idle
-  计时；覆盖未完成时最长等待65秒；
-- 最终Leaf按照LLDP Chassis ID去重，不执行自动模式的1/2个Leaf数量目标。
+- `active-backup`只监听Active Slave；
+- LACP/XOR/RR等其他模式监听全部有效Slave；
+- 最终Leaf按照LLDP Chassis ID去重，不要求必须探测到固定数量的Leaf。
 
 显式指定普通接口属于运维覆盖，即使该接口被识别为虚拟接口也允许监听，
 但疑似本机反射邻居仍会被过滤。
@@ -163,29 +175,18 @@ unix.Socket(AF_PACKET, SOCK_RAW, htons(0x88cc))
 `Chassis ID`。邻居按“本地接口+Chassis+Port”保留，同一接口上的不同
 邻居不会在采集阶段被覆盖；最终Leaf集合按Chassis ID去重。
 
-采集仍沿用`lldp-new-2`的单Socket、ifindex过滤、邻居身份和重复帧更新流程。
-在此基础上，Bond完成条件增加了不同Leaf校验：
+采集过程对齐已在真实集群验证的`lldp-new-3`：
 
-- `active-backup`：Active Slave收到一个有效外部Leaf后完成；
-- 其他Bond模式：至少两个选中接口收到邻居，并且Chassis ID去重后恰有两个
-  不同Leaf，才提前完成；
-- Bond目标未满足时禁用通用idle提前退出，最长等待`listen-seconds`；
-- 普通物理口收到首个新邻居后，连续`idle-seconds`没有新邻居即可结束；
-- 到达`listen-seconds`总超时。
+- `count=0`时始终监听完整的`--timeout`窗口；
+- `count>0`时收集到指定数量的唯一邻居即可结束；
+- 邻居身份由“本地接口+Chassis+Port”组成，重复报文更新已有记录；
+- 超时后只要至少存在一个有效外部邻居，就继续生成元数据并打标；
+- 不再因为非主备Bond没有凑够两个不同Leaf而放弃本轮打标。
 
-上述1/2个Leaf目标只适用于`--interfaces`为空的自动模式。显式模式不按Bond
-模式提前结束，而是：所有指定/展开接口完成覆盖后，连续`idle-seconds`没有
-发现新的不同Chassis才结束；没有完成接口覆盖时等待到总超时。总超时后只要
-至少发现一个有效外部Leaf，就保存已发现的全部Leaf及链路。
-
-重复邻居只更新最新内容，不重置idle计时。Chassis ID是判断物理Leaf是否
+Chassis ID是判断物理Leaf是否
 不同的依据；System Name是写入Node并与Algorithm配置匹配的Leaf ID。两个
 接口收到同一个Chassis只会形成一个Leaf集合成员，但两条物理链路明细均可
-保留。`count>0`是人工覆盖项，达到指定唯一邻居数量时仍会结束。
-
-非主备Bond等待65秒后仍不足两个不同Chassis时，本轮返回“不完整”错误，
-不会用单Leaf结果覆盖Node上一次成功的双Leaf拓扑。这样不会把“两张网卡都
-连到同一交换机”误报成双Leaf，也不会因一次丢包立即缩减已有拓扑。
+保留。只有整个窗口没有有效外部邻居时，本轮才失败并保留Node上的旧拓扑。
 
 ## 5. Node元数据协议
 
@@ -215,17 +216,20 @@ PRC读取位置是`prc/pkg/controller/snapshot.go`。因此不能直接改成
 
 | 参数 | 默认值 | 含义 |
 |---|---:|---|
-| `--interfaces` | 空 | 自动选择；也可填写接口或Bond，多个用逗号分隔 |
-| `--listen-seconds` | 65 | 单轮最长监听时间，覆盖两个常见30秒LLDP发送周期 |
-| `--idle-seconds` | 3 | 首个邻居后无新唯一邻居的提前结束时间；0表示禁用 |
-| `--count` | 0 | 最大唯一邻居数；0表示使用idle/最大超时 |
-| `--resync-seconds` | 180 | 相邻两轮开始时间的目标间隔，即每3分钟启动一轮 |
+| `--interfaces` | `auto` | 自动选择有效物理有线口和Bond Slave；也可指定Bond或具体接口 |
+| `--timeout` | `65s` | 单轮LLDP监听窗口；Go Duration格式，可修改为`90s`等 |
+| `--count` | 0 | 最大唯一邻居数；0表示始终监听完整timeout窗口 |
+| `--interval` | `0` | 0表示执行一轮后退出；设置为`3m`等正值才周期执行 |
 | `--sys-class-net` | `/sys/class/net` | 网卡sysfs根目录 |
 | `--kubeconfig` | 空 | 空时优先In-Cluster，也支持显式文件 |
 | `--kube-context` | 空 | 显式覆盖Kubeconfig Context |
+| `--node-name` | `NODE_NAME`或hostname | 要更新的Kubernetes Node名称 |
 
-`NODE_NAME`为必填环境变量，必须与Kubernetes Node的`metadata.name`
-完全一致。
+Node名称必须与Kubernetes Node的`metadata.name`完全一致。DaemonSet通过
+Downward API设置`NODE_NAME`，一般不需要显式传`--node-name`。
+
+直接运行二进制且不传`--interval`时，完成一次采集和打标后退出。项目的
+DaemonSet清单显式传入`--interval=180s`，因此集群部署仍然每3分钟执行一轮。
 
 ## 7. 部署条件
 
@@ -276,8 +280,8 @@ sudo tcpdump -i <物理口> -nn -e -vv ether proto 0x88cc
 ## 9. 当前边界
 
 - Agent只负责Node到直连Leaf，不处理Leaf以上拓扑；
-- 自动模式优先且独占`bond0`；没有`bond0`时才发现其他有效物理口；
-- 自动模式超过两个不同Leaf会拒绝，非主备Bond不足两个不同Leaf时保留旧拓扑；
-- 显式模式不限制Leaf数量，按Chassis去重并保存采集窗口内的全部Leaf；
-- 自动Bond目标未完成、显式接口覆盖未完成时，都不会被3秒idle提前截断，
-  而是最多等待65秒。
+- 程序未传接口参数时默认`auto`，当前部署清单显式限定`bond0`；
+- `count=0`会跑满65秒，避免LLDP发送周期较长时过早结束；
+- 不强制要求发现两个Leaf，至少一个有效外部邻居即可更新Node；
+- Leaf集合按Chassis识别物理设备，PRC使用的Leaf ID优先取System Name；
+- 写入使用`client-go`，并在Merge Patch后重新GET Node逐项验证。

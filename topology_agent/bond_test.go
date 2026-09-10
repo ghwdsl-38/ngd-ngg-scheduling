@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -39,7 +38,7 @@ func TestLACPSelectsAllUpSlaves(t *testing.T) {
 	}
 }
 
-func TestExplicitBondMasterExpandsAllLinkUpSlaves(t *testing.T) {
+func TestExplicitActiveBackupBondMasterUsesOnlyActiveSlave(t *testing.T) {
 	root := t.TempDir()
 	writeBondFixture(t, root, "bond0", "active-backup 1", "eth0 eth1 eth2", "eth0")
 	writePhysicalFixture(t, root, "eth0", "1", "up")
@@ -50,17 +49,36 @@ func TestExplicitBondMasterExpandsAllLinkUpSlaves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(selected) != 2 {
-		t.Fatalf("explicit bond0 did not expand to both link-up slaves: %#v", selected)
+	if len(selected) != 1 {
+		t.Fatalf("explicit active-backup bond0 did not select only the active slave: %#v", selected)
 	}
-	if !selected["eth0"].Active || selected["eth1"].Active {
-		t.Fatalf("active-backup state was not preserved in expanded slaves: %#v", selected)
+	if !selected["eth0"].Active {
+		t.Fatalf("active slave was not selected: %#v", selected)
 	}
 	if _, exists := selected["bond0"]; exists {
 		t.Fatalf("Bond master must not be listened to directly: %#v", selected)
 	}
+	if _, exists := selected["eth1"]; exists {
+		t.Fatalf("standby slave must not be selected: %#v", selected)
+	}
 	if _, exists := selected["eth2"]; exists {
 		t.Fatalf("down Bond slave must not be selected: %#v", selected)
+	}
+}
+
+func TestExplicitLACPBondMasterUsesAllHealthySlaves(t *testing.T) {
+	root := t.TempDir()
+	writeBondFixture(t, root, "bond0", "802.3ad 4", "eth0 eth1 eth2", "eth0")
+	writePhysicalFixture(t, root, "eth0", "1", "up")
+	writePhysicalFixture(t, root, "eth1", "1", "up")
+	writePhysicalFixture(t, root, "eth2", "0", "down")
+
+	selected, err := selectLLDPInterfacesAt(root, t.TempDir(), map[string]struct{}{"bond0": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected) != 2 || selected["eth0"].BondMode != "802.3ad" || selected["eth1"].BondMode != "802.3ad" {
+		t.Fatalf("explicit LACP bond0 did not select all healthy slaves: %#v", selected)
 	}
 }
 
@@ -79,7 +97,7 @@ func TestExplicitBondSlaveRemainsExactInterface(t *testing.T) {
 	}
 }
 
-func TestBond0TakesPriorityOverOtherPhysicalUplinks(t *testing.T) {
+func TestAutomaticDiscoveryMatchesReferenceAndKeepsAllEligibleUplinks(t *testing.T) {
 	root := t.TempDir()
 	writeBondFixture(t, root, "bond0", "802.3ad 4", "eth0 eth1", "eth0")
 	writePhysicalFixture(t, root, "eth0", "1", "up")
@@ -90,15 +108,15 @@ func TestBond0TakesPriorityOverOtherPhysicalUplinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(selected) != 2 || selected["eth0"].BondName != "bond0" || selected["eth1"].BondName != "bond0" {
-		t.Fatalf("bond0 was not selected exclusively: %#v", selected)
+	if len(selected) != 3 || selected["eth0"].BondName != "bond0" || selected["eth1"].BondName != "bond0" {
+		t.Fatalf("automatic reference policy did not select all eligible uplinks: %#v", selected)
 	}
-	if _, exists := selected["management0"]; exists {
-		t.Fatalf("standalone management link was mixed into bond0 topology: %#v", selected)
+	if _, exists := selected["management0"]; !exists {
+		t.Fatalf("standalone physical uplink should remain in auto scope: %#v", selected)
 	}
 }
 
-func TestExistingButUnusableBond0FailsClosed(t *testing.T) {
+func TestAutomaticDiscoveryFallsBackWhenBond0IsUnusable(t *testing.T) {
 	root := t.TempDir()
 	writeBondFixture(t, root, "bond0", "802.3ad 4", "eth0 eth1", "eth0")
 	writePhysicalFixture(t, root, "eth0", "0", "down")
@@ -106,8 +124,11 @@ func TestExistingButUnusableBond0FailsClosed(t *testing.T) {
 	writePhysicalFixture(t, root, "management0", "1", "up")
 
 	selected, err := selectLLDPInterfacesAt(root, t.TempDir(), nil)
-	if err == nil || !strings.Contains(err.Error(), "preferred Bond bond0 exists") {
-		t.Fatalf("expected fail-closed bond0 error, selected=%#v err=%v", selected, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected) != 1 || selected["management0"].Kind != "physical" {
+		t.Fatalf("automatic fallback did not retain the healthy physical uplink: %#v", selected)
 	}
 }
 

@@ -48,10 +48,9 @@
   "lldp": {
     "nodeName": "REPLACE_WITH_NODE_NAME",
     "kubeconfig": "secrets/lldp.kubeconfig",
-    "interfaces": "",
-    "listenSeconds": 65,
-    "idleSeconds": 3,
+    "interfaces": "bond0",
+    "timeoutSeconds": 65,
     "count": 0,
-    "resyncSeconds": 180
+    "intervalSeconds": 180
   }
 }
