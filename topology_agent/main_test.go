@@ -2,6 +2,13 @@ package main
 
 import "testing"
 
+func TestCaptureDefaults(t *testing.T) {
+	command := newCommand()
+	if command.Flags().Lookup("timeout").DefValue != "2m0s" || command.Flags().Lookup("count").DefValue != "0" {
+		t.Fatal("capture must default to a full 120-second window")
+	}
+}
+
 func TestInterfacesDefaultToAuto(t *testing.T) {
 	t.Setenv("LLDP_INTERFACES", "")
 	command := newCommand()

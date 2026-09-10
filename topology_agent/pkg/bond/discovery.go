@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// InterfaceSelection describes one physical interface selected for LLDP.
+// InterfaceSelection describes one capture interface.
 type InterfaceSelection struct {
 	Name             string
 	Index            int
@@ -59,7 +59,7 @@ func SelectInterfaces(sysClassNet string, explicit map[string]struct{}) (map[str
 
 // SelectInterfacesAt is the testable implementation. Explicit interface names
 // are trusted as an operator override. Automatic mode excludes virtual,
-// wireless and down links, expands Bond masters to eligible physical slaves,
+// wireless and down links, selects Bond masters and standalone physical interfaces,
 // and never falls back to listening on every interface.
 func SelectInterfacesAt(sysClassNet, procBonding string, explicit map[string]struct{}) (map[string]InterfaceSelection, error) {
 	return selectInterfacesAt(sysClassNet, procBonding, explicit, nil, false)
@@ -85,58 +85,22 @@ func selectInterfacesAt(sysClassNet, procBonding string, explicit map[string]str
 	for _, state := range sortedBondStates(bonds) {
 		for _, slave := range state.Slaves {
 			knownSlaves[slave] = struct{}{}
-			if len(explicit) != 0 {
-				continue
-			}
 			carrier, operState := linkState(sysClassNet, slave)
-			index, administrativeUp, linkValid := runtimeLinkState(slave, carrier, operState, inventory, enforceRuntime)
-			miiStatus := strings.ToLower(strings.TrimSpace(state.SlaveMII[slave]))
-			active := slave == state.ActiveSlave
-			physicalWired := isPhysicalWired(sysClassNet, slave)
-			if !physicalWired {
-				continue
-			}
-			if state.Mode == "active-backup" && !active {
-				continue
-			}
-			if miiStatus != "" && miiStatus != "up" {
-				continue
-			}
-			if !linkValid {
-				continue
-			}
-			if _, err := os.Stat(filepath.Join(sysClassNet, slave)); err != nil {
-				continue
-			}
-			selected[slave] = InterfaceSelection{
-				Name: slave, Index: index, Kind: "bond-slave", BondName: state.Name, BondMode: state.Mode,
-				BondSlaves: append([]string(nil), state.Slaves...), BondActiveSlave: state.ActiveSlave,
-				BondInfoSource: state.Source, Active: active || state.Mode != "active-backup",
-				AdministrativeUp: administrativeUp, LinkValid: linkValid, PhysicalWired: physicalWired,
-				Carrier: carrier, OperState: operState, MIIStatus: miiStatus,
+			log.Printf("[LLDP-AGENT] BOND SLAVE master=%s interface=%s carrier=%q operState=%q activeSlave=%t mii=%q", state.Name, slave, carrier, operState, slave == state.ActiveSlave, state.SlaveMII[slave])
+		}
+		if len(explicit) == 0 {
+			if selection, ok := bondMasterSelection(sysClassNet, state, inventory, enforceRuntime); ok {
+				selected[state.Name] = selection
 			}
 		}
 	}
 
-	// An explicit Bond master limits collection to that Bond, then applies the
-	// same verified lldp-new-3 selection policy used in automatic mode:
-	// active-backup keeps only the active slave; other modes keep every healthy
-	// physical slave. Exact physical/slave names remain operator overrides.
+	// An explicit Bond is a capture interface, not a list of slaves.
 	for name := range explicit {
 		if state, isBond := bonds[name]; isBond {
-			log.Printf("[LLDP-AGENT] EXPLICIT BOND EXPAND START master=%s mode=%s declaredSlaves=%v activeSlave=%q", state.Name, state.Mode, state.Slaves, state.ActiveSlave)
-			expanded := make([]string, 0, len(state.Slaves))
-			for _, slave := range state.Slaves {
-				selection, reason, eligible := bondSlaveSelection(sysClassNet, state, slave, inventory, enforceRuntime)
-				if !eligible {
-					log.Printf("[LLDP-AGENT] EXPLICIT BOND SLAVE REJECT master=%s slave=%s reason=%s", state.Name, slave, reason)
-					continue
-				}
-				selected[slave] = selection
-				expanded = append(expanded, slave)
+			if selection, ok := bondMasterSelection(sysClassNet, state, inventory, enforceRuntime); ok {
+				selected[name] = selection
 			}
-			sort.Strings(expanded)
-			log.Printf("[LLDP-AGENT] EXPLICIT BOND EXPAND COMPLETE master=%s selectedSlaves=%v", state.Name, expanded)
 			continue
 		}
 		if _, err := os.Stat(filepath.Join(sysClassNet, name)); err == nil {
@@ -196,7 +160,7 @@ func selectInterfacesAt(sysClassNet, procBonding string, explicit map[string]str
 		if len(explicit) > 0 {
 			return nil, fmt.Errorf("no eligible LLDP interface found for configured interfaces %v", sortedSet(explicit))
 		}
-		return nil, fmt.Errorf("automatic discovery found no eligible physical wired interface or Bond slave")
+		return nil, fmt.Errorf("automatic discovery found no eligible physical wired interface or Bond master")
 	}
 	for _, item := range Sorted(selected) {
 		log.Printf("[LLDP-AGENT] FINAL USABLE INTERFACE name=%s index=%d kind=%s adminUp=%t carrier=%q operState=%q physicalWired=%t bondMaster=%q bondMode=%q bondInfoSource=%q bondMIIStatus=%q", item.Name, item.Index, item.Kind, item.AdministrativeUp, item.Carrier, item.OperState, item.PhysicalWired, item.BondName, item.BondMode, item.BondInfoSource, item.MIIStatus)
@@ -205,32 +169,20 @@ func selectInterfacesAt(sysClassNet, procBonding string, explicit map[string]str
 	return selected, nil
 }
 
-func bondSlaveSelection(sysClassNet string, state bondState, slave string, inventory map[string]net.Interface, enforceRuntime bool) (InterfaceSelection, string, bool) {
-	carrier, operState := linkState(sysClassNet, slave)
-	index, administrativeUp, linkValid := runtimeLinkState(slave, carrier, operState, inventory, enforceRuntime)
-	miiStatus := strings.ToLower(strings.TrimSpace(state.SlaveMII[slave]))
-	active := slave == state.ActiveSlave
-	physicalWired := isPhysicalWired(sysClassNet, slave)
-	switch {
-	case !physicalWired:
-		return InterfaceSelection{}, "not-physical-wired", false
-	case state.Mode == "active-backup" && !active:
-		return InterfaceSelection{}, "active-backup-standby-slave", false
-	case miiStatus != "" && miiStatus != "up":
-		return InterfaceSelection{}, "bond-mii-not-up", false
-	case !linkValid:
-		return InterfaceSelection{}, "link-not-up", false
-	}
-	if _, err := os.Stat(filepath.Join(sysClassNet, slave)); err != nil {
-		return InterfaceSelection{}, "missing-from-sysfs", false
+// Bond-level observations do not identify an active physical slave.
+func bondMasterSelection(sysClassNet string, state bondState, inventory map[string]net.Interface, enforceRuntime bool) (InterfaceSelection, bool) {
+	carrier, operState := linkState(sysClassNet, state.Name)
+	index, administrativeUp, linkValid := runtimeLinkState(state.Name, carrier, operState, inventory, enforceRuntime)
+	if !linkValid {
+		log.Printf("[LLDP-AGENT] BOND REJECT master=%s reason=link-not-up carrier=%q operState=%q", state.Name, carrier, operState)
+		return InterfaceSelection{}, false
 	}
 	return InterfaceSelection{
-		Name: slave, Index: index, Kind: "bond-slave", BondName: state.Name, BondMode: state.Mode,
+		Name: state.Name, Index: index, Kind: "bond-master", BondName: state.Name, BondMode: state.Mode,
 		BondSlaves: append([]string(nil), state.Slaves...), BondActiveSlave: state.ActiveSlave,
-		BondInfoSource: state.Source, Active: active || state.Mode != "active-backup",
-		AdministrativeUp: administrativeUp, LinkValid: linkValid, PhysicalWired: physicalWired,
-		Carrier: carrier, OperState: operState, MIIStatus: miiStatus,
-	}, "", true
+		BondInfoSource: state.Source, Active: false,
+		AdministrativeUp: administrativeUp, LinkValid: linkValid, Carrier: carrier, OperState: operState,
+	}, true
 }
 
 func selectedNames(values map[string]InterfaceSelection) []string {

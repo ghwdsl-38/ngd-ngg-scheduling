@@ -4,8 +4,8 @@
 并写入Kubernetes Node元数据。Leaf以上的Room、Border、Spine等拓扑仍由
 Algorithm Server读取独立配置文件，不由Agent推断。
 
-本实现的**网卡发现、Bond筛选、Socket监听、邻居去重和超时退出流程**
-严格对齐已在真实集群验证的`lldp-new-3`。同时保留本项目原有的数据协议：
+本实现保留参考采集器的 Socket、邻居去重及日志方式，Bond 改为主接口采集。
+Node 元数据协议保持兼容：
 
 - Kubernetes访问继续使用官方`client-go`；
 - 同时支持In-Cluster和显式Kubeconfig；
@@ -27,8 +27,8 @@ agent.go: topologyAgent.collect
   │
   ├─ pkg/bond/discovery.go
   │    自动识别物理有线口和Bond
-  │    主备只选Active Slave
-  │    其他模式选择Link/MII有效Slave
+  │    Bond选择主接口
+  │    Slave状态仅用于日志及显式接口模式
   │    排除lo、veth、poh、bridge等虚拟接口
   │
   └─ lldp.go: receiveLLDP
@@ -49,37 +49,12 @@ kube.go
 Kubernetes Node
 ```
 
-### 1.1 与lldp-new-3的采集流程对齐情况
+### 1.1 Bond 主接口采集
 
-| 采集节点 | 当前Topology Agent | `lldp-new-3` | 状态 |
-|---|---|---|---|
-| 枚举接口 | `net.Interfaces()` | `net.Interfaces()` | 一致 |
-| Link有效性 | Admin Up且`carrier=1`或`operstate=up` | 相同 | 一致 |
-| 物理口识别 | `device`、Ethernet type、排除无线 | 相同 | 一致 |
-| Bond数据源 | sysfs，缺失项由`/proc/net/bonding`补充 | 相同 | 一致 |
-| 主备模式 | 只选Active Slave | 相同 | 一致 |
-| 非主备模式 | 选Link/MII有效的Slave | 相同 | 一致 |
-| 自动Socket | 不Bind，按选中ifindex过滤 | 相同 | 一致 |
-| 单显式接口 | 对指定接口执行`unix.Bind` | 相同 | 一致 |
-| 本机报文 | 丢弃`PACKET_OUTGOING` | 相同 | 一致 |
-| 邻居身份 | 接口+Chassis subtype/ID+Port subtype/ID | 相同 | 一致 |
-| 重复报文 | 更新已有邻居 | 相同 | 一致 |
-| `count=0`结束条件 | 跑满完整timeout | 相同 | 一致 |
-| Bond采集基础流程 | 每个选中Slave分别接收邻居 | 相同 | 一致 |
-| Bond结果数量 | 至少一个有效外部邻居即成功，不强制双Leaf | 相同 | 一致 |
-| `--interfaces=bond0` | 按参考版Bond策略展开Slave，不监听Master | `auto`下使用相同Bond策略 | 仅增加范围限定能力 |
-| 本机反射 | 采集时标记，Leaf筛选阶段剔除 | 相同 | 一致 |
-| LLDP解析 | MAC、Chassis、Port、TTL、描述、能力、管理地址 | 相同 | 一致 |
-
-项目只保留以下非采集差异：
-
-- 使用Cobra以及`--interfaces`，并兼容Bond范围和多个显式接口；
-- Kubernetes访问使用官方`client-go`，而不是参考版中的手写HTTP客户端；
-- 写入`topology.demo.ngg.io/*`，以便PRC继续读取；
-- 作为DaemonSet持续周期执行，而不是单独的命令行输出工具。
-
-日志统一使用`[LLDP-AGENT]`前缀，包含启动参数、接口选择、Socket打开、
-报文接收、解析结果、Node Patch以及错误位置。
+`--interfaces=bond0` 直接绑定 bond0，自动模式也选择有效 Bond 主接口。
+一轮可保留两个 Leaf 的观察，两条记录都标记 `interface=bond0`。
+无法确认报文来自哪个 Slave 时不推断物理端口，`active=false` 表示未确认物理活动链路，
+不代表该 Leaf 不可调度；现有 PRC/Algorithm 不按这个字段过滤节点。
 
 ## 2. 目录文件
 
@@ -87,7 +62,8 @@ Kubernetes Node
 |---|---|
 | `main.go` | Cobra入口、参数、Kubernetes认证初始化 |
 | `agent.go` | 周期采集、元数据生成和Node同步编排 |
-| `lldp.go` | AF_PACKET Socket、接口过滤和LLDP TLV解析 |
+| `lldp.go` | LLDP TLV解析、邻居身份与排序 |
+| `lldp_socket_linux.go` | Linux AF_PACKET Socket、绑定与接收 |
 | `bond.go` | 主包到Bond发现包的薄适配层 |
 | `pkg/bond/discovery.go` | 物理网卡、链路和Bond自动发现 |
 | `pkg/topologyfacts/facts.go` | Leaf集合规范化、Hash和Node元数据协议 |
@@ -98,59 +74,13 @@ Kubernetes Node
 
 ## 3. 网卡选择规则
 
-### 3.1 程序默认auto，部署显式限定bond0
+- `--interfaces=bond0`：直接选择并绑定 Bond 主接口，不展开 Slave。
+- `--interfaces=auto`：选择链路正常的 Bond 主接口及独立物理有线口，排除 Bond Slave 和其他虚拟接口。
+- `--interfaces=eth0`：按指定网卡收包，支持显式 Slave。
+- 多接口用逗号分隔；一个显式接口执行 Bind，自动/多接口模式按选中 ifindex 过滤。
+- Bond 模式、Slave 列表、Active Slave、carrier/operstate/MII 仍从 sysfs 和 `/proc/net/bonding` 读取并输出日志。
 
-程序未传`--interfaces`且未设置`LLDP_INTERFACES`时，默认等价于：
-
-```bash
---interfaces=auto
-```
-
-此时使用与`lldp-new-3`相同的自动选择策略：选择全部有效物理直连接口，
-以及各Bond按模式选出的Slave；不会选择veth、bridge、`poh_*`等虚拟接口。
-
-当前项目部署清单为了限制在需求方业务Bond范围内，仍显式配置：
-
-```bash
---interfaces=bond0
-```
-
-Agent读取`--sys-class-net`指定的宿主机sysfs，将Bond Master展开为Slave，
-不直接监听`bond0`本身：
-
-1. 枚举网卡；
-2. 只选择存在`device`、类型为Ethernet、非无线的物理口；
-3. 要求`carrier=1`或`operstate=up`；
-4. 从`<接口>/bonding/`读取Bond信息；
-5. sysfs信息不完整时回退读取`/proc/net/bonding`；
-6. `active-backup`只选Active Slave；
-7. 其他Bond模式选择链路及MII状态有效的Slave；
-8. 一个协议级AF_PACKET Socket接收报文，再按入站ifindex过滤。
-
-如果目标机器不存在`bond0`，部署时删除该参数或改成
-`--interfaces=auto`，即可使用程序默认的自动选择策略。
-
-### 3.2 显式模式
-
-可以通过逗号分隔指定接口：
-
-```bash
---interfaces=ens5f1np1,ens8f0np0
-```
-
-显式接口参数只限制“在哪些接口范围采集”，不限制Leaf数量：
-
-- 显式普通网卡或Bond Slave：只监听指定接口；
-- 显式`bond0`等Bond Master：展开为所有Link/MII有效Slave，不监听Master；
-- `active-backup`只监听Active Slave；
-- LACP/XOR/RR等其他模式监听全部有效Slave；
-- 最终Leaf按照LLDP Chassis ID去重，不要求必须探测到固定数量的Leaf。
-
-显式指定普通接口属于运维覆盖，即使该接口被识别为虚拟接口也允许监听，
-但疑似本机反射邻居仍会被过滤。
-
-生产环境如果服务器存在管理网、存储网等多组物理口，建议明确填写承载
-业务网络的物理口或Bond，避免把非业务上联纳入Leaf集合。
+生产部署建议显式指定业务 Bond，避免管理网等其他接口进入 Leaf 集合。
 
 ## 4. LLDP采集和解析
 
@@ -216,8 +146,8 @@ PRC读取位置是`prc/pkg/controller/snapshot.go`。因此不能直接改成
 
 | 参数 | 默认值 | 含义 |
 |---|---:|---|
-| `--interfaces` | `auto` | 自动选择有效物理有线口和Bond Slave；也可指定Bond或具体接口 |
-| `--timeout` | `65s` | 单轮LLDP监听窗口；Go Duration格式，可修改为`90s`等 |
+| `--interfaces` | `auto` | 自动选择有效独立物理有线口和Bond主接口；也可指定Bond或具体接口 |
+| `--timeout` | `120s` | 单轮LLDP监听窗口；Go Duration格式，可修改为`90s`等 |
 | `--count` | 0 | 最大唯一邻居数；0表示始终监听完整timeout窗口 |
 | `--interval` | `0` | 0表示执行一轮后退出；设置为`3m`等正值才周期执行 |
 | `--sys-class-net` | `/sys/class/net` | 网卡sysfs根目录 |
@@ -261,7 +191,7 @@ go test ./... -v
 ```bash
 go test . -run '^TestAutomaticDiscoverySelectsPhysicalAndRejectsVirtual$' -v
 go test . -run '^TestAutomaticDiscoveryRejectsVirtualOnlyEnvironment$' -v
-go test . -run '^TestProcBondingFallbackSelectsActiveBackupSlave$' -v
+go test . -run '^TestProcBondingFallbackSelectsBondMaster$' -v
 go test . -run '^TestParseLLDPFrameReadsSwitchDetails$' -v
 ```
 
@@ -281,7 +211,7 @@ sudo tcpdump -i <物理口> -nn -e -vv ether proto 0x88cc
 
 - Agent只负责Node到直连Leaf，不处理Leaf以上拓扑；
 - 程序未传接口参数时默认`auto`，当前部署清单显式限定`bond0`；
-- `count=0`会跑满65秒，避免LLDP发送周期较长时过早结束；
+- `count=0`会跑满120秒，避免LLDP发送周期较长时过早结束；
 - 不强制要求发现两个Leaf，至少一个有效外部邻居即可更新Node；
 - Leaf集合按Chassis识别物理设备，PRC使用的Leaf ID优先取System Name；
 - 写入使用`client-go`，并在Merge Patch后重新GET Node逐项验证。

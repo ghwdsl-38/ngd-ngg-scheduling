@@ -105,10 +105,7 @@ func (a *topologyAgent) collect(ctx context.Context) (observation, error) {
 	return observation{Links: links, Source: "LLDP"}, nil
 }
 
-// A literal physical interface follows lldp-new-3 and is kernel-bound. A Bond
-// master is a selection scope: it expands to the slave interfaces selected by
-// the same Bond policy as lldp-new-3, so its socket must remain unbound and be
-// filtered by ingress ifindex in userspace.
+// Bind a single explicitly selected interface, including a Bond master.
 func shouldBindSingleExplicitInterface(configured map[string]struct{}, selected map[string]interfaceSelection) bool {
 	if len(configured) != 1 || len(selected) != 1 {
 		return false

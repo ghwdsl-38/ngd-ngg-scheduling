@@ -1,5 +1,14 @@
 # Group7：Bond主备与负载模式全流程测试
 
+2026-09-10 新增 `bond-master-active-backup` 与 `bond-master-load-balance`：
+模拟两个 Leaf 的 LLDP 都在 bond0 上可见，验证 `interface=bond0`、两个 Leaf、
+PRC 快照及真实 Algorithm/Python 到 Active NGG。两种场景的 `active` 均为 false，
+表示不推断物理 Slave 活动状态。
+
+下文原 `active-backup`、`load-balance` 图示作为显式 Slave 模式回归保留；测试分别显式指定
+Active Slave 或有效 Slave 集合，不再代表新版 `auto` / `--interfaces=bond0` 的默认行为。
+
+
 ## 1. 整体测试拓扑与选点规模
 
 Group7的每个子场景都使用一套独立的20节点环境；`active-backup`和`load-balance`依次运行，不是在同一个集群中同时创建40个节点。

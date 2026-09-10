@@ -1,84 +1,46 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestActiveBackupSelectsOnlyActiveSlave(t *testing.T) {
-	root := t.TempDir()
-	writeBondFixture(t, root, "bond0", "active-backup 1", "eth0 eth1", "eth1")
-	writePhysicalFixture(t, root, "eth0", "1", "up")
-	writePhysicalFixture(t, root, "eth1", "1", "up")
-	selected, err := selectLLDPInterfacesAt(root, t.TempDir(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(selected) != 1 || selected["eth1"].BondMode != "active-backup" || !selected["eth1"].Active {
-		t.Fatalf("unexpected active-backup selection: %#v", selected)
-	}
-}
-
-func TestLACPSelectsAllUpSlaves(t *testing.T) {
-	root := t.TempDir()
-	writeBondFixture(t, root, "bond0", "802.3ad 4", "eth0 eth1 eth2", "eth0")
-	writePhysicalFixture(t, root, "eth0", "1", "up")
-	writePhysicalFixture(t, root, "eth1", "1", "up")
-	writePhysicalFixture(t, root, "eth2", "0", "down")
-	selected, err := selectLLDPInterfacesAt(root, t.TempDir(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(selected) != 2 || selected["eth0"].BondMode != "802.3ad" || selected["eth1"].Name != "eth1" {
-		t.Fatalf("unexpected LACP selection: %#v", selected)
-	}
-	if _, exists := selected["eth2"]; exists {
-		t.Fatalf("down slave was selected: %#v", selected)
+func TestBondMasterCapture(t *testing.T) {
+	for _, mode := range []string{"active-backup 1", "802.3ad 4"} {
+		for _, explicit := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/explicit=%t", mode, explicit), func(t *testing.T) {
+				root := t.TempDir()
+				writeBondFixture(t, root, "bond0", mode, "eth0 eth1", "eth0")
+				writePhysicalFixture(t, root, "eth0", "1", "up")
+				writePhysicalFixture(t, root, "eth1", "1", "up")
+				var scope map[string]struct{}
+				if explicit {
+					scope = map[string]struct{}{"bond0": {}}
+				}
+				selected, err := selectLLDPInterfacesAt(root, t.TempDir(), scope)
+				if err != nil {
+					t.Fatal(err)
+				}
+				master, ok := selected["bond0"]
+				if !ok || len(selected) != 1 || master.Kind != "bond-master" || master.Active || !master.LinkValid || len(master.BondSlaves) != 2 || master.BondActiveSlave != "eth0" {
+					t.Fatalf("unexpected Bond capture: %#v", selected)
+				}
+				if shouldBindSingleExplicitInterface(scope, selected) != explicit {
+					t.Fatal("incorrect bind policy")
+				}
+			})
+		}
 	}
 }
 
-func TestExplicitActiveBackupBondMasterUsesOnlyActiveSlave(t *testing.T) {
+func TestDownBondMasterIsRejected(t *testing.T) {
 	root := t.TempDir()
-	writeBondFixture(t, root, "bond0", "active-backup 1", "eth0 eth1 eth2", "eth0")
-	writePhysicalFixture(t, root, "eth0", "1", "up")
-	writePhysicalFixture(t, root, "eth1", "1", "up")
-	writePhysicalFixture(t, root, "eth2", "0", "down")
-
-	selected, err := selectLLDPInterfacesAt(root, t.TempDir(), map[string]struct{}{"bond0": {}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(selected) != 1 {
-		t.Fatalf("explicit active-backup bond0 did not select only the active slave: %#v", selected)
-	}
-	if !selected["eth0"].Active {
-		t.Fatalf("active slave was not selected: %#v", selected)
-	}
-	if _, exists := selected["bond0"]; exists {
-		t.Fatalf("Bond master must not be listened to directly: %#v", selected)
-	}
-	if _, exists := selected["eth1"]; exists {
-		t.Fatalf("standby slave must not be selected: %#v", selected)
-	}
-	if _, exists := selected["eth2"]; exists {
-		t.Fatalf("down Bond slave must not be selected: %#v", selected)
-	}
-}
-
-func TestExplicitLACPBondMasterUsesAllHealthySlaves(t *testing.T) {
-	root := t.TempDir()
-	writeBondFixture(t, root, "bond0", "802.3ad 4", "eth0 eth1 eth2", "eth0")
-	writePhysicalFixture(t, root, "eth0", "1", "up")
-	writePhysicalFixture(t, root, "eth1", "1", "up")
-	writePhysicalFixture(t, root, "eth2", "0", "down")
-
-	selected, err := selectLLDPInterfacesAt(root, t.TempDir(), map[string]struct{}{"bond0": {}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(selected) != 2 || selected["eth0"].BondMode != "802.3ad" || selected["eth1"].BondMode != "802.3ad" {
-		t.Fatalf("explicit LACP bond0 did not select all healthy slaves: %#v", selected)
+	writeBondFixture(t, root, "bond0", "802.3ad 4", "eth0 eth1", "eth0")
+	writeLinkFixture(t, root, "bond0", "0", "down")
+	if _, err := selectLLDPInterfacesAt(root, t.TempDir(), map[string]struct{}{"bond0": {}}); err == nil {
+		t.Fatal("down Bond accepted")
 	}
 }
 
@@ -97,7 +59,7 @@ func TestExplicitBondSlaveRemainsExactInterface(t *testing.T) {
 	}
 }
 
-func TestAutomaticDiscoveryMatchesReferenceAndKeepsAllEligibleUplinks(t *testing.T) {
+func TestAutomaticDiscoveryKeepsBondAndStandaloneUplinks(t *testing.T) {
 	root := t.TempDir()
 	writeBondFixture(t, root, "bond0", "802.3ad 4", "eth0 eth1", "eth0")
 	writePhysicalFixture(t, root, "eth0", "1", "up")
@@ -108,7 +70,7 @@ func TestAutomaticDiscoveryMatchesReferenceAndKeepsAllEligibleUplinks(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(selected) != 3 || selected["eth0"].BondName != "bond0" || selected["eth1"].BondName != "bond0" {
+	if len(selected) != 2 || selected["bond0"].Kind != "bond-master" {
 		t.Fatalf("automatic reference policy did not select all eligible uplinks: %#v", selected)
 	}
 	if _, exists := selected["management0"]; !exists {
@@ -119,6 +81,7 @@ func TestAutomaticDiscoveryMatchesReferenceAndKeepsAllEligibleUplinks(t *testing
 func TestAutomaticDiscoveryFallsBackWhenBond0IsUnusable(t *testing.T) {
 	root := t.TempDir()
 	writeBondFixture(t, root, "bond0", "802.3ad 4", "eth0 eth1", "eth0")
+	writeLinkFixture(t, root, "bond0", "0", "down")
 	writePhysicalFixture(t, root, "eth0", "0", "down")
 	writePhysicalFixture(t, root, "eth1", "0", "down")
 	writePhysicalFixture(t, root, "management0", "1", "up")
@@ -174,9 +137,10 @@ func TestExplicitVirtualInterfaceRemainsOperatorOverride(t *testing.T) {
 	}
 }
 
-func TestProcBondingFallbackSelectsActiveBackupSlave(t *testing.T) {
+func TestProcBondingFallbackSelectsBondMaster(t *testing.T) {
 	root := t.TempDir()
 	proc := t.TempDir()
+	writeLinkFixture(t, root, "bond0", "1", "up")
 	writePhysicalFixture(t, root, "ens1", "1", "up")
 	writePhysicalFixture(t, root, "ens2", "1", "up")
 	content := `Ethernet Channel Bonding Driver
@@ -196,13 +160,14 @@ MII Status: up
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(selected) != 1 || selected["ens2"].BondName != "bond0" || !selected["ens2"].Active {
+	if len(selected) != 1 || selected["bond0"].BondName != "bond0" || selected["bond0"].BondActiveSlave != "ens2" || selected["bond0"].Active {
 		t.Fatalf("unexpected /proc active-backup selection: %#v", selected)
 	}
 }
 
 func writeBondFixture(t *testing.T, root, bond, mode, slaves, active string) {
 	t.Helper()
+	writeLinkFixture(t, root, bond, "1", "up")
 	directory := filepath.Join(root, bond, "bonding")
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		t.Fatal(err)

@@ -1,0 +1,19 @@
+{
+  "algorithmGroupCount": 1,
+  "algorithmNodeCount": 10,
+  "algorithmNodesUnique": true,
+  "algorithmTopologyLevel": "leafDomain",
+  "bondMode": "802.3ad",
+  "nggNodeCount": 10,
+  "nggNodesUnique": true,
+  "persistedLeafSwitchIds": [
+    "HB-HL-DC1-102-C03-44U-LTY-CSQ-LEAF-SW01-ZTE5960X",
+    "HB-HL-DC1-102-C04-44U-LTY-CSQ-LEAF-SW02-ZTE5960X"
+  ],
+  "scenario": "bond-master-load-balance",
+  "selectedInterfaces": [
+    "bond0"
+  ],
+  "staticNodeCount": 20,
+  "staticNodeLeafCount": 2
+}

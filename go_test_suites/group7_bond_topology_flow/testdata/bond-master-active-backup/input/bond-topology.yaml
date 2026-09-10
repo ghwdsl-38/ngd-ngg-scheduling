@@ -1,0 +1,17 @@
+scenario: bond-master-active-backup
+captureBond: true
+bond:
+  name: bond0
+  mode: active-backup 1
+  slaves: [eth0, eth1]
+  activeSlave: eth1
+interfaces:
+  eth0: {carrier: "1", operstate: up}
+  eth1: {carrier: "1", operstate: up}
+neighbors:
+  eth0:
+    leafSwitchId: HB-HL-DC1-102-C03-44U-LTY-CSQ-LEAF-SW01-ZTE5960X
+    remotePortId: cgei-0/1/1/1
+  eth1:
+    leafSwitchId: HB-HL-DC1-102-C04-44U-LTY-CSQ-LEAF-SW02-ZTE5960X
+    remotePortId: cgei-0/1/1/1

@@ -77,12 +77,12 @@ func newCommand() *cobra.Command {
 	if defaultInterfaces == "" {
 		defaultInterfaces = "auto"
 	}
-	command.Flags().StringVar(&interfaces, "interfaces", defaultInterfaces, "comma-separated interface scope; bond masters expand using the verified Bond policy; use auto for all eligible uplinks")
+	command.Flags().StringVar(&interfaces, "interfaces", defaultInterfaces, "comma-separated capture interfaces; Bond masters are captured directly; auto discovers uplinks")
 	command.Flags().StringVar(&nodeName, "node-name", defaultNodeName, "Kubernetes Node to update; defaults to NODE_NAME or hostname")
 	command.Flags().StringVar(&kubeconfig, "kubeconfig", os.Getenv("KUBECONFIG"), "path to kubeconfig; defaults to in-cluster configuration")
 	command.Flags().StringVar(&kubeContext, "kube-context", "", "optional context in kubeconfig")
 	command.Flags().StringVar(&sysClassNet, "sys-class-net", "/sys/class/net", "sysfs network class path used for Bond discovery")
-	command.Flags().DurationVar(&timeout, "timeout", 65*time.Second, "LLDP receive duration; count=0 always listens for this full window")
+	command.Flags().DurationVar(&timeout, "timeout", 120*time.Second, "LLDP receive duration; count=0 always listens for this full window")
 	command.Flags().IntVar(&count, "count", 0, "maximum unique LLDP neighbors; zero listens for the full timeout")
 	command.Flags().DurationVar(&interval, "interval", 0, "repeat interval between probe cycle starts; zero runs one cycle and exits")
 	return command

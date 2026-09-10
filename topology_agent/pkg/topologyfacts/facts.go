@@ -60,6 +60,9 @@ func Normalize(value Observation) (Observation, error) {
 	}
 	sort.Slice(value.Links, func(i, j int) bool {
 		if value.Links[i].Interface == value.Links[j].Interface {
+			if value.Links[i].LeafSwitchID == value.Links[j].LeafSwitchID {
+				return value.Links[i].RemotePortID < value.Links[j].RemotePortID
+			}
 			return value.Links[i].LeafSwitchID < value.Links[j].LeafSwitchID
 		}
 		return value.Links[i].Interface < value.Links[j].Interface

@@ -3,10 +3,62 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"demo.ngg/topology-agent/pkg/topologyfacts"
 )
+
+func TestBondMasterFramesKeepBothLeaves(t *testing.T) {
+	selection := map[string]interfaceSelection{"bond0": {
+		Name: "bond0", Kind: "bond-master", BondName: "bond0", BondMode: "802.3ad",
+	}}
+	var neighbors []lldpNeighbor
+	for i, name := range []string{"leaf-a", "leaf-b"} {
+		frame := make([]byte, 14)
+		binary.BigEndian.PutUint16(frame[12:14], ethernetProtocolLLDP)
+		frame = append(frame, makeTLV(1, []byte{4, 0, 1, 2, 3, 4, byte(i + 1)})...)
+		frame = append(frame, makeTLV(2, append([]byte{5}, []byte("port-1")...))...)
+		frame = append(frame, makeTLV(3, []byte{0, 120})...)
+		frame = append(frame, makeTLV(5, []byte(name))...)
+		frame = append(frame, makeTLV(0, nil)...)
+		neighbor, ok := parseLLDPFrame(frame, "bond0")
+		if !ok {
+			t.Fatal("valid Bond LLDP frame rejected")
+		}
+		neighbors = append(neighbors, neighbor)
+	}
+	if distinctLeafCount(neighbors) != 2 {
+		t.Fatal("two chassis collapsed into one")
+	}
+	build := func(items []lldpNeighbor) (map[string]any, map[string]any) {
+		t.Helper()
+		links, err := buildLeafLinks(items, selection)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observed, labels, annotations, err := topologyfacts.BuildNodeMetadata(observation{Links: links, Source: "LLDP"}, time.Unix(0, 0))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(observed.Links) != 2 || labels[labelPrefix+"leaf-count"] != "2" || labels[labelPrefix+"leaf-switch"] != nil {
+			t.Fatalf("invalid metadata: %#v", observed)
+		}
+		for _, link := range observed.Links {
+			if link.Interface != "bond0" || link.BondName != "bond0" || link.Active {
+				t.Fatalf("fabricated Slave attribution: %#v", link)
+			}
+		}
+		return labels, annotations
+	}
+	labels, annotations := build(neighbors)
+	duplicateLabels, duplicateAnnotations := build([]lldpNeighbor{neighbors[1], neighbors[0], neighbors[1]})
+	if !reflect.DeepEqual(labels, duplicateLabels) || !reflect.DeepEqual(annotations, duplicateAnnotations) {
+		t.Fatal("reordered duplicate frames changed metadata")
+	}
+}
 
 func TestParseLLDPFrameReadsSwitchDetails(t *testing.T) {
 	frame := make([]byte, 14)

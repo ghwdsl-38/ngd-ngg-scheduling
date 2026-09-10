@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -36,8 +37,9 @@ var (
 )
 
 type scenarioInput struct {
-	Scenario string `yaml:"scenario"`
-	Bond     struct {
+	Scenario    string `yaml:"scenario"`
+	CaptureBond bool   `yaml:"captureBond"`
+	Bond        struct {
 		Name        string   `yaml:"name"`
 		Mode        string   `yaml:"mode"`
 		Slaves      []string `yaml:"slaves"`
@@ -67,7 +69,7 @@ func TestGroup7_BondModesFullFlow(t *testing.T) {
 	groupDirectory := currentGroupDirectory(t)
 	runDirectory := common.NewRunDirectory(t, groupDirectory)
 	debugMode := os.Getenv("NGG_TEST_DEBUG") == "true"
-	for _, scenario := range []string{"active-backup", "load-balance"} {
+	for _, scenario := range []string{"active-backup", "load-balance", "bond-master-active-backup", "bond-master-load-balance"} {
 		scenario := scenario
 		t.Run(scenario, func(t *testing.T) {
 			inputPath := filepath.Join(groupDirectory, "testdata", scenario, "input", "bond-topology.yaml")
@@ -142,7 +144,21 @@ func prepareBondTopology(t *testing.T, input scenarioInput, fixture *common.Fixt
 		mustWrite(t, filepath.Join(path, "carrier"), state.Carrier)
 		mustWrite(t, filepath.Join(path, "operstate"), state.Operstate)
 	}
-	selected, err := bonddiscovery.SelectInterfacesAt(sysfs, t.TempDir(), nil)
+	mustWrite(t, filepath.Join(sysfs, input.Bond.Name, "carrier"), "1")
+	mustWrite(t, filepath.Join(sysfs, input.Bond.Name, "operstate"), "up")
+	var scope map[string]struct{}
+	if !input.CaptureBond {
+		scope = map[string]struct{}{}
+		for name, state := range input.Interfaces {
+			if strings.HasPrefix(input.Bond.Mode, "active-backup") && name != input.Bond.ActiveSlave {
+				continue
+			}
+			if state.Carrier == "1" || state.Operstate == "up" {
+				scope[name] = struct{}{}
+			}
+		}
+	}
+	selected, err := bonddiscovery.SelectInterfacesAt(sysfs, t.TempDir(), scope)
 	if err != nil {
 		t.Fatalf("production Bond discovery: %v", err)
 	}
@@ -154,17 +170,30 @@ func prepareBondTopology(t *testing.T, input scenarioInput, fixture *common.Fixt
 	leaves := make([]string, 0, len(selections))
 	links := make([]topologyfacts.Link, 0, len(selections))
 	for _, selection := range selections {
-		neighbor, ok := input.Neighbors[selection.Name]
-		if !ok || neighbor.LeafSwitchID == "" {
-			t.Fatalf("selected interface %s has no Mock LLDP neighbor", selection.Name)
-		}
 		interfaces = append(interfaces, selection.Name)
-		leaves = append(leaves, neighbor.LeafSwitchID)
-		links = append(links, topologyfacts.Link{
-			BondName: input.Bond.Name, BondMode: selection.BondMode,
-			Interface: selection.Name, LeafSwitchID: neighbor.LeafSwitchID,
-			RemotePortID: neighbor.RemotePortID, Active: selection.Active,
-		})
+		neighborNames := []string{selection.Name}
+		if input.CaptureBond {
+			if selection.Name != input.Bond.Name || selection.Kind != "bond-master" || selection.Active {
+				t.Fatalf("invalid Bond master observation: %#v", selection)
+			}
+			neighborNames = nil
+			for name := range input.Neighbors {
+				neighborNames = append(neighborNames, name)
+			}
+			sort.Strings(neighborNames)
+		}
+		for _, name := range neighborNames {
+			neighbor, ok := input.Neighbors[name]
+			if !ok || neighbor.LeafSwitchID == "" {
+				t.Fatalf("missing Mock LLDP neighbor for %s", name)
+			}
+			leaves = append(leaves, neighbor.LeafSwitchID)
+			links = append(links, topologyfacts.Link{
+				BondName: input.Bond.Name, BondMode: selection.BondMode,
+				Interface: selection.Name, LeafSwitchID: neighbor.LeafSwitchID,
+				RemotePortID: neighbor.RemotePortID, Active: selection.Active,
+			})
+		}
 	}
 	observation, labelsPatch, annotationsPatch, err := topologyfacts.BuildNodeMetadata(
 		topologyfacts.Observation{Links: links, Source: "MockLLDP"},
