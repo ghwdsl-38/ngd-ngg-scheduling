@@ -13,7 +13,6 @@ deploy-manual/
 ├── README.md
 ├── kustomization.yaml
 ├── 00-namespace.yaml
-├── 10-serviceaccounts.yaml
 ├── 20-algorithm.yaml
 ├── 30-prc.yaml
 ├── 40-lldp-agent.yaml
@@ -28,7 +27,7 @@ deploy-manual/
 
 - 读取 `config/network-topology.yaml`，生成拓扑 ConfigMap；
 - 读取两份 Kubeconfig，生成两个 Secret；
-- 应用 Namespace、ServiceAccount、Service、Deployment 和 DaemonSet。
+- 应用 Namespace、Service、Deployment 和 DaemonSet。
 
 本目录不创建 ClusterRole 或 ClusterRoleBinding。两份 Kubeconfig 对应的
 身份必须由需求方提前授权。
@@ -125,15 +124,17 @@ Namespace。
   NGG，并更新 NGG Status；
 - LLDP：读取 Node，并 Patch Node 标签。
 
-`10-serviceaccounts.yaml` 创建的两个 ServiceAccount 只供 Pod 引用，没有
-绑定任何权限。PRC 和 LLDP Pod 均设置：
+本目录不创建专用 ServiceAccount，也不创建 ClusterRole 或
+ClusterRoleBinding。Kubernetes仍会在Pod内部关联目标Namespace的
+`default` ServiceAccount，但PRC、Algorithm和LLDP Pod均设置：
 
 ```yaml
 automountServiceAccountToken: false
 ```
 
-因此程序访问 Kubernetes API 时只使用挂载的 Kubeconfig 身份，不使用
-Pod ServiceAccount Token。如果 Kubeconfig 权限不足，日志会出现
+因此不会挂载或使用`default` ServiceAccount Token。PRC和LLDP访问
+Kubernetes API时只使用各自挂载的Kubeconfig身份；Algorithm不访问
+Kubernetes API，也不挂载Kubeconfig。如果Kubeconfig权限不足，日志会出现
 `forbidden`，需要由需求方调整该 Kubeconfig 身份的授权。
 
 ### 3.3 上层拓扑

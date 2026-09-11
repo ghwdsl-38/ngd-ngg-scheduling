@@ -6,7 +6,6 @@ namespace: ngd-ngg-system
 
 resources:
   - 00-namespace.yaml
-  - 10-serviceaccounts.yaml
   - 20-algorithm.yaml
   - 30-prc.yaml
   - 40-lldp-agent.yaml

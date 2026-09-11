@@ -15,7 +15,6 @@ spec:
       labels:
         app: ngd-ngg-lldp-agent
     spec:
-      serviceAccountName: lldp-agent
       automountServiceAccountToken: false
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet

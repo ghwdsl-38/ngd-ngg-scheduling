@@ -14,7 +14,6 @@ spec:
       labels:
         app: ngd-ngg-prc
     spec:
-      serviceAccountName: prc
       automountServiceAccountToken: false
       securityContext:
         runAsUser: 65532
@@ -80,4 +79,3 @@ spec:
             items:
               - key: kubeconfig
                 path: kubeconfig
-
