@@ -6,7 +6,7 @@
       "type": "go",
       "request": "launch",
       "mode": "test",
-      "program": "${workspaceFolder}/go_test_suites/group1_algorithm_worker",
+      "program": "${workspaceFolder}/test/go/group1_algorithm_worker",
       "args": ["-test.run", "^TestGroup1_", "-test.v", "-test.count=1"],
       "env": {
         "GOMODCACHE": "${workspaceFolder}/.cache/go-mod",
@@ -19,7 +19,7 @@
       "type": "go",
       "request": "launch",
       "mode": "test",
-      "program": "${workspaceFolder}/go_test_suites/group2_prc_algorithm",
+      "program": "${workspaceFolder}/test/go/group2_prc_algorithm",
       "args": ["-test.run", "^TestGroup2_", "-test.v", "-test.count=1"],
       "env": {
         "GOMODCACHE": "${workspaceFolder}/.cache/go-mod",
@@ -32,7 +32,7 @@
       "type": "go",
       "request": "launch",
       "mode": "test",
-      "program": "${workspaceFolder}/go_test_suites/group3_prc_ngd_ngg",
+      "program": "${workspaceFolder}/test/go/group3_prc_ngd_ngg",
       "args": ["-test.run", "^TestGroup3_", "-test.v", "-test.count=1"],
       "env": {
         "GOMODCACHE": "${workspaceFolder}/.cache/go-mod",
@@ -46,7 +46,7 @@
       "type": "go",
       "request": "launch",
       "mode": "test",
-      "program": "${workspaceFolder}/go_test_suites/group4_full_real_algorithm",
+      "program": "${workspaceFolder}/test/go/group4_full_real_algorithm",
       "args": ["-test.run", "^TestGroup4_", "-test.v", "-test.count=1", "-test.timeout", "30m"],
       "env": {
         "GOMODCACHE": "${workspaceFolder}/.cache/go-mod",
@@ -62,7 +62,7 @@
       "type": "go",
       "request": "launch",
       "mode": "test",
-      "program": "${workspaceFolder}/go_test_suites/group5_prc_refresh_lifecycle",
+      "program": "${workspaceFolder}/test/go/group5_prc_refresh_lifecycle",
       "args": ["-test.run", "^TestGroup5_", "-test.v", "-test.count=1", "-test.timeout", "30m"],
       "env": {
         "GOMODCACHE": "${workspaceFolder}/.cache/go-mod",
@@ -76,7 +76,7 @@
       "type": "go",
       "request": "launch",
       "mode": "test",
-      "program": "${workspaceFolder}/go_test_suites/group7_bond_topology_flow",
+      "program": "${workspaceFolder}/test/go/group7_bond_topology_flow",
       "args": ["-test.run", "^TestGroup7_", "-test.v", "-test.count=1", "-test.timeout", "30m"],
       "env": {
         "GOMODCACHE": "${workspaceFolder}/.cache/go-mod",

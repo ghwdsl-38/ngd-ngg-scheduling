@@ -80,7 +80,7 @@ flowchart TD
 测试模块与`prc`、`algorithm_server`平级。每组拥有自己的输入、预期输出和运行结果：
 
 ```text
-go_test_suites/
+test/go/
 ├── go.mod
 ├── README.md
 ├── common/
@@ -582,7 +582,7 @@ defer server.Close(shutdownCtx)
 
 第一组还需要一个最小、正式可用的Worker构造和Calculate接口，不能通过复制`worker.go`实现测试。
 
-调整目录后必须同步修改根目录`Dockerfile.algorithm`：递归复制Go源码，并构建`./cmd/algorithm-server`。镜像构建和服务启动必须作为回归检查，但不属于四组`go test`运行依赖。
+调整目录后必须同步修改根目录`docker/algorithm/Dockerfile`：递归复制Go源码，并构建`./cmd/algorithm-server`。镜像构建和服务启动必须作为回归检查，但不属于四组`go test`运行依赖。
 
 ### 12.2 PRC Go包
 
@@ -611,7 +611,7 @@ PRC已增加`prc/pkg/application.Application`，统一创建Manager、注册静�
 go.work
 ├── ./algorithm_server/go
 ├── ./prc
-└── ./go_test_suites
+└── ./test/go
 ```
 
 三个模块仍保持独立`go.mod`。Workspace只负责本地开发和Debug，不改变生产镜像的模块边界。
@@ -647,16 +647,16 @@ Go Debug能够进入PRC和Go Algorithm。Python Worker是独立子进程，Go De
 ```bash
 cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
 
-GOMAXPROCS=2 go test -p=1 ./go_test_suites/group1_algorithm_worker -v -count=1
-GOMAXPROCS=2 go test -p=1 ./go_test_suites/group2_prc_algorithm -v -count=1
-GOMAXPROCS=2 go test -p=1 ./go_test_suites/group3_prc_ngd_ngg -v -count=1
-GOMAXPROCS=2 go test -p=1 ./go_test_suites/group4_full_real_algorithm -v -count=1
+GOMAXPROCS=2 go test -p=1 ./test/go/group1_algorithm_worker -v -count=1
+GOMAXPROCS=2 go test -p=1 ./test/go/group2_prc_algorithm -v -count=1
+GOMAXPROCS=2 go test -p=1 ./test/go/group3_prc_ngd_ngg -v -count=1
+GOMAXPROCS=2 go test -p=1 ./test/go/group4_full_real_algorithm -v -count=1
 ```
 
 单独Debug：
 
 ```bash
-dlv test ./go_test_suites/group1_algorithm_worker -- \
+dlv test ./test/go/group1_algorithm_worker -- \
   -test.run '^TestGroup1_GoAlgorithmCallsPythonWorker$' \
   -test.v -test.count=1
 ```
@@ -664,7 +664,7 @@ dlv test ./go_test_suites/group1_algorithm_worker -- \
 第四组：
 
 ```bash
-dlv test ./go_test_suites/group4_full_real_algorithm -- \
+dlv test ./test/go/group4_full_real_algorithm -- \
   -test.run '^TestGroup4_PRCWatchesNGDCallsRealAlgorithmAndCreatesNGG$' \
   -test.v -test.count=1 -test.timeout=30m
 ```
@@ -685,7 +685,7 @@ IDE规划四个入口：
 1. 安装数据盘Go和Delve，配置Go缓存、envtest和IDE；
 2. 将Algorithm拆分为可导入业务包和`cmd`入口，同步修正镜像构建；
 3. 将PRC Controller调整为可导入包并导出最小接口；
-4. 建立`go.work`和独立`go_test_suites`模块；
+4. 建立`go.work`和独立`test/go`模块；
 5. 实现Fixture、标准化、Diff、Mock Prometheus和envtest公共工具；
 6. 依次完成第一至第四组；
 7. 为每组补充独立README、结果目录、命令和IDE Debug配置；
@@ -718,7 +718,7 @@ IDE规划四个入口：
 
 包含关系符合设计：`Group1 < Group2 < Group4`。Group3使用Mock Algorithm，主要测PRC控制器和NGG小结果写入，不参与这个真实Algorithm包含关系排序。
 
-3000个静态Node、6种选择规模、每种30次的正式结果见`go_test_suites/scale_benchmark_3000/README.md`。
+3000个静态Node、6种选择规模、每种30次的正式结果见`test/go/scale_benchmark_3000/README.md`。
 
 ## 16. 验收标准
 

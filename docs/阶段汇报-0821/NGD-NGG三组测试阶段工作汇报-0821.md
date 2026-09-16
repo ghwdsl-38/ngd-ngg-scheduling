@@ -150,10 +150,10 @@ flowchart TD
 |    1 | `core:core-01` |      86.26 |   1000 |
 |    2 | `core:core-02` |      86.24 |   1000 |
 
-结果目录：[第一组最新PASS结果](../../test_suites/group1_algorithm/runs/20260820-212042)
+结果目录：[第一组最新PASS结果](../../test/legacy/group1_algorithm/runs/20260820-212042)
 
 ```text
-/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/test_suites/
+/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/test/legacy/
 group1_algorithm/runs/20260820-212042/
 ```
 
@@ -203,14 +203,14 @@ make demo-group1-evidence
 查看最新Cold/Warm结果及其文件清单：
 
 ```bash
-./test_suites/show-latest.sh group1_algorithm cold_cache
-./test_suites/show-latest.sh group1_algorithm warm_cache
+./test/legacy/show-latest.sh group1_algorithm cold_cache
+./test/legacy/show-latest.sh group1_algorithm warm_cache
 ```
 
 查看最新一次的报告、耗时、最终候选组和Prometheus认证记录：
 
 ```bash
-GROUP1_RUN_DIR="$(find test_suites/group1_algorithm/runs -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+GROUP1_RUN_DIR="$(find test/legacy/group1_algorithm/runs -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
 
 sed -n '1,200p' "$GROUP1_RUN_DIR/report.md"
 python3 -m json.tool "$GROUP1_RUN_DIR/timing-run/timing-result.json"
@@ -295,10 +295,10 @@ maxNodes: 1000
 
 输出为一组正式NGG：`spec.nodes`包含Core-01的1000个Node，NGG为 `Active`，NGD为 `Fulfilled`。
 
-结果目录：[第二组最新PASS结果](../../test_suites/group2_prc/runs/20260821-112142)
+结果目录：[第二组最新PASS结果](../../test/legacy/group2_prc/runs/20260821-112142)
 
 ```text
-/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/test_suites/
+/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/test/legacy/
 group2_prc/runs/20260821-112142/
 ```
 
@@ -340,13 +340,13 @@ make demo-group2-evidence
 查看最新结果及其文件清单：
 
 ```bash
-./test_suites/show-latest.sh group2_prc normal_create
+./test/legacy/show-latest.sh group2_prc normal_create
 ```
 
 查看最新一次的报告、耗时、NGD输入、PRC请求和最终NGG：
 
 ```bash
-GROUP2_RUN_DIR="$(find test_suites/group2_prc/runs -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+GROUP2_RUN_DIR="$(find test/legacy/group2_prc/runs -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
 
 sed -n '1,200p' "$GROUP2_RUN_DIR/report.md"
 python3 -m json.tool "$GROUP2_RUN_DIR/timing-run/timing-result.json"
@@ -433,10 +433,10 @@ PRC只把rank 1写入正式NGG。NGG中没有 `candidateNodeGroups` 和 `activeG
 | Cold |       1000 |        20 |          0 |
 | Warm |       1000 |        20 |          0 |
 
-结果目录：[第三组最新PASS结果](../../test_suites/group3_full_chain/runs/20260821-113515)
+结果目录：[第三组最新PASS结果](../../test/legacy/group3_full_chain/runs/20260821-113515)
 
 ```text
-/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/test_suites/
+/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/test/legacy/
 group3_full_chain/runs/20260821-113515/
 ```
 
@@ -483,14 +483,14 @@ make demo-group3-evidence
 查看最新Cold/Warm结果及其文件清单：
 
 ```bash
-./test_suites/show-latest.sh group3_full_chain cold_cache
-./test_suites/show-latest.sh group3_full_chain warm_cache
+./test/legacy/show-latest.sh group3_full_chain cold_cache
+./test/legacy/show-latest.sh group3_full_chain warm_cache
 ```
 
 查看最新一次的报告、耗时、NGD、Algorithm结果、NGG和Pod绑定结果：
 
 ```bash
-GROUP3_RUN_DIR="$(find test_suites/group3_full_chain/runs -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+GROUP3_RUN_DIR="$(find test/legacy/group3_full_chain/runs -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
 
 sed -n '1,220p' "$GROUP3_RUN_DIR/report.md"
 python3 -m json.tool "$GROUP3_RUN_DIR/timing-run/timing-result.json"

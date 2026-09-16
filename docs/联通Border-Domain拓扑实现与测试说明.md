@@ -109,10 +109,10 @@ sequenceDiagram
 
 可查看的输入包括：
 
-- `go_test_suites/group4_full_real_algorithm/testdata/input/node-static-snapshot.json`
-- `go_test_suites/group4_full_real_algorithm/testdata/input/network-topology.yaml`
-- `go_test_suites/group4_full_real_algorithm/testdata/input/resolved-node-static-snapshot.json`
-- `go_test_suites/group4_full_real_algorithm/testdata/input/ngd.yaml`
+- `test/go/group4_full_real_algorithm/testdata/input/node-static-snapshot.json`
+- `test/go/group4_full_real_algorithm/testdata/input/network-topology.yaml`
+- `test/go/group4_full_real_algorithm/testdata/input/resolved-node-static-snapshot.json`
+- `test/go/group4_full_real_algorithm/testdata/input/ngd.yaml`
 
 ## 5. 测试方法与结果
 
@@ -136,10 +136,10 @@ GOWORK=off go test ./... -run TestSimulatedLLDPWritesOnlyDirectLeafAsNodeLabel -
 ```bash
 cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
 source scripts/go-test-env.sh
-go test -p=1 ./go_test_suites/group1_algorithm_worker -run '^TestGroup1_' -v -count=1
-go test -p=1 ./go_test_suites/group2_prc_algorithm -run '^TestGroup2_' -v -count=1
-go test -p=1 ./go_test_suites/group3_prc_ngd_ngg -run '^TestGroup3_' -v -count=1
-go test -p=1 ./go_test_suites/group4_full_real_algorithm -run '^TestGroup4_' -v -count=1
+go test -p=1 ./test/go/group1_algorithm_worker -run '^TestGroup1_' -v -count=1
+go test -p=1 ./test/go/group2_prc_algorithm -run '^TestGroup2_' -v -count=1
+go test -p=1 ./test/go/group3_prc_ngd_ngg -run '^TestGroup3_' -v -count=1
+go test -p=1 ./test/go/group4_full_real_algorithm -run '^TestGroup4_' -v -count=1
 ```
 
 2026-09-02本轮运行结果：
@@ -168,7 +168,7 @@ topology:
   accessSwitch: leaf-xxx
 ```
 
-最新单次运行证据在`go_test_suites/group4_full_real_algorithm/results/<run-id>/actual/`，主要查看`algorithm-response.json`、`ngg-raw.yaml`和`prc-allocation-request.json`。
+最新单次运行证据在`test/go/group4_full_real_algorithm/results/<run-id>/actual/`，主要查看`algorithm-response.json`、`ngg-raw.yaml`和`prc-allocation-request.json`。
 
 ### 5.3 3000 Node冒烟验证
 

@@ -27,7 +27,7 @@ for component in ${RELEASE_COMPONENTS}; do
     test -x "${BUILD_ROOT}/linux-${arch}/${binary}" ||
       die "缺少预编译文件 ${BUILD_ROOT}/linux-${arch}/${binary}"
   done
-  dockerfile="${ROOT_DIR}/Dockerfile.${component}.release"
+  dockerfile="${ROOT_DIR}/docker/${component}/Dockerfile.release"
   image="${DOCKERHUB_REPOSITORY}:${component}-${RELEASE_VERSION}"
   log "Push多架构镜像: ${image}"
   docker buildx build --builder "${BUILDX_BUILDER}" \

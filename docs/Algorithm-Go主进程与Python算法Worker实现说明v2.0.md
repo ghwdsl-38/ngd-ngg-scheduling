@@ -60,7 +60,7 @@ algorithm_api_server/algorithm_api_server/
     └── loadbalance.py
 ```
 
-镜像由 `Dockerfile.algorithm` 多阶段构建：第一阶段编译静态 Go 二进制，第二阶段只放入 Python 解释器、算法包和 Go 二进制。容器入口为 `/app/algorithm-server`，版本为 `ngd-ngg-algorithm:v0.4.0`。
+镜像由 `docker/algorithm/Dockerfile` 多阶段构建：第一阶段编译静态 Go 二进制，第二阶段只放入 Python 解释器、算法包和 Go 二进制。容器入口为 `/app/algorithm-server`，版本为 `ngd-ngg-algorithm:v0.4.0`。
 
 ## 4. 一次计算的详细流程
 

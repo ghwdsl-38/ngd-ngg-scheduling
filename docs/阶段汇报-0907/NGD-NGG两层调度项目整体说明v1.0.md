@@ -656,7 +656,7 @@ make go-test-group7
 每组结果位于：
 
 ```text
-go_test_suites/<group>/results/<run-id>/
+test/go/<group>/results/<run-id>/
 ```
 
 固定输入和Expected位于`testdata/`，Actual、diff和业务计时在独立结果目录。结果写盘不计入业务时间。
@@ -680,7 +680,7 @@ NGD最低资源：320 CPU + 1280 GiB
 - 802.3ad：采集eth0、eth1对应Leaf-A和Leaf-B；
 - 两种场景最终都归入同一个Leaf Domain，同一Node只统计一次。
 
-详细图、输入和输出见`go_test_suites/group7_bond_topology_flow/README.md`。
+详细图、输入和输出见`test/go/group7_bond_topology_flow/README.md`。
 
 ### 10.3 3000 Node规模测试
 
@@ -698,7 +698,7 @@ NGD最低资源：320 CPU + 1280 GiB
 make benchmark-3000-all
 ```
 
-详细结果见`go_test_suites/scale_benchmark_3000/README.md`及其`reports/`目录。
+详细结果见`test/go/scale_benchmark_3000/README.md`及其`reports/`目录。
 
 ## 11. 构建与部署
 
@@ -751,19 +751,19 @@ ngd-ngg-scheduling-demo/
 ├── algorithm_server/      Algorithm Server正式实现
 ├── prc/                   PRC正式实现
 ├── topology_agent/        LLDP/Bond拓扑采集正式实现
-├── go_test_suites/        当前统一Go测试
+├── test/go/        当前统一Go测试
 ├── config/                RBAC、组件部署和拓扑配置
 ├── scripts/               环境、构建、部署和测试辅助脚本
 ├── manifests/monitoring/  可选Prometheus监控清单
 ├── docs/                  接口、设计、测试和阶段说明
 ├── ngg_consumer/          NGG读取与校验公共库
-├── test_suites/           较早测试程序及历史运行证据
+├── test/legacy/           较早测试程序及历史运行证据
 ├── results/               演示和构建结果
 ├── images/                本地镜像归档
 ├── build/                 本地编译产物
 ├── .cache/                Go依赖、编译与envtest缓存
 ├── .vscode/               VS Code Debug配置
-├── Dockerfile.*           三个正式组件的镜像构建入口
+├── docker/                三个正式组件的镜像构建入口
 ├── go.work                Go多模块工作区
 ├── Makefile               统一命令入口
 └── README.md              项目首页和快速使用说明
@@ -778,11 +778,11 @@ ngd-ngg-scheduling-demo/
 | `topology_agent/` | 核心源码 | 在每台Worker采集Bond与LLDP信息，并把Node到Leaf事实写入Node元数据 | 是 |
 | `config/` | 部署配置 | 保存RBAC、Deployment/DaemonSet/Service以及上层拓扑配置；正式CRD直接使用需求方新版文件 | 是 |
 | `scripts/` | 工程脚本 | 检查环境、构建镜像、安装CRD、部署三个组件以及运行规模测试 | 部署或测试时使用 |
-| `go_test_suites/` | 当前测试 | 统一保存Go Test、Mock输入、Expected、Actual、计时结果和3000 Node规模测试 | 不进入生产进程 |
+| `test/go/` | 当前测试 | 统一保存Go Test、Mock输入、Expected、Actual、计时结果和3000 Node规模测试 | 不进入生产进程 |
 | `docs/` | 文档 | 保存需求方原始接口、技术方案、实现说明、测试方案和阶段汇报 | 不进入生产进程 |
 | `manifests/monitoring/` | 可选配置 | 提供Prometheus、node-exporter和kube-state-metrics参考清单；Algorithm也可接入集群已有Prometheus | 可选 |
 | `ngg_consumer/` | 公共库 | 解析和校验正式扁平NGG，供本地完整链路验证复用 | 当前主要用于测试 |
-| `test_suites/` | 历史测试 | 保存较早的容器化测试程序及运行证据；当前标准入口已经统一为`go_test_suites/` | 否 |
+| `test/legacy/` | 历史测试 | 保存较早的容器化测试程序及运行证据；当前标准入口已经统一为`test/go/` | 否 |
 | `results/` | 输出目录 | 保存镜像构建信息、算法演示结果和历史NGD/NGG证据 | 否，可重新生成 |
 | `images/` | 构建产物 | 保存三个组件的Docker镜像tar包，便于离线传输 | 部署准备阶段使用 |
 | `build/` | 构建产物 | 保存本地编译出的PRC等二进制文件 | 否，可重新生成 |
@@ -886,9 +886,9 @@ groupX/
 |---|---|
 | `Makefile` | 统一暴露测试、构建、部署和规模测试命令 |
 | `go.work`、`go.work.sum` | 把PRC、Algorithm、Topology Agent和Go Test组成一个本地Go工作区 |
-| `Dockerfile.prc` | 构建PRC运行镜像 |
-| `Dockerfile.algorithm` | 构建Go Algorithm与Python Worker组合镜像 |
-| `Dockerfile.lldp-agent` | 构建LLDP Agent镜像 |
+| `docker/prc/Dockerfile` | 构建PRC运行镜像 |
+| `docker/algorithm/Dockerfile` | 构建Go Algorithm与Python Worker组合镜像 |
+| `docker/lldp/Dockerfile` | 构建LLDP Agent镜像 |
 | `README.md` | 项目入口、当前组件和常用命令 |
 
 ### 12.8 最关键代码文件
@@ -946,8 +946,8 @@ groupX/
 第一次了解项目时，建议按以下顺序阅读：
 
 1. 本文：整体结构和当前边界；
-2. `go_test_suites/group7_bond_topology_flow/README.md`：双Leaf/Bond图示；
+2. `test/go/group7_bond_topology_flow/README.md`：双Leaf/Bond图示；
 3. `docs/会议纪要-0903/PRC事件驱动与周期刷新-当前实现说明v1.0.md`：PRC生命周期；
 4. `algorithm_server/README.md`：Algorithm各文件和独立运行；
-5. `go_test_suites/README.md`：各组测试和Debug入口；
-6. `go_test_suites/scale_benchmark_3000/README.md`：规模测试与统计结果。
+5. `test/go/README.md`：各组测试和Debug入口；
+6. `test/go/scale_benchmark_3000/README.md`：规模测试与统计结果。

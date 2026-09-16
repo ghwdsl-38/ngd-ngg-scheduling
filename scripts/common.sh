@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TOOLS_DIR="${ROOT_DIR}/../.tools"
-RESULTS_DIR="${ROOT_DIR}/results"
+RESULTS_DIR="${ROOT_DIR}/images/results"
 KUBE_CONTEXT="${KUBE_CONTEXT:-}"
 SYSTEM_NAMESPACE="${SYSTEM_NAMESPACE:-ngd-ngg-system}"
 PRC_IMAGE="${PRC_IMAGE:-ngd-ngg-prc:v0.3.0}"

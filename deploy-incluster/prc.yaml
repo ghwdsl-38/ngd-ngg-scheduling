@@ -82,7 +82,7 @@ spec:
         runAsGroup: 65532
       containers:
         - name: platform-resource-controller
-          image: hlcsq-registry.cucloud.cn/paas/scheduling/prc:v0.6.0
+          image: hlcsq-registry.cucloud.cn/paas/scheduling/prc:v0.6.1
           imagePullPolicy: IfNotPresent
           args:
             - --leader-elect=true

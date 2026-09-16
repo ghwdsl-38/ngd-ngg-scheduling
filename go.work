@@ -2,7 +2,7 @@ go 1.25.0
 
 use (
 	./algorithm_server/go
-	./go_test_suites
+	./test/go
 	./prc
 	./topology_agent
 )

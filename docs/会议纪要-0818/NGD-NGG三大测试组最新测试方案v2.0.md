@@ -1,6 +1,6 @@
 # NGD-NGG 三大测试组最新测试方案 v2.0
 
-> **版本提示（2026-08-20）**：本文保留为上一轮设计记录。当前实现已改为每组独立执行`timing-run`和`evidence-run`；第二组只保留`normal_create`；第三组主演示只保留Cold/Warm；NGD/NGG按YAML输出，并新增第一组Go↔Python原始JSONL证据。当前运行命令和目录以`test_suites/README.md`为准。
+> **版本提示（2026-08-20）**：本文保留为上一轮设计记录。当前实现已改为每组独立执行`timing-run`和`evidence-run`；第二组只保留`normal_create`；第三组主演示只保留Cold/Warm；NGD/NGG按YAML输出，并新增第一组Go↔Python原始JSONL证据。当前运行命令和目录以`test/legacy/README.md`为准。
 
 > 版本：v2.0  
 > 日期：2026-08-19  
@@ -703,10 +703,10 @@ Mock Prometheus是第一、三组的测试基础设施，负责提供与真实Pr
 
 ## 9. 结果文件规划
 
-实际统一实现目录为 `test_suites/`。大体量真实输入、过程证据和最终输出只在大组运行目录保存；小组Case目录只保存场景定义、对大组文件的引用、该Case计时及结论，避免重复和混乱。
+实际统一实现目录为 `test/legacy/`。大体量真实输入、过程证据和最终输出只在大组运行目录保存；小组Case目录只保存场景定义、对大组文件的引用、该Case计时及结论，避免重复和混乱。
 
 ~~~text
-test_suites/<group>/runs/<run-id>/
+test/legacy/<group>/runs/<run-id>/
 ├─ input/
 │  ├─ fixture/                    仅保存本大组实际使用的Node、Pod、静态/动态或指标数据
 │  └─ cases/<case>/               本Case实际提交的NGD、请求或Pending Pod
@@ -718,7 +718,7 @@ test_suites/<group>/runs/<run-id>/
 ├─ result.json
 └─ report.md
 
-test_suites/<group>/cases/<case>/runs/<run-id>/
+test/legacy/<group>/cases/<case>/runs/<run-id>/
 ├─ input/
 │  ├─ case.json                   场景、步骤和断言
 │  └─ group-input-reference.json  指向大组真实输入
@@ -825,7 +825,7 @@ flowchart LR
 ### 15.1 已实现目录与入口
 
 ~~~text
-test_suites/
+test/legacy/
 ├─ common/                 3000 Node生成器、严格Mock Prometheus、计时/报告
 ├─ group1_algorithm/       Cold与Warm独立Case、独立报告；Mock Prometheus仅作基础设施
 ├─ group2_prc/             envtest + 真实PRC + Mock Algorithm
@@ -861,9 +861,9 @@ make test-acceptance-v2
 
 本轮最终统一入口为 `make test-acceptance-v2`，三个大组的报告分别是：
 
-- `test_suites/group1_algorithm/runs/20260819-170516/report.md`；
-- `test_suites/group2_prc/runs/20260819-164121/report.md`；
-- `test_suites/group3_full_chain/runs/20260819-164215/report.md`。
+- `test/legacy/group1_algorithm/runs/20260819-170516/report.md`；
+- `test/legacy/group2_prc/runs/20260819-164121/report.md`；
+- `test/legacy/group3_full_chain/runs/20260819-164215/report.md`。
 
 三组使用同一份确定性输入：3000 Node、1000 个 `inUse=true` 动态状态、2000 个可用 Node、100 个已绑定 Pod、14 类指标和 42000 个指标样本。
 
@@ -906,7 +906,7 @@ make test-acceptance-v2
 
 ### 16.2 第一组 Case：Algorithm
 
-第一组执行代码：`test_suites/group1_algorithm/run_group.py`。
+第一组执行代码：`test/legacy/group1_algorithm/run_group.py`。
 
 #### A. Mock Prometheus基础设施
 
@@ -959,7 +959,7 @@ Cold独立报告两个时间：
 
 ### 16.3 第二组 Case：PRC
 
-第二组包装代码为 `test_suites/group2_prc/run_group.py`，核心 Go 执行代码为 `test_suites/group2_prc/runner/main.go`，运行真实 controller-runtime Manager/Reconciler 和 envtest API Server/etcd。Algorithm 在本组有意使用 Mock，以便只定位 PRC 行为。
+第二组包装代码为 `test/legacy/group2_prc/run_group.py`，核心 Go 执行代码为 `test/legacy/group2_prc/runner/main.go`，运行真实 controller-runtime Manager/Reconciler 和 envtest API Server/etcd。Algorithm 在本组有意使用 Mock，以便只定位 PRC 行为。
 
 每个Case使用的大体量共同输入只保存于大组的 `input/fixture/`：
 
@@ -988,7 +988,7 @@ PRC协议Recorder位于`prc/internal/controller/algorithm_client.go`，通过可
 
 ### 16.4 第三组 Case：完整链路模拟
 
-第三组包装代码为 `test_suites/group3_full_chain/run_group.py`，与第二组共用 Go runner，但把 Mock Algorithm 替换为真实 Go Algorithm + Python Worker。
+第三组包装代码为 `test/legacy/group3_full_chain/run_group.py`，与第二组共用 Go runner，但把 Mock Algorithm 替换为真实 Go Algorithm + Python Worker。
 
 ~~~text
 正式NGD + Pending Pod
@@ -1031,17 +1031,17 @@ intermediate/ngg-consumer/
 
 | 功能 | 代码路径 |
 |---|---|
-| Fixture生成 | `test_suites/common/fixture.py` |
-| Mock Prometheus认证、查询和审计日志 | `test_suites/common/mock_prometheus.py` |
-| 计时、报告及大组/Case证据组织 | `test_suites/common/runtime.py` |
-| 第一组执行 | `test_suites/group1_algorithm/run_group.py` |
-| 第二组执行包装 | `test_suites/group2_prc/run_group.py` |
-| envtest、PRC Case、Consumer和Binding | `test_suites/group2_prc/runner/main.go` |
-| 第三组执行包装 | `test_suites/group3_full_chain/run_group.py` |
+| Fixture生成 | `test/legacy/common/fixture.py` |
+| Mock Prometheus认证、查询和审计日志 | `test/legacy/common/mock_prometheus.py` |
+| 计时、报告及大组/Case证据组织 | `test/legacy/common/runtime.py` |
+| 第一组执行 | `test/legacy/group1_algorithm/run_group.py` |
+| 第二组执行包装 | `test/legacy/group2_prc/run_group.py` |
+| envtest、PRC Case、Consumer和Binding | `test/legacy/group2_prc/runner/main.go` |
+| 第三组执行包装 | `test/legacy/group3_full_chain/run_group.py` |
 | Algorithm Requirement/Topology/LoadBalance Trace | `algorithm_server/python/algorithm_worker/pipeline.py` |
 | PRC→Algorithm协议留痕 | `prc/internal/controller/algorithm_client.go` |
 | 正式NGG解析与授权 | `ngg_consumer/formalgrant/grant.go` |
-| 最新结果展示脚本 | `test_suites/show-latest.sh` |
+| 最新结果展示脚本 | `test/legacy/show-latest.sh` |
 
 ### 16.6 如何运行和展示
 
@@ -1071,12 +1071,12 @@ make test-acceptance-v2
 ~~~bash
 make test-showcase
 
-./test_suites/show-latest.sh group1_algorithm cold_cache
-./test_suites/show-latest.sh group1_algorithm warm_cache
-./test_suites/show-latest.sh group2_prc normal_create
-./test_suites/show-latest.sh group3_full_chain cold_cache
-./test_suites/show-latest.sh group3_full_chain warm_cache
-./test_suites/show-latest.sh group3_full_chain fail_closed
+./test/legacy/show-latest.sh group1_algorithm cold_cache
+./test/legacy/show-latest.sh group1_algorithm warm_cache
+./test/legacy/show-latest.sh group2_prc normal_create
+./test/legacy/show-latest.sh group3_full_chain cold_cache
+./test/legacy/show-latest.sh group3_full_chain warm_cache
+./test/legacy/show-latest.sh group3_full_chain fail_closed
 ~~~
 
 建议现场按以下顺序讲：

@@ -28,8 +28,8 @@ kubectl get deployment platform-resource-controller ngd-ngg-algorithm -n welkin-
 | --- | --- | --- |
 | namespace | `welkin-system` | 部署 LLDP、Platform Resource Controller（PRC）和 Algorithm |
 | master | `10.129.195.253` / `hl-tstmix7-paasmaster3` | 当前 Platform Resource Controller（PRC）、Algorithm 运行节点 |
-| Platform Resource Controller（PRC）镜像 | `hlcsq-registry.cucloud.cn/paas/scheduling/prc:v0.6.0` | 本地缓存标签，实际内容来自 Docker Hub `prc-v0.6.1` |
-| Algorithm 镜像 | `hlcsq-registry.cucloud.cn/paas/scheduling/algorithm:v0.6.0` | 本地缓存标签，实际内容来自 Docker Hub `algorithm-v0.6.1` |
+| Platform Resource Controller（PRC）镜像 | `hlcsq-registry.cucloud.cn/paas/scheduling/prc:v0.6.1` | 本地缓存标签，实际内容来自 Docker Hub `prc-v0.6.2` |
+| Algorithm 镜像 | `hlcsq-registry.cucloud.cn/paas/scheduling/algorithm:v0.6.1` | 本地缓存标签，实际内容来自 Docker Hub `algorithm-v0.6.2` |
 | Algorithm Service | `ngd-ngg-algorithm.welkin-system.svc:8080` | Platform Resource Controller（PRC）通过 Service DNS 调用 Algorithm，已验证 |
 | Prometheus Service | `240.5.112.101:8481` | Algorithm 查询 VictoriaMetrics/Prometheus API |
 | 演示 NGD | `go-test-demand` | 触发节点组计算 |

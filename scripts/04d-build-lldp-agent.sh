@@ -5,7 +5,7 @@ source "${SCRIPT_DIR}/common.sh"
 
 require_cmd docker
 docker build --tag "${LLDP_AGENT_IMAGE}" \
-  --file "${ROOT_DIR}/Dockerfile.lldp-agent" "${ROOT_DIR}"
+  --file "${ROOT_DIR}/docker/lldp/Dockerfile" "${ROOT_DIR}"
 docker image inspect "${LLDP_AGENT_IMAGE}" --format '{{.Id}} {{.RepoTags}}' |
   tee "${RESULTS_DIR}/lldp-agent-image.txt"
 docker save "${LLDP_AGENT_IMAGE}" \

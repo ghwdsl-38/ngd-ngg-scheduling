@@ -753,7 +753,7 @@ make run-kubernetes  # 旧版NGD/NGG + Kubernetes Job
 
 ### 11.1 1000 Node 四组 Go Test
 
-统一说明：`go_test_suites/README.md`。
+统一说明：`test/go/README.md`。
 
 ```bash
 make go-test-group1
@@ -783,7 +783,7 @@ PRC通过Watch观察到NGD并进入Reconcile
 
 ### 11.2 envtest 模拟范围
 
-Group3/Group4 使用 `go_test_suites/common/envtest.go` 启动真实的本地 `kube-apiserver` 和 `etcd` 二进制，并安装正式 CRD。PRC 使用 controller-runtime Client/Informer，通过真实 Kubernetes API 访问这些对象。
+Group3/Group4 使用 `test/go/common/envtest.go` 启动真实的本地 `kube-apiserver` 和 `etcd` 二进制，并安装正式 CRD。PRC 使用 controller-runtime Client/Informer，通过真实 Kubernetes API 访问这些对象。
 
 envtest 不包含：
 
@@ -798,7 +798,7 @@ envtest 不包含：
 
 ### 11.3 Mock Prometheus
 
-代码：`go_test_suites/common/mock_prometheus.go`。
+代码：`test/go/common/mock_prometheus.go`。
 
 Mock Server 模拟正式 `/api/v1/query` 接口、vector 响应和 Bearer Token 校验。Algorithm 在服务启动后主动向它查询，而不是由测试直接把指标塞进 Algorithm 私有缓存。
 
@@ -817,7 +817,7 @@ Group4 Debug 会设置 `NGG_TEST_DEBUG=true` 并放宽内部超时。断点暂�
 
 ### 11.5 3000 Node 性能测试
 
-说明和结果：`go_test_suites/scale_benchmark_3000/README.md`。
+说明和结果：`test/go/scale_benchmark_3000/README.md`。
 
 ```bash
 make benchmark-3000-all
@@ -825,7 +825,7 @@ make benchmark-3000-all
 
 测试固定 3000 个静态 Node，分别选择 1000、800、500、300、100、10 个 Node；四组各规模预热 3 次、正式执行 30 次，计算 Mean、P50、P95、Min、Max 和标准差，共 720 个正式样本。
 
-正式结果目录：`go_test_suites/scale_benchmark_3000/reports/20260825-formal-3000/`。
+正式结果目录：`test/go/scale_benchmark_3000/reports/20260825-formal-3000/`。
 
 以选择 1000 Node 为例：
 
@@ -974,13 +974,13 @@ Algorithm `/readyz` 只表示 HTTP 服务可用，不表示静态快照就绪。
 | `scripts/09-run-kubernetes-demo.sh` | kube-scheduler Fail Closed演示 |
 | `scripts/11-install-prometheus.sh` | 安装监控栈 |
 | `scripts/12-check-prometheus.sh` | 检查PromQL和Algorithm指标缓存 |
-| `go_test_suites/common/` | Fixture、Golden、Mock Prometheus、envtest和进程工具 |
-| `go_test_suites/group1_algorithm_worker/` | Go→Python单元/集成测试 |
-| `go_test_suites/group2_prc_algorithm/` | PRC→Algorithm测试 |
-| `go_test_suites/group3_prc_ngd_ngg/` | PRC Watch正式NGD和Mock Algorithm测试 |
-| `go_test_suites/group4_full_real_algorithm/` | 正式NGD到正式NGG完整真实算法测试 |
-| `go_test_suites/scale_benchmark_3000/` | 3000 Node、720样本性能矩阵 |
-| `test_suites/` | 早期三组展示型测试，当前标准测试以`go_test_suites/`为准 |
+| `test/go/common/` | Fixture、Golden、Mock Prometheus、envtest和进程工具 |
+| `test/go/group1_algorithm_worker/` | Go→Python单元/集成测试 |
+| `test/go/group2_prc_algorithm/` | PRC→Algorithm测试 |
+| `test/go/group3_prc_ngd_ngg/` | PRC Watch正式NGD和Mock Algorithm测试 |
+| `test/go/group4_full_real_algorithm/` | 正式NGD到正式NGG完整真实算法测试 |
+| `test/go/scale_benchmark_3000/` | 3000 Node、720样本性能矩阵 |
+| `test/legacy/` | 早期三组展示型测试，当前标准测试以`test/go/`为准 |
 | `src/ngd_ngg_demo/` | 早期Python PRC/LLDP兼容实现，不是当前镜像入口 |
 | `src/ngd_ngg_algorithm_legacy_v030/` | 早期Python Algorithm兼容实现，不是当前镜像入口 |
 | `results/` | Kind实跑输出和日志证据 |
@@ -997,7 +997,7 @@ Algorithm `/readyz` 只表示 HTTP 服务可用，不表示静态快照就绪。
 6. `algorithm_server/go/algorithm/service.go`；
 7. `algorithm_server/python/algorithm_worker/pipeline.py`；
 8. 三个 Python 算法文件；
-9. `go_test_suites/group4_full_real_algorithm/group4_test.go`；
-10. `go_test_suites/scale_benchmark_3000/README.md`。
+9. `test/go/group4_full_real_algorithm/group4_test.go`；
+10. `test/go/scale_benchmark_3000/README.md`。
 
 这样可以先理解“需求如何变成 NGG”，再深入缓存、算法、调度插件和性能测试细节。

@@ -213,7 +213,7 @@ spec:
         runAsGroup: 65532
       containers:
         - name: algorithm
-          image: hlcsq-registry.cucloud.cn/paas/scheduling/algorithm:v0.6.0
+          image: hlcsq-registry.cucloud.cn/paas/scheduling/algorithm:v0.6.1
           imagePullPolicy: IfNotPresent
           env:
             # 必须改为Algorithm Pod在集群内可以访问的Prometheus地址。

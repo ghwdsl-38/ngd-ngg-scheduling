@@ -611,7 +611,7 @@ Bond active_slave变化
 | `algorithm_server/go/algorithm/cache.go` | 接收、规范化并校验`leafSwitchIds` |
 | `algorithm_server/go/algorithm/topology.go` | 从上层配置构建Leaf Domain并补齐完整拓扑 |
 | `algorithm_server/python/algorithm_worker/algorithms/topology.py` | 最窄分组层由Leaf Switch改为Leaf Domain |
-| `go_test_suites/common/fixture.go` | 为规模Fixture增加Leaf集合、链路和解析后Leaf Domain字段 |
+| `test/go/common/fixture.go` | 为规模Fixture增加Leaf集合、链路和解析后Leaf Domain字段 |
 | Group1～Group5 | 更新协议输入、预期输出和Hash并完成回归 |
 
 ---

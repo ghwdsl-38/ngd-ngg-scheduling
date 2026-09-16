@@ -17,7 +17,7 @@ docker run --rm \
   -w /workspace \
   golang:1.25.0 \
   sh -c 'go build -trimpath -ldflags="-s -w" -o /out/prc ./cmd'
-docker build --tag "${PRC_IMAGE}" --file "${ROOT_DIR}/Dockerfile.prc" "${ROOT_DIR}"
+docker build --tag "${PRC_IMAGE}" --file "${ROOT_DIR}/docker/prc/Dockerfile" "${ROOT_DIR}"
 docker image inspect "${PRC_IMAGE}" --format '{{.Id}} {{.RepoTags}}' |
   tee "${RESULTS_DIR}/prc-image.txt"
 docker save "${PRC_IMAGE}" -o "${IMAGES_DIR}/ngd-ngg-prc-v0.3.0.tar"

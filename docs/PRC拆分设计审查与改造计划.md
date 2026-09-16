@@ -384,7 +384,7 @@ src/algorithm_server/
 新增：
 
 ```text
-Dockerfile.algorithm
+docker/algorithm/Dockerfile
 config/algorithm/topology-profiles.yaml
 config/manager/algorithm-server.yaml
 config/network/algorithm-server-policy.yaml

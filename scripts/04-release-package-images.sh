@@ -31,7 +31,7 @@ docker build --platform linux/amd64 \
   --build-arg RELEASE_VERSION="${RELEASE_VERSION}" \
   --build-arg VCS_REF="${VCS_REF}" \
   --tag "${PRC_LOCAL_IMAGE}" \
-  --file "${ROOT_DIR}/Dockerfile.prc.release" "${ROOT_DIR}"
+  --file "${ROOT_DIR}/docker/prc/Dockerfile.release" "${ROOT_DIR}"
 
 log "构建本机amd64 Algorithm测试镜像: ${ALGORITHM_LOCAL_IMAGE}"
 docker build --platform linux/amd64 \
@@ -39,7 +39,7 @@ docker build --platform linux/amd64 \
   --build-arg RELEASE_VERSION="${RELEASE_VERSION}" \
   --build-arg VCS_REF="${VCS_REF}" \
   --tag "${ALGORITHM_LOCAL_IMAGE}" \
-  --file "${ROOT_DIR}/Dockerfile.algorithm.release" "${ROOT_DIR}"
+  --file "${ROOT_DIR}/docker/algorithm/Dockerfile.release" "${ROOT_DIR}"
 
 log "构建本机amd64 LLDP测试镜像: ${LLDP_LOCAL_IMAGE}"
 docker build --platform linux/amd64 \
@@ -47,7 +47,7 @@ docker build --platform linux/amd64 \
   --build-arg RELEASE_VERSION="${RELEASE_VERSION}" \
   --build-arg VCS_REF="${VCS_REF}" \
   --tag "${LLDP_LOCAL_IMAGE}" \
-  --file "${ROOT_DIR}/Dockerfile.lldp.release" "${ROOT_DIR}"
+  --file "${ROOT_DIR}/docker/lldp/Dockerfile.release" "${ROOT_DIR}"
 
 if ! docker buildx inspect "${BUILDX_BUILDER}" >/dev/null 2>&1; then
   log "创建隔离的Buildx builder: ${BUILDX_BUILDER}"
@@ -73,7 +73,7 @@ docker buildx build --builder "${BUILDX_BUILDER}" \
   --build-arg RELEASE_VERSION="${RELEASE_VERSION}" \
   --build-arg VCS_REF="${VCS_REF}" \
   --output "type=oci,dest=${PRC_ARCHIVE}" \
-  --file "${ROOT_DIR}/Dockerfile.prc.release" "${ROOT_DIR}"
+  --file "${ROOT_DIR}/docker/prc/Dockerfile.release" "${ROOT_DIR}"
 
 log "生成Algorithm amd64+arm64 OCI镜像包: ${ALGORITHM_ARCHIVE}"
 docker buildx build --builder "${BUILDX_BUILDER}" \
@@ -82,7 +82,7 @@ docker buildx build --builder "${BUILDX_BUILDER}" \
   --build-arg RELEASE_VERSION="${RELEASE_VERSION}" \
   --build-arg VCS_REF="${VCS_REF}" \
   --output "type=oci,dest=${ALGORITHM_ARCHIVE}" \
-  --file "${ROOT_DIR}/Dockerfile.algorithm.release" "${ROOT_DIR}"
+  --file "${ROOT_DIR}/docker/algorithm/Dockerfile.release" "${ROOT_DIR}"
 
 log "生成LLDP amd64+arm64 OCI镜像包: ${LLDP_ARCHIVE}"
 docker buildx build --builder "${BUILDX_BUILDER}" \
@@ -91,7 +91,7 @@ docker buildx build --builder "${BUILDX_BUILDER}" \
   --build-arg RELEASE_VERSION="${RELEASE_VERSION}" \
   --build-arg VCS_REF="${VCS_REF}" \
   --output "type=oci,dest=${LLDP_ARCHIVE}" \
-  --file "${ROOT_DIR}/Dockerfile.lldp.release" "${ROOT_DIR}"
+  --file "${ROOT_DIR}/docker/lldp/Dockerfile.release" "${ROOT_DIR}"
 
 sha256sum "${PRC_ARCHIVE}" "${ALGORITHM_ARCHIVE}" "${LLDP_ARCHIVE}" >"${IMAGES_DIR}/SHA256SUMS"
 docker image inspect "${PRC_LOCAL_IMAGE}" "${ALGORITHM_LOCAL_IMAGE}" "${LLDP_LOCAL_IMAGE}" \

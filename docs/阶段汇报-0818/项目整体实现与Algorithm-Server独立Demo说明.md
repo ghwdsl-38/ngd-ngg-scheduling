@@ -186,11 +186,11 @@ stateDiagram-v2
 |---|---|
 | `README.md` | 项目入口、运行命令、版本和验证摘要 |
 | `Makefile` | 把检查、构建、部署、测试和演示脚本组织为统一命令 |
-| `Dockerfile.algorithm` | 构建 Go Algorithm 主进程和 Python Worker 的 `v0.4.0` 镜像 |
-| `Dockerfile.prc` | 构建正式 Go PRC 镜像 |
-| `Dockerfile.lldp-agent` | 构建 Go LLDP Agent 镜像 |
+| `docker/algorithm/Dockerfile` | 构建 Go Algorithm 主进程和 Python Worker 的 `v0.4.0` 镜像 |
+| `docker/prc/Dockerfile` | 构建正式 Go PRC 镜像 |
+| `docker/lldp/Dockerfile` | 构建 Go LLDP Agent 镜像 |
 | `Dockerfile.kubescheduler` | 构建包含 NGG Filter 插件的 kube-scheduler |
-| `Dockerfile.prc-python-legacy` | 旧 Python PRC 对照入口，不是正式部署路径 |
+| `docker/prc/Dockerfile-python-legacy` | 旧 Python PRC 对照入口，不是正式部署路径 |
 | `.dockerignore` | 控制镜像构建上下文，排除结果、缓存等无关文件 |
 
 ### 7.2 Kind 与 CRD
@@ -344,7 +344,7 @@ Docker ENTRYPOINT /app/algorithm-server
 ```text
 make algorithm
 → scripts/04b-build-algorithm.sh
-→ Dockerfile.algorithm
+→ docker/algorithm/Dockerfile
 → kind load docker-image ngd-ngg-algorithm:v0.4.0
 → scripts/05a-deploy-algorithm.sh
 → config/manager/algorithm.yaml
@@ -726,7 +726,7 @@ Algorithm API Server 1000 节点独立演示：PASS
 
 ```bash
 cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
-docker build -t ngd-ngg-algorithm:v0.4.0 -f Dockerfile.algorithm .
+docker build -t ngd-ngg-algorithm:v0.4.0 -f docker/algorithm/Dockerfile .
 docker run --rm --name ngd-ngg-algorithm-standalone \
   -p 18080:8080 \
   -e PROMETHEUS_URL= \
@@ -763,11 +763,11 @@ curl http://127.0.0.1:18080/internal/v1/cache/status
 | `.gitignore` | 正式 | 忽略本地缓存、编译产物、运行结果和临时文件 |
 | `README.md` | 正式 | 项目首页，给出目标、目录、运行命令、版本和验收摘要 |
 | `Makefile` | 正式 | 把测试、构建、部署、监控和两类Demo统一为`make`目标 |
-| `Dockerfile.algorithm` | 正式 | 多阶段构建Go Algorithm主服务和Python Worker镜像 |
-| `Dockerfile.prc` | 正式 | 构建Go PRC Controller镜像 |
-| `Dockerfile.lldp-agent` | 正式 | 构建Go LLDP Agent镜像 |
+| `docker/algorithm/Dockerfile` | 正式 | 多阶段构建Go Algorithm主服务和Python Worker镜像 |
+| `docker/prc/Dockerfile` | 正式 | 构建Go PRC Controller镜像 |
+| `docker/lldp/Dockerfile` | 正式 | 构建Go LLDP Agent镜像 |
 | `Dockerfile.kubescheduler` | 正式 | 构建带NGG Filter的自定义kube-scheduler镜像 |
-| `Dockerfile.prc-python-legacy` | 历史 | 旧Python PRC镜像入口，仅供迁移对照 |
+| `docker/prc/Dockerfile-python-legacy` | 历史 | 旧Python PRC镜像入口，仅供迁移对照 |
 | `PRC与Algorithm-API-Server技术方案_副本.md` | 历史 | 需求方提出PRC拆分和Algorithm API Server边界时的方案副本 |
 
 ## A.2 `docs/` 文档

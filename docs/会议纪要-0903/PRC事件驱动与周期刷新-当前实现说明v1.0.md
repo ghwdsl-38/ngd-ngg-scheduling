@@ -78,7 +78,7 @@ Prometheus 指标不经过 PRC，由 Algorithm Server 自己定时读取并缓�
 | 静态快照共享状态 | `prc/pkg/controller/snapshot.go` | 保存Algorithm已经确认的snapshotId及Ready状态 |
 | Algorithm HTTP客户端 | `prc/pkg/controller/algorithm_client.go` | 调用静态快照和任务计算HTTP接口，并记录调试交换数据 |
 | PRC RBAC | `config/rbac/prc.yaml` | 定义PRC读取Node/Pod/NGD、写Status、创建更新删除NGG等权限 |
-| 生命周期集成测试 | `go_test_suites/group5_prc_refresh_lifecycle/group5_test.go` | 验证创建、周期刷新、修改、字段隔离和删除 |
+| 生命周期集成测试 | `test/go/group5_prc_refresh_lifecycle/group5_test.go` | 验证创建、周期刷新、修改、字段隔离和删除 |
 
 ### 3.1 启动与注册过程
 
@@ -328,7 +328,7 @@ Mock部分只有 Kubernetes运行环境、Prometheus数据和输入节点；PRC�
 ```bash
 cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
 . ./scripts/go-test-env.sh
-go test -p=1 ./go_test_suites/group4_full_real_algorithm \
+go test -p=1 ./test/go/group4_full_real_algorithm \
   -run '^TestGroup4_' -v -count=1 -timeout=10m
 ```
 
@@ -351,7 +351,7 @@ Group5 在 Group4 真实链路基础上继续验证：
 ```bash
 cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
 . ./scripts/go-test-env.sh
-go test -p=1 ./go_test_suites/group5_prc_refresh_lifecycle \
+go test -p=1 ./test/go/group5_prc_refresh_lifecycle \
   -run '^TestGroup5_' -v -count=1 -timeout=10m
 ```
 
@@ -369,7 +369,7 @@ go test -p=1 ./go_test_suites/group5_prc_refresh_lifecycle \
 每次运行的证据输出位于：
 
 ```text
-go_test_suites/group5_prc_refresh_lifecycle/results/<timestamp>/actual/
+test/go/group5_prc_refresh_lifecycle/results/<timestamp>/actual/
 ├── 01-created-ngd.yaml
 ├── 02-initial-ngg.yaml
 ├── 03-periodic-ngg.yaml

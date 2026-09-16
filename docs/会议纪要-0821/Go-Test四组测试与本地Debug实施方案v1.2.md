@@ -67,7 +67,7 @@ flowchart TD
 测试在项目根目录下建立独立Go模块，与 `prc`、`algorithm_server` 平级。测试模块通过本地Go Workspace引用两个生产模块，不归属于任何一个业务组件：
 
 ```text
-go_test_suites/
+test/go/
 ├── go.mod
 ├── README.md
 ├── common/
@@ -149,7 +149,7 @@ go_test_suites/
 
 管理规则：
 
-- `go_test_suites`具有独立 `go.mod`，测试依赖不会改变PRC或Algorithm的运行入口；
+- `test/go`具有独立 `go.mod`，测试依赖不会改变PRC或Algorithm的运行入口；
 - `testdata/input`和`testdata/expected`纳入Git；
 - `actual`由测试运行时生成，通过 `.gitignore` 排除；
 - 测试失败时仍保留Actual，便于现场查看；
@@ -316,7 +316,7 @@ func TestGroup3_PRCWatchesNGDAndCreatesNGG(t *testing.T)
 当前对应代码：
 
 - PRC Manager/Reconciler：[`prc/internal/controller/prc_controller.go`](../../prc/internal/controller/prc_controller.go)
-- 当前envtest参考实现：[`test_suites/group2_prc/runner/main.go`](../../test_suites/group2_prc/runner/main.go)
+- 当前envtest参考实现：[`test/legacy/group2_prc/runner/main.go`](../../test/legacy/group2_prc/runner/main.go)
 
 ### 7.2 执行过程
 
@@ -620,10 +620,10 @@ PRC当前已经支持注入 `AlgorithmURL` 和 `HTTPClient`：第三组接入Moc
 go.work
 ├── ./algorithm_server/go
 ├── ./prc
-└── ./go_test_suites
+└── ./test/go
 ```
 
-`go_test_suites/go.mod`只声明本地测试需要的PRC、Algorithm、controller-runtime和比较工具依赖。生产镜像仍分别从PRC和Algorithm模块构建。
+`test/go/go.mod`只声明本地测试需要的PRC、Algorithm、controller-runtime和比较工具依赖。生产镜像仍分别从PRC和Algorithm模块构建。
 
 ## 12. 本地Debug环境
 
@@ -665,16 +665,16 @@ Go Debug可以进入PRC和Go Algorithm代码。Python Worker是独立子进程�
 ```bash
 cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
 
-go test ./go_test_suites/group1_algorithm_worker -v -count=1
-go test ./go_test_suites/group2_prc_algorithm -v -count=1
-go test ./go_test_suites/group3_prc_ngd_ngg -v -count=1
-go test ./go_test_suites/group4_full_real_algorithm -v -count=1
+go test ./test/go/group1_algorithm_worker -v -count=1
+go test ./test/go/group2_prc_algorithm -v -count=1
+go test ./test/go/group3_prc_ngd_ngg -v -count=1
+go test ./test/go/group4_full_real_algorithm -v -count=1
 ```
 
 单独运行指定测试：
 
 ```bash
-go test ./go_test_suites/group1_algorithm_worker \
+go test ./test/go/group1_algorithm_worker \
   -run '^TestGroup1_GoAlgorithmCallsPythonWorker$' \
   -v -count=1
 ```
@@ -682,7 +682,7 @@ go test ./go_test_suites/group1_algorithm_worker \
 Delve Debug：
 
 ```bash
-dlv test ./go_test_suites/group1_algorithm_worker -- \
+dlv test ./test/go/group1_algorithm_worker -- \
   -test.run '^TestGroup1_GoAlgorithmCallsPythonWorker$' \
   -test.v
 ```
@@ -690,7 +690,7 @@ dlv test ./go_test_suites/group1_algorithm_worker -- \
 第四组完整链路Debug：
 
 ```bash
-dlv test ./go_test_suites/group4_full_real_algorithm -- \
+dlv test ./test/go/group4_full_real_algorithm -- \
   -test.run '^TestGroup4_PRCWatchesNGDCallsRealAlgorithmAndCreatesNGG$' \
   -test.v
 ```
