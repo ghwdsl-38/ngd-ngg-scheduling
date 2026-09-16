@@ -326,6 +326,12 @@ func PreparePythonRequest(payload map[string]any) (*PreparedPythonRequest, error
 	if err := json.Unmarshal(raw, &typed); err != nil {
 		return nil, err
 	}
+	normalizedRequest, normalizedSnapshot, apiErr := normalizeWorkerResources(typed.Request, typed.StaticSnapshot)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	typed.Request = normalizedRequest
+	typed.StaticSnapshot = normalizedSnapshot
 	return &PreparedPythonRequest{payload: typed}, nil
 }
 

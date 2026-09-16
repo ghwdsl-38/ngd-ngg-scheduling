@@ -8,8 +8,8 @@
           "nodeName": "worker-0800",
           "nodeUID": "uid:worker-0800",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 95,
           "topology": {
@@ -42,8 +42,8 @@
           "nodeName": "worker-0790",
           "nodeUID": "uid:worker-0790",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 94,
           "topology": {
@@ -76,8 +76,8 @@
           "nodeName": "worker-0791",
           "nodeUID": "uid:worker-0791",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 92,
           "topology": {
@@ -110,8 +110,8 @@
           "nodeName": "worker-0781",
           "nodeUID": "uid:worker-0781",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 91,
           "topology": {
@@ -144,8 +144,8 @@
           "nodeName": "worker-0782",
           "nodeUID": "uid:worker-0782",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 90,
           "topology": {
@@ -178,8 +178,8 @@
           "nodeName": "worker-0793",
           "nodeUID": "uid:worker-0793",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 88,
           "topology": {
@@ -212,8 +212,8 @@
           "nodeName": "worker-0799",
           "nodeUID": "uid:worker-0799",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 88,
           "topology": {
@@ -246,8 +246,8 @@
           "nodeName": "worker-0784",
           "nodeUID": "uid:worker-0784",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 86,
           "topology": {
@@ -280,8 +280,8 @@
           "nodeName": "worker-0788",
           "nodeUID": "uid:worker-0788",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 86,
           "topology": {
@@ -314,8 +314,8 @@
           "nodeName": "worker-0794",
           "nodeUID": "uid:worker-0794",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 86,
           "topology": {
@@ -356,8 +356,8 @@
           "nodeName": "worker-0238",
           "nodeUID": "uid:worker-0238",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 96,
           "topology": {
@@ -390,8 +390,8 @@
           "nodeName": "worker-0239",
           "nodeUID": "uid:worker-0239",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 94,
           "topology": {
@@ -424,8 +424,8 @@
           "nodeName": "worker-0229",
           "nodeUID": "uid:worker-0229",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 93,
           "topology": {
@@ -458,8 +458,8 @@
           "nodeName": "worker-0230",
           "nodeUID": "uid:worker-0230",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 91,
           "topology": {
@@ -492,8 +492,8 @@
           "nodeName": "worker-0221",
           "nodeUID": "uid:worker-0221",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 89,
           "topology": {
@@ -526,8 +526,8 @@
           "nodeName": "worker-0226",
           "nodeUID": "uid:worker-0226",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 87,
           "topology": {
@@ -560,8 +560,8 @@
           "nodeName": "worker-0232",
           "nodeUID": "uid:worker-0232",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 87,
           "topology": {
@@ -594,8 +594,8 @@
           "nodeName": "worker-0223",
           "nodeUID": "uid:worker-0223",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 85,
           "topology": {
@@ -628,8 +628,8 @@
           "nodeName": "worker-0227",
           "nodeUID": "uid:worker-0227",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 85,
           "topology": {
@@ -662,8 +662,8 @@
           "nodeName": "worker-0233",
           "nodeUID": "uid:worker-0233",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 85,
           "topology": {
@@ -704,8 +704,8 @@
           "nodeName": "worker-0314",
           "nodeUID": "uid:worker-0314",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 95,
           "topology": {
@@ -738,8 +738,8 @@
           "nodeName": "worker-0305",
           "nodeUID": "uid:worker-0305",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 92,
           "topology": {
@@ -772,8 +772,8 @@
           "nodeName": "worker-0316",
           "nodeUID": "uid:worker-0316",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 91,
           "topology": {
@@ -806,8 +806,8 @@
           "nodeName": "worker-0301",
           "nodeUID": "uid:worker-0301",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 89,
           "topology": {
@@ -840,8 +840,8 @@
           "nodeName": "worker-0307",
           "nodeUID": "uid:worker-0307",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 89,
           "topology": {
@@ -874,8 +874,8 @@
           "nodeName": "worker-0317",
           "nodeUID": "uid:worker-0317",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 89,
           "topology": {
@@ -908,8 +908,8 @@
           "nodeName": "worker-0302",
           "nodeUID": "uid:worker-0302",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 87,
           "topology": {
@@ -942,8 +942,8 @@
           "nodeName": "worker-0308",
           "nodeUID": "uid:worker-0308",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 87,
           "topology": {
@@ -976,8 +976,8 @@
           "nodeName": "worker-0313",
           "nodeUID": "uid:worker-0313",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 86,
           "topology": {
@@ -1010,8 +1010,8 @@
           "nodeName": "worker-0319",
           "nodeUID": "uid:worker-0319",
           "resources": {
-            "cpuAvailable": "32",
-            "memoryAvailable": "137438953472"
+            "cpuMilli": "32000",
+            "memoryBytes": "137438953472"
           },
           "score": 85,
           "topology": {

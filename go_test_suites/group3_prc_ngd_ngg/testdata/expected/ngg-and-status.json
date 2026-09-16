@@ -70,8 +70,8 @@
     "status": {
       "phase": "Active",
       "resolvedCapacity": {
-        "cpu": "96",
-        "memory": "384Gi",
+        "cpu": "96000m",
+        "memory": "393216Mi",
         "nodes": 3
       }
     }

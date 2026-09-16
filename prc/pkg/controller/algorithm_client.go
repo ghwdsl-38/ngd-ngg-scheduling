@@ -45,6 +45,24 @@ type StaticCacheStatus struct {
 	NodeCount        int    `json:"nodeCount"`
 }
 
+type AlgorithmAPIError struct {
+	RequestID  string `json:"requestId"`
+	Code       string `json:"code"`
+	Message    string `json:"message"`
+	Retryable  bool   `json:"retryable"`
+	StatusCode int    `json:"-"`
+}
+
+func (e *AlgorithmAPIError) Error() string {
+	return e.Message
+}
+
+type AlgorithmFailure struct {
+	Code    string         `json:"code"`
+	Message string         `json:"message"`
+	Details map[string]any `json:"details,omitempty"`
+}
+
 type CandidateNode struct {
 	NodeUID   string            `json:"nodeUID"`
 	NodeName  string            `json:"nodeName"`
@@ -62,21 +80,22 @@ type CandidateGroup struct {
 }
 
 type AlgorithmResponse struct {
-	RequestID                string           `json:"requestId"`
-	TaskUID                  string           `json:"taskUID"`
-	NGDUID                   string           `json:"ngdUID"`
-	NGDGeneration            int64            `json:"ngdGeneration"`
-	AlgorithmBootID          string           `json:"algorithmBootId"`
-	NodeStaticSnapshotID     string           `json:"nodeStaticSnapshotId"`
-	SchedulerStateSnapshotID string           `json:"schedulerStateSnapshotId"`
-	MetricSnapshotID         string           `json:"metricSnapshotId"`
-	MetricSnapshotCapturedAt string           `json:"metricSnapshotCapturedAt"`
-	TopologySnapshotID       string           `json:"topologySnapshotId"`
-	Degraded                 bool             `json:"degraded"`
-	Warnings                 []string         `json:"warnings"`
-	Status                   string           `json:"status"`
-	CandidateNodeGroups      []CandidateGroup `json:"candidateNodeGroups"`
-	PipelineTrace            []map[string]any `json:"pipelineTrace,omitempty"`
+	RequestID                string            `json:"requestId"`
+	TaskUID                  string            `json:"taskUID"`
+	NGDUID                   string            `json:"ngdUID"`
+	NGDGeneration            int64             `json:"ngdGeneration"`
+	AlgorithmBootID          string            `json:"algorithmBootId"`
+	NodeStaticSnapshotID     string            `json:"nodeStaticSnapshotId"`
+	SchedulerStateSnapshotID string            `json:"schedulerStateSnapshotId"`
+	MetricSnapshotID         string            `json:"metricSnapshotId"`
+	MetricSnapshotCapturedAt string            `json:"metricSnapshotCapturedAt"`
+	TopologySnapshotID       string            `json:"topologySnapshotId"`
+	Degraded                 bool              `json:"degraded"`
+	Warnings                 []string          `json:"warnings"`
+	Status                   string            `json:"status"`
+	Failure                  *AlgorithmFailure `json:"failure,omitempty"`
+	CandidateNodeGroups      []CandidateGroup  `json:"candidateNodeGroups"`
+	PipelineTrace            []map[string]any  `json:"pipelineTrace,omitempty"`
 }
 
 func (a AlgorithmClient) putStatic(ctx context.Context, snapshotID string, body any) (StaticAck, error) {
@@ -145,6 +164,11 @@ func (a AlgorithmClient) do(ctx context.Context, method, path string, body, resu
 		a.Recorder(AlgorithmExchange{Method: method, Path: path, Request: raw, Response: responseBody, StatusCode: response.StatusCode, Duration: time.Since(started)})
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		var apiError AlgorithmAPIError
+		if err := json.Unmarshal(responseBody, &apiError); err == nil && apiError.Code != "" {
+			apiError.StatusCode = response.StatusCode
+			return &apiError
+		}
 		return fmt.Errorf("Algorithm HTTP %d: %s", response.StatusCode, string(responseBody))
 	}
 	if err := json.Unmarshal(responseBody, result); err != nil {

@@ -9,7 +9,7 @@ from typing import Any
 from ..context import AllocationContext
 from ..errors import InvalidAlgorithmParameters, RequiredMetricsNotReady
 from ..models import AlgorithmStage
-from ..quantity import parse_resources
+from ..quantity import parse_normalized_resources
 
 
 class LoadBalanceAlgorithm:
@@ -127,7 +127,9 @@ class LoadBalanceAlgorithm:
                         -item["score"], item["nodeName"], item["nodeUID"]
                     )
                 )
-                nodes = self._select_resource_pool_nodes(context, nodes)
+                nodes, diagnostic = self._select_resource_pool_nodes(context, nodes)
+                diagnostic["groupId"] = group["groupId"]
+                context.diagnostics.setdefault("resourceGroups", []).append(diagnostic)
                 if not nodes:
                     continue
                 average = sum(node["score"] for node in nodes) / len(nodes)
@@ -172,9 +174,9 @@ class LoadBalanceAlgorithm:
         metrics: dict[str, float] | None,
         profile: dict[str, Any],
     ) -> dict[str, Any]:
-        allocatable = node.get("_allocatableResources")
+        allocatable = node.get("_allocatableResources", {})
         if not isinstance(allocatable, dict):
-            allocatable = parse_resources(node.get("allocatable", {}))
+            raise InvalidAlgorithmParameters("normalized allocatable resources are missing")
         available = node.get("availableResources", allocatable)
         resource_ratios = [
             min(1.0, max(0.0, available.get(name, 0) / capacity))
@@ -213,12 +215,8 @@ class LoadBalanceAlgorithm:
         }
         if "cpu" in available or "memory" in available:
             result["resources"] = {
-                "cpuAvailable": LoadBalanceAlgorithm._format_resource(
-                    "cpu", available.get("cpu", 0)
-                ),
-                "memoryAvailable": LoadBalanceAlgorithm._format_resource(
-                    "memory", available.get("memory", 0)
-                ),
+                "cpuMilli": str(available.get("cpu", 0)),
+                "memoryBytes": str(available.get("memory", 0)),
             }
         return result
 
@@ -226,20 +224,18 @@ class LoadBalanceAlgorithm:
     def _select_resource_pool_nodes(
         context: AllocationContext,
         ranked_nodes: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        """按得分选 Node，满足资源下限且不突破 maxNodes/quota 上限。"""
-
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         ngd = context.request.get("ngd", {})
-        minimum = parse_resources(ngd.get("minResources", {}))
-        quota = parse_resources(ngd.get("quota", {}))
+        normalized = ngd.get("normalizedResources", {})
+        minimum = parse_normalized_resources(
+            normalized.get("minResources", {})
+        )
+        quota = parse_normalized_resources(normalized.get("quota", {}))
         max_nodes = int(ngd.get("maxNodes", len(ranked_nodes)))
-        if max_nodes < 1:
-            return []
-        if any(minimum.get(name, 0) > limit for name, limit in quota.items()):
-            return []
 
         selected: list[dict[str, Any]] = []
         totals: dict[str, int] = {}
+        quota_rejected = 0
         for node in ranked_nodes:
             if len(selected) >= max_nodes:
                 break
@@ -249,28 +245,62 @@ class LoadBalanceAlgorithm:
                 for name, value in available.items()
             }
             if any(proposed.get(name, 0) > limit for name, limit in quota.items()):
+                quota_rejected += 1
                 continue
             selected.append(node)
             totals = proposed
-            if minimum and all(
-                totals.get(name, 0) >= value
-                for name, value in minimum.items()
-            ):
+            if minimum and LoadBalanceAlgorithm._satisfies(totals, minimum):
                 break
 
-        if minimum and not all(
-            totals.get(name, 0) >= value for name, value in minimum.items()
-        ):
-            return []
+        feasible = not minimum or LoadBalanceAlgorithm._satisfies(totals, minimum)
+        diagnostic: dict[str, Any] = {
+            "eligibleNodeCount": len(ranked_nodes),
+            "selectedNodeCount": len(selected),
+            "maxNodes": max_nodes,
+            "quotaRejectedNodeCount": quota_rejected,
+            "required": LoadBalanceAlgorithm._resource_strings(minimum),
+            "quota": LoadBalanceAlgorithm._resource_strings(quota),
+            "achievable": LoadBalanceAlgorithm._resource_strings(totals),
+            "code": "",
+        }
+        if not feasible:
+            without_quota = LoadBalanceAlgorithm._sum_resources(
+                ranked_nodes[:max_nodes]
+            )
+            all_resources = LoadBalanceAlgorithm._sum_resources(ranked_nodes)
+            diagnostic["achievable"] = LoadBalanceAlgorithm._resource_strings(
+                without_quota
+            )
+            if quota and LoadBalanceAlgorithm._satisfies(without_quota, minimum):
+                diagnostic["code"] = "QUOTA_PREVENTS_MINIMUM"
+            elif (
+                max_nodes < len(ranked_nodes)
+                and LoadBalanceAlgorithm._satisfies(all_resources, minimum)
+            ):
+                diagnostic["code"] = "MAX_NODES_PREVENTS_MINIMUM"
+            else:
+                diagnostic["code"] = "INSUFFICIENT_RESOURCES"
+            return [], diagnostic
+
         for node in selected:
             node.pop("_availableResources", None)
-        return selected
+        return selected, diagnostic
 
     @staticmethod
-    def _format_resource(name: str, value: int) -> str:
-        if name == "cpu":
-            return str(value // 1000) if value % 1000 == 0 else f"{value}m"
-        return str(value)
+    def _satisfies(values: dict[str, int], minimum: dict[str, int]) -> bool:
+        return all(values.get(name, 0) >= value for name, value in minimum.items())
+
+    @staticmethod
+    def _sum_resources(nodes: list[dict[str, Any]]) -> dict[str, int]:
+        totals: dict[str, int] = {}
+        for node in nodes:
+            for name, value in node.get("_availableResources", {}).items():
+                totals[name] = totals.get(name, 0) + int(value)
+        return totals
+
+    @staticmethod
+    def _resource_strings(values: dict[str, int]) -> dict[str, str]:
+        return {name: str(value) for name, value in values.items()}
 
     @staticmethod
     def _topology_quality(nodes: list[dict[str, Any]]) -> float:

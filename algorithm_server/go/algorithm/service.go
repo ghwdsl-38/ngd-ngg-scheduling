@@ -5,9 +5,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math"
-	"strconv"
-	"strings"
 	"time"
 )
 
@@ -59,6 +56,10 @@ func (s *service) allocate(ctx context.Context, request map[string]any) (map[str
 	}
 	log.Printf("component=algorithm event=topology_constraints_resolved requestId=%s constraintCount=%d warningCount=%d",
 		requestID, len(topologyConstraints), len(constraintWarnings))
+	requestCopy, resolvedStatic, resourceErr := normalizeWorkerResources(requestCopy, resolvedStatic)
+	if resourceErr != nil {
+		return nil, resourceErr
+	}
 	metric, degraded, warnings := s.metrics.resolve()
 	warnings = append(warnings, topologyWarnings...)
 	warnings = append(warnings, constraintWarnings...)
@@ -84,6 +85,11 @@ func (s *service) allocate(ctx context.Context, request map[string]any) (map[str
 		return nil, workerErr
 	}
 	groups := result.CandidateNodeGroups
+	if formatErr := formatCandidateResources(groups); formatErr != nil {
+		formatErr.RequestID = requestID
+		return nil, formatErr
+	}
+	failure := formatWorkerFailure(result.Failure)
 	topGroupID := ""
 	topGroupNodeCount := 0
 	if len(groups) > 0 {
@@ -122,7 +128,11 @@ func (s *service) allocate(ctx context.Context, request map[string]any) (map[str
 		response["schedulerStateSnapshotId"] = stringValue(value)
 	}
 	if len(groups) == 0 {
-		response["reason"] = "NO_FEASIBLE_NODE_GROUP"
+		if failure == nil {
+			failure = &allocationFailure{Code: "NO_FEASIBLE_NODE_GROUP", Message: "Algorithm returned no feasible node group"}
+		}
+		response["reason"] = failure.Code
+		response["failure"] = failure
 	}
 	return response, nil
 }
@@ -221,7 +231,6 @@ func ignoredNGDWarnings(request map[string]any) []string {
 }
 
 func resourcesFull(allocatable, requested any) bool {
-	// 只有所有声明的正容量资源都达到上限时才认为该节点整体占满。
 	capacity, ok1 := allocatable.(map[string]any)
 	used, ok2 := requested.(map[string]any)
 	if !ok1 || !ok2 || len(capacity) == 0 {
@@ -229,39 +238,17 @@ func resourcesFull(allocatable, requested any) bool {
 	}
 	hasPositive := false
 	for name, raw := range capacity {
-		limit := quantity(stringValue(raw), name)
-		if limit <= 0 {
+		limit, err := parseQuantityValue(stringValue(raw), name)
+		if err != nil || limit <= 0 {
 			continue
 		}
 		hasPositive = true
-		if quantity(stringValue(used[name]), name) < limit {
+		consumed, err := parseQuantityValue(stringValue(used[name]), name)
+		if err != nil || consumed < limit {
 			return false
 		}
 	}
 	return hasPositive
-}
-
-func quantity(raw, resource string) float64 {
-	if raw == "" {
-		return 0
-	}
-	if resource == "cpu" {
-		if strings.HasSuffix(raw, "m") {
-			value, _ := strconv.ParseFloat(strings.TrimSuffix(raw, "m"), 64)
-			return value
-		}
-		value, _ := strconv.ParseFloat(raw, 64)
-		return value * 1000
-	}
-	multipliers := map[string]float64{"Ki": math.Pow(1024, 1), "Mi": math.Pow(1024, 2), "Gi": math.Pow(1024, 3), "Ti": math.Pow(1024, 4)}
-	for suffix, multiplier := range multipliers {
-		if strings.HasSuffix(raw, suffix) {
-			value, _ := strconv.ParseFloat(strings.TrimSuffix(raw, suffix), 64)
-			return value * multiplier
-		}
-	}
-	value, _ := strconv.ParseFloat(raw, 64)
-	return value
 }
 
 func copyMap(value map[string]any) map[string]any {

@@ -31,8 +31,20 @@ type workerPayload struct {
 	Warnings        []string        `json:"warnings"`
 }
 
+type workerFailure struct {
+	Code    string         `json:"code"`
+	Details map[string]any `json:"details,omitempty"`
+}
+
+type allocationFailure struct {
+	Code    string         `json:"code"`
+	Message string         `json:"message"`
+	Details map[string]any `json:"details,omitempty"`
+}
+
 type workerResult struct {
 	CandidateNodeGroups []map[string]any `json:"candidateNodeGroups"`
+	Failure             *workerFailure   `json:"failure,omitempty"`
 	// PipelineTrace 仅在调用方显式 debugTrace=true 时由 Python 返回。
 	PipelineTrace []map[string]any `json:"pipelineTrace,omitempty"`
 }

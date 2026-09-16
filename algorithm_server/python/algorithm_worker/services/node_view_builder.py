@@ -6,7 +6,7 @@ from typing import Any
 
 from ..context import AllocationContext
 from ..errors import InvalidRequest
-from ..quantity import parse_resources, subtract
+from ..quantity import parse_normalized_resources, subtract
 
 
 class NodeViewBuilder:
@@ -53,35 +53,45 @@ class NodeViewBuilder:
                 raise InvalidRequest("nodeUsageStates contains a malformed entry")
             usage[str(item.get("nodeUID", ""))] = item
         result: list[dict[str, Any]] = []
+        selector_matched = 0
+        topology_matched = 0
+        unavailable_matched = 0
         for node in context.static_snapshot.nodes:
             uid = str(node["nodeUID"])
             state = usage.get(uid, {})
-            if bool(state.get("inUse", False)):
-                continue
             labels = node.get("labels", {})
-            if not all(labels.get(key) == value for key, value in match_labels.items()):
+            labels_match = all(
+                labels.get(key) == value for key, value in match_labels.items()
+            ) and self._matches_expressions(labels, expressions)
+            if not labels_match:
                 continue
-            if not self._matches_expressions(labels, expressions):
-                continue
+            selector_matched += 1
             if not self._matches_topology(
                 node.get("topology", {}), topology_constraints
             ):
                 continue
-            capacity = parse_resources(node.get("allocatable", {}))
-            requested_raw = state.get("requestedResources", {})
-            if not isinstance(requested_raw, dict):
-                raise InvalidRequest(
-                    f"nodeUsageStates[{uid}].requestedResources must be an object"
-                )
-            available = subtract(capacity, parse_resources(requested_raw))
-            # 静态快照在一次计算中只读；这里只增加动态可用资源字段，浅拷贝
-            # 顶层字典即可，避免为每次请求深拷贝所有标签和拓扑子对象。
+            topology_matched += 1
+            if bool(state.get("inUse", False)):
+                unavailable_matched += 1
+                continue
+            capacity = parse_normalized_resources(
+                node.get("normalizedAllocatableResources", {})
+            )
+            requested_raw = state.get("normalizedRequestedResources", {})
+            available = subtract(
+                capacity, parse_normalized_resources(requested_raw)
+            )
             view = dict(node)
             view["availableResources"] = available
-            # 后续评分直接复用已解析容量，避免同一Node重复解析Quantity。
             view["_allocatableResources"] = capacity
             result.append(view)
-        # 固定排序使相同输入始终产生相同候选组和同分顺序。
+        context.diagnostics["filter"] = {
+            "inputNodeCount": len(context.static_snapshot.nodes),
+            "selectorMatchedNodeCount": selector_matched,
+            "topologyMatchedNodeCount": topology_matched,
+            "unavailableMatchedNodeCount": unavailable_matched,
+            "eligibleNodeCount": len(result),
+        }
         result.sort(
             key=lambda item: (str(item["nodeName"]), str(item["nodeUID"]))
         )

@@ -70,9 +70,57 @@ class AlgorithmWorker:
         )
         candidates = self.pipeline.run(context)
         result = {"candidateNodeGroups": candidates}
+        if not candidates:
+            result["failure"] = _unsatisfied_failure(context)
         if request.get("debugTrace") is True:
             result["pipelineTrace"] = context.pipeline_trace
         return result
+
+
+def _unsatisfied_failure(context: AllocationContext) -> dict[str, Any]:
+    filtering = context.diagnostics.get("filter", {})
+    input_count = int(filtering.get("inputNodeCount", 0))
+    selector_count = int(filtering.get("selectorMatchedNodeCount", 0))
+    topology_count = int(filtering.get("topologyMatchedNodeCount", 0))
+    eligible_count = int(filtering.get("eligibleNodeCount", 0))
+    if selector_count == 0:
+        return {
+            "code": "NODE_SELECTOR_NO_MATCH",
+            "details": {"inputNodeCount": str(input_count)},
+        }
+    if topology_count == 0:
+        return {
+            "code": "NO_NODES_IN_TOPOLOGY_SCOPE",
+            "details": {"selectorMatchedNodeCount": str(selector_count)},
+        }
+    if eligible_count == 0:
+        return {
+            "code": "ALL_MATCHING_NODES_UNAVAILABLE",
+            "details": {"matchingNodeCount": str(topology_count)},
+        }
+    resource_groups = context.diagnostics.get("resourceGroups", [])
+    failures = [item for item in resource_groups if item.get("code")]
+    if failures:
+        failures.sort(
+            key=lambda item: (
+                -int(item.get("selectedNodeCount", 0)),
+                str(item.get("groupId", "")),
+            )
+        )
+        details = dict(failures[0])
+        code = str(details.pop("code"))
+        details["eligibleNodeCount"] = str(eligible_count)
+        details["maxNodes"] = str(details.get("maxNodes", 0))
+        return {"code": code, "details": details}
+    if not context.node_groups:
+        return {
+            "code": "NO_TOPOLOGY_GROUP",
+            "details": {"eligibleNodeCount": str(eligible_count)},
+        }
+    return {
+        "code": "NO_FEASIBLE_NODE_GROUP",
+        "details": {"eligibleNodeCount": str(eligible_count)},
+    }
 
 
 def _error(exc: Exception, request_id: str) -> dict[str, Any]:

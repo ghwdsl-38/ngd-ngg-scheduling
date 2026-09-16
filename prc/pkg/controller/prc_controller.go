@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -136,6 +137,10 @@ func (r *DemandProcessor) reconcilePlatformDemand(ctx context.Context, demand *u
 	response, err := algorithm.calculate(ctx, algorithmRequest, timeout)
 	if err != nil {
 		log.Error(err, "Algorithm Server request failed", "requestId", requestID, "elapsedMs", elapsedMilliseconds(algorithmStarted))
+		var apiError *AlgorithmAPIError
+		if errors.As(err, &apiError) && !apiError.Retryable {
+			return r.failPlatformDemand(ctx, demand, apiError.Code, apiError.Message, false)
+		}
 		return r.failPlatformDemand(ctx, demand, "AlgorithmRequestFailed", err.Error(), true)
 	}
 	log.Info("received Algorithm Server result",
@@ -159,7 +164,8 @@ func (r *DemandProcessor) reconcilePlatformDemand(ctx context.Context, demand *u
 				return ctrl.Result{}, err
 			}
 		}
-		return r.failPlatformDemand(ctx, demand, "NoFeasibleGroup", "Algorithm returned no feasible topology group", false)
+		reason, message := algorithmFailureDetails(response)
+		return r.failPlatformDemand(ctx, demand, reason, message, false)
 	}
 
 	selected := response.CandidateNodeGroups[0]
@@ -364,7 +370,7 @@ func (r *DemandProcessor) setPlatformGrantStatus(ctx context.Context, grant *uns
 	for _, node := range selected.Nodes {
 		allowed[node.NodeName] = struct{}{}
 	}
-	var cpu, memory resource.Quantity
+	var cpuMilli, memoryBytes int64
 	byName := make(map[string]*corev1.Node, len(liveNodes))
 	for i := range liveNodes {
 		byName[liveNodes[i].Name] = &liveNodes[i]
@@ -374,21 +380,25 @@ func (r *DemandProcessor) setPlatformGrantStatus(ctx context.Context, grant *uns
 		memoryValue, memoryOK := candidate.Resources["memoryAvailable"]
 		if cpuOK && memoryOK {
 			if parsed, err := resource.ParseQuantity(cpuValue); err == nil {
-				cpu.Add(parsed)
+				cpuMilli += parsed.MilliValue()
 			}
 			if parsed, err := resource.ParseQuantity(memoryValue); err == nil {
-				memory.Add(parsed)
+				memoryBytes += parsed.Value()
 			}
 			continue
 		}
 		if node := byName[candidate.NodeName]; node != nil {
-			cpu.Add(node.Status.Allocatable[corev1.ResourceCPU])
-			memory.Add(node.Status.Allocatable[corev1.ResourceMemory])
+			cpuMilli += node.Status.Allocatable.Cpu().MilliValue()
+			memoryBytes += node.Status.Allocatable.Memory().Value()
 		}
 	}
 	status := map[string]any{
-		"phase":            "Active",
-		"resolvedCapacity": map[string]any{"nodes": int64(len(allowed)), "cpu": cpu.String(), "memory": memory.String()},
+		"phase": "Active",
+		"resolvedCapacity": map[string]any{
+			"nodes":  int64(len(allowed)),
+			"cpu":    fmt.Sprintf("%dm", cpuMilli),
+			"memory": fmt.Sprintf("%dMi", memoryBytes/(1024*1024)),
+		},
 	}
 	// status.consumer由消费方的独立field manager维护；PRC的Apply对象不携带该字段。
 	return applyStatus(ctx, r.Client, grant, status)
@@ -400,6 +410,20 @@ func (r *DemandProcessor) setPlatformGrantReturned(ctx context.Context, grant *u
 		"resolvedCapacity": map[string]any{"nodes": int64(0), "cpu": "0", "memory": "0"},
 	}
 	return applyStatus(ctx, r.Client, grant, status)
+}
+
+func algorithmFailureDetails(response AlgorithmResponse) (string, string) {
+	reason := "NO_FEASIBLE_NODE_GROUP"
+	message := "Algorithm returned no feasible node group"
+	if response.Failure != nil {
+		if response.Failure.Code != "" {
+			reason = response.Failure.Code
+		}
+		if response.Failure.Message != "" {
+			message = response.Failure.Message
+		}
+	}
+	return reason, message
 }
 
 func validateResponse(response AlgorithmResponse, requestID string, demand *unstructured.Unstructured, taskUID types.UID, staticID, stateID, bootID string, state []schedulerNodeState) error {

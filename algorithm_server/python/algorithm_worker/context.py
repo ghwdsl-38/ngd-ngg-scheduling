@@ -37,5 +37,6 @@ class AllocationContext:
     current_nodes: list[dict[str, Any]] = field(default_factory=list)
     node_groups: list[dict[str, Any]] = field(default_factory=list)
     candidates: list[dict[str, Any]] = field(default_factory=list)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
     # 只在请求显式 debugTrace=true 时填充，不参与算法决策。
     pipeline_trace: list[dict[str, Any]] = field(default_factory=list)
