@@ -1,0 +1,19 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  name: test-ngd-02-pinned-master2
+  labels:
+    scheduling.platform.example.io/scheduler: volcano
+    ngg.demo/test-suite: three-node
+spec:
+  schedulerName: volcano
+  maxNodes: 1
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: hl-tstmix7-paasmaster2
+  minResources:
+    cpu: "1"
+    memory: 1Gi
+  quota:
+    cpu: "110"
+    memory: 470Gi

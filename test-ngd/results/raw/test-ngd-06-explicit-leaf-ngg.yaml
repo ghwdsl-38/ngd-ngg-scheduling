@@ -1,0 +1,62 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupGrant
+metadata:
+  annotations:
+    scheduling.platform.example.io/demand-ref: test-ngd-06-explicit-leaf
+  creationTimestamp: "2026-09-16T03:38:09Z"
+  generation: 1
+  labels:
+    scheduling.platform.example.io/demand-uid: 0d6c7452
+    scheduling.platform.example.io/scheduler: volcano
+  name: ngg-test-ngd-06-explicit-leaf
+  ownerReferences:
+  - apiVersion: scheduling.platform.example.io/v1alpha1
+    controller: true
+    kind: NodeGroupDemand
+    name: test-ngd-06-explicit-leaf
+    uid: 0d6c7452-0310-4fd6-b2fe-4de5946efe39
+  resourceVersion: "394494674"
+  uid: 6e2c6ec2-8441-43e8-a8fe-cea507584c21
+spec:
+  demandRef: test-ngd-06-explicit-leaf
+  nodes:
+  - name: hl-tstmix7-paasmaster1
+    resources:
+      cpuAvailable: 101830m
+      memoryAvailable: "480657050026"
+    score: 94
+    topology:
+      borderSwitch: HB-HL-DC1-102-BORDER-DOMAIN-01
+      dataCenter: HB-HL-DC1
+      leafSwitch: pair-8e3df4c9cdcb
+      room: HB-HL-DC1-102
+  - name: hl-tstmix7-paasmaster3
+    resources:
+      cpuAvailable: 87430m
+      memoryAvailable: "466698406314"
+    score: 92
+    topology:
+      borderSwitch: HB-HL-DC1-102-BORDER-DOMAIN-01
+      dataCenter: HB-HL-DC1
+      leafSwitch: pair-8e3df4c9cdcb
+      room: HB-HL-DC1-102
+  - name: hl-tstmix7-paasmaster2
+    resources:
+      cpuAvailable: 71890m
+      memoryAvailable: "450791508394"
+    score: 91
+    topology:
+      borderSwitch: HB-HL-DC1-102-BORDER-DOMAIN-01
+      dataCenter: HB-HL-DC1
+      leafSwitch: pair-8e3df4c9cdcb
+      room: HB-HL-DC1-102
+  schedulerName: volcano
+  source: normal
+  timestamp: "2026-09-16T03:38:09.846930656Z"
+  version: v1
+status:
+  phase: Active
+  resolvedCapacity:
+    cpu: 261150m
+    memory: "1398146964734"
+    nodes: 3

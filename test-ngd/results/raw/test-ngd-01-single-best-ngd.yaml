@@ -1,0 +1,32 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"scheduling.platform.example.io/v1alpha1","kind":"NodeGroupDemand","metadata":{"annotations":{},"labels":{"ngg.demo/test-suite":"three-node","scheduling.platform.example.io/scheduler":"volcano"},"name":"test-ngd-01-single-best"},"spec":{"maxNodes":1,"minResources":{"cpu":"1","memory":"1Gi"},"nodeSelector":{"matchLabels":{"kubernetes.io/arch":"amd64"}},"quota":{"cpu":"110","memory":"470Gi"},"schedulerName":"volcano"}}
+  creationTimestamp: "2026-09-16T03:37:42Z"
+  generation: 1
+  labels:
+    ngg.demo/test-suite: three-node
+    scheduling.platform.example.io/scheduler: volcano
+  name: test-ngd-01-single-best
+  resourceVersion: "394494233"
+  uid: f1995908-c235-4ce4-a456-dffaa4f8c20f
+spec:
+  maxNodes: 1
+  minResources:
+    cpu: "1"
+    memory: 1Gi
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/arch: amd64
+  quota:
+    cpu: "110"
+    memory: 470Gi
+  schedulerName: volcano
+status:
+  grantRef: ngg-test-ngd-01-single-best
+  lastUpdated: "2026-09-16T03:37:42.78879241Z"
+  message: selectedGroup=leaf-domain:pair-8e3df4c9cdcb nodes=1
+  phase: Fulfilled
+  resolvedNodeCount: 1

@@ -1,0 +1,18 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  name: test-ngd-10-invalid-topology
+  labels:
+    scheduling.platform.example.io/scheduler: volcano
+    ngg.demo/test-suite: three-node
+spec:
+  schedulerName: volcano
+  maxNodes: 3
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/arch: amd64
+  minResources:
+    cpu: "1"
+    memory: 1Gi
+  topologyLabels:
+    topology.kubernetes.io/data-center: NOT-EXIST-DC

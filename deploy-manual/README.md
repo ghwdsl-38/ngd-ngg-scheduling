@@ -54,7 +54,7 @@ deploy-manual/secrets/lldp.kubeconfig
 3. 在 `config/network-topology.yaml` 中换成真实 Leaf 以上拓扑；
 4. 在 `20-algorithm.yaml` 中修改 Algorithm 镜像和 Prometheus 地址；
 5. 在 `30-prc.yaml` 中修改 PRC 镜像和 `CLUSTER_ID`；
-6. 在 `40-lldp-agent.yaml` 中确认 LLDP 镜像、Worker 选择器和容忍规则。
+6. 在 `40-lldp-agent.yaml` 中确认 LLDP 镜像和容忍规则。
 
 ### 第三步：安装 NGD、NGG CRD
 
@@ -204,14 +204,8 @@ PRC 在显式 Kubeconfig 模式下使用单副本并关闭 Leader Election：
 image: ghwdsl/ngd-ngg-scheduling:lldp-v0.6.2
 ```
 
-根据真实 Worker Label 修改：
-
-```yaml
-nodeSelector:
-  node-role.kubernetes.io/worker: ""
-```
-
-有 Taint 的 Worker 还要增加对应 `tolerations`。清单已经包含 LLDP 所需的：
+DaemonSet默认不使用`nodeSelector`，会尝试覆盖所有未被Taint阻止的Node。
+有其他Taint的Worker还要增加对应`tolerations`。清单已经包含LLDP所需的：
 
 - `hostNetwork: true`；
 - `NET_RAW`；

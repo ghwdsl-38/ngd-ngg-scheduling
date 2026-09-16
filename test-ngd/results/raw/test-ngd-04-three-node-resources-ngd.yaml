@@ -1,0 +1,32 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"scheduling.platform.example.io/v1alpha1","kind":"NodeGroupDemand","metadata":{"annotations":{},"labels":{"ngg.demo/test-suite":"three-node","scheduling.platform.example.io/scheduler":"volcano"},"name":"test-ngd-04-three-node-resources"},"spec":{"maxNodes":3,"minResources":{"cpu":"230","memory":"1100Gi"},"nodeSelector":{"matchLabels":{"kubernetes.io/arch":"amd64"}},"quota":{"cpu":"300","memory":"1400Gi"},"schedulerName":"volcano"}}
+  creationTimestamp: "2026-09-16T03:37:58Z"
+  generation: 1
+  labels:
+    ngg.demo/test-suite: three-node
+    scheduling.platform.example.io/scheduler: volcano
+  name: test-ngd-04-three-node-resources
+  resourceVersion: "394494482"
+  uid: 7a1afedf-9c21-428f-a387-752f1ec25d79
+spec:
+  maxNodes: 3
+  minResources:
+    cpu: "230"
+    memory: 1100Gi
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/arch: amd64
+  quota:
+    cpu: "300"
+    memory: 1400Gi
+  schedulerName: volcano
+status:
+  grantRef: ngg-test-ngd-04-three-node-resources
+  lastUpdated: "2026-09-16T03:37:59.115702216Z"
+  message: selectedGroup=leaf-domain:pair-8e3df4c9cdcb nodes=3
+  phase: Fulfilled
+  resolvedNodeCount: 3

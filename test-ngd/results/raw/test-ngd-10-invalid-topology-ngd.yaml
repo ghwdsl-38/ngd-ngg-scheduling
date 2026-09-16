@@ -1,0 +1,32 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"scheduling.platform.example.io/v1alpha1","kind":"NodeGroupDemand","metadata":{"annotations":{},"labels":{"ngg.demo/test-suite":"three-node","scheduling.platform.example.io/scheduler":"volcano"},"name":"test-ngd-10-invalid-topology"},"spec":{"maxNodes":3,"minResources":{"cpu":"1","memory":"1Gi"},"nodeSelector":{"matchLabels":{"kubernetes.io/arch":"amd64"}},"schedulerName":"volcano","topologyLabels":{"topology.kubernetes.io/data-center":"NOT-EXIST-DC"}}}
+  creationTimestamp: "2026-09-16T03:38:31Z"
+  generation: 1
+  labels:
+    ngg.demo/test-suite: three-node
+    scheduling.platform.example.io/scheduler: volcano
+  name: test-ngd-10-invalid-topology
+  resourceVersion: "394495092"
+  uid: 583c783b-76cd-4b89-9bee-b3be18d096f3
+spec:
+  maxNodes: 3
+  minResources:
+    cpu: "1"
+    memory: 1Gi
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/arch: amd64
+  schedulerName: volcano
+  topologyLabels:
+    topology.kubernetes.io/data-center: NOT-EXIST-DC
+status:
+  grantRef: ""
+  lastUpdated: "2026-09-16T03:38:31.548763559Z"
+  message: |
+    AlgorithmRequestFailed: Algorithm HTTP 400: {"requestId":"583c783b-76cd-4b89-9bee-b3be18d096f3-generation-1-state-0d67f9c9","code":"INVALID_TOPOLOGY_LABELS","message":"spec.topologyLabels dataCenter \"NOT-EXIST-DC\" is absent from the configured topology","retryable":false}
+  phase: Failed
+  resolvedNodeCount: 0

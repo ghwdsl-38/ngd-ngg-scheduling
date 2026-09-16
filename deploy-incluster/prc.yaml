@@ -1,0 +1,129 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prc
+  namespace: welkin-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ngd-ngg-prc
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch", "update"]
+  - apiGroups: ["scheduling.platform.example.io"]
+    resources: ["nodegroupdemands"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["scheduling.platform.example.io"]
+    resources: ["nodegroupdemands/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["scheduling.platform.example.io"]
+    resources: ["nodegroupgrants"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["scheduling.platform.example.io"]
+    resources: ["nodegroupgrants/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ngd-ngg-prc
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ngd-ngg-prc
+subjects:
+  - kind: ServiceAccount
+    name: prc
+    namespace: welkin-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-resource-controller
+  namespace: welkin-system
+  labels:
+    app.kubernetes.io/name: platform-resource-controller
+  annotations:
+    app.kubernetes.io/display-name: Platform Resource Controller
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ngd-ngg-platform-resource-controller
+  template:
+    metadata:
+      labels:
+        app: ngd-ngg-platform-resource-controller
+        app.kubernetes.io/name: platform-resource-controller
+      annotations:
+        app.kubernetes.io/display-name: Platform Resource Controller
+    spec:
+      serviceAccountName: prc
+      automountServiceAccountToken: true
+      nodeSelector:
+        kubernetes.io/hostname: hl-tstmix7-paasmaster3
+      tolerations:
+        - effect: NoSchedule
+          key: virtual-kubelet.io/provider
+          operator: Equal
+          value: dubhe
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: platform-resource-controller
+          image: hlcsq-registry.cucloud.cn/paas/scheduling/prc:v0.6.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --leader-elect=true
+            - --health-probe-bind-address=:8081
+            - --demand-refresh-interval=15s
+            - --max-concurrent-refreshes=5
+          env:
+            - name: ALGORITHM_URL
+              value: http://ngd-ngg-algorithm.welkin-system.svc:8080
+            - name: CLUSTER_ID
+              value: production-cluster
+          ports:
+            - name: health
+              containerPort: 8081
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

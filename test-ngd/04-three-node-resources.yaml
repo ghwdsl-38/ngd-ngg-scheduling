@@ -1,0 +1,19 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  name: test-ngd-04-three-node-resources
+  labels:
+    scheduling.platform.example.io/scheduler: volcano
+    ngg.demo/test-suite: three-node
+spec:
+  schedulerName: volcano
+  maxNodes: 3
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/arch: amd64
+  minResources:
+    cpu: "230"
+    memory: 1100Gi
+  quota:
+    cpu: "300"
+    memory: 1400Gi

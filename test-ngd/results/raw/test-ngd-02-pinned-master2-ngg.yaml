@@ -1,0 +1,42 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupGrant
+metadata:
+  annotations:
+    scheduling.platform.example.io/demand-ref: test-ngd-02-pinned-master2
+  creationTimestamp: "2026-09-16T03:37:48Z"
+  generation: 1
+  labels:
+    scheduling.platform.example.io/demand-uid: f9582f72
+    scheduling.platform.example.io/scheduler: volcano
+  name: ngg-test-ngd-02-pinned-master2
+  ownerReferences:
+  - apiVersion: scheduling.platform.example.io/v1alpha1
+    controller: true
+    kind: NodeGroupDemand
+    name: test-ngd-02-pinned-master2
+    uid: f9582f72-3272-4c44-bb04-f673f5033a0d
+  resourceVersion: "394494316"
+  uid: 8a23910c-a657-4b1b-a6e5-15bbd144a150
+spec:
+  demandRef: test-ngd-02-pinned-master2
+  nodes:
+  - name: hl-tstmix7-paasmaster2
+    resources:
+      cpuAvailable: 71890m
+      memoryAvailable: "450791508394"
+    score: 91
+    topology:
+      borderSwitch: HB-HL-DC1-102-BORDER-DOMAIN-01
+      dataCenter: HB-HL-DC1
+      leafSwitch: pair-8e3df4c9cdcb
+      room: HB-HL-DC1-102
+  schedulerName: volcano
+  source: normal
+  timestamp: "2026-09-16T03:37:39.844087846Z"
+  version: v1
+status:
+  phase: Active
+  resolvedCapacity:
+    cpu: 71890m
+    memory: "450791508394"
+    nodes: 1

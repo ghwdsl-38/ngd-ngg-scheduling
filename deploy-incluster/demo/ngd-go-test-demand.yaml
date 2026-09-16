@@ -1,0 +1,24 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  name: go-test-demand
+  labels:
+    scheduling.platform.example.io/scheduler: volcano
+spec:
+  maxNodes: 3
+  minResources:
+    cpu: "3"
+    memory: 3Gi
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/arch: amd64
+  quota:
+    cpu: "300"
+    memory: 1200Gi
+  schedulerName: volcano
+  topologyLabels:
+    topology.kubernetes.io/border-switch: requiredSame
+    topology.kubernetes.io/data-center: HB-HL-DC1
+    topology.kubernetes.io/leaf-switch: requiredSame
+    topology.kubernetes.io/room: HB-HL-DC1-102
+    topology.kubernetes.io/spine-switch: spine-01

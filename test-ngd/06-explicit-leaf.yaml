@@ -1,0 +1,21 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  name: test-ngd-06-explicit-leaf
+  labels:
+    scheduling.platform.example.io/scheduler: volcano
+    ngg.demo/test-suite: three-node
+spec:
+  schedulerName: volcano
+  maxNodes: 3
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/arch: amd64
+  minResources:
+    cpu: "200"
+    memory: 1000Gi
+  quota:
+    cpu: "300"
+    memory: 1400Gi
+  topologyLabels:
+    topology.kubernetes.io/leaf-switch: HB-HL-DC1-102-C03-44U-LTY-CSQ-LEAF-SW01-ZTE5960X

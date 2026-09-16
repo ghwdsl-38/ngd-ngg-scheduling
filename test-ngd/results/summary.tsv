@@ -1,0 +1,11 @@
+case	phase	resolvedNodes	message	nggPhase	nodes	cpu	memory
+test-ngd-01-single-best	Fulfilled	1	selectedGroup=leaf-domain:pair-8e3df4c9cdcb nodes=1	Active	hl-tstmix7-paasmaster1,	101830m	480657050026
+test-ngd-02-pinned-master2	Fulfilled	1	selectedGroup=leaf-domain:pair-8e3df4c9cdcb nodes=1	Active	hl-tstmix7-paasmaster2,	71890m	450791508394
+test-ngd-03-two-node-resources	Fulfilled	2	selectedGroup=leaf-domain:pair-8e3df4c9cdcb nodes=2	Active	hl-tstmix7-paasmaster1,hl-tstmix7-paasmaster3,	189260m	947355456340
+test-ngd-04-three-node-resources	Fulfilled	3	selectedGroup=leaf-domain:pair-8e3df4c9cdcb nodes=3	Active	hl-tstmix7-paasmaster1,hl-tstmix7-paasmaster3,hl-tstmix7-paasmaster2,	261150m	1398146964734
+test-ngd-05-topology-same-leaf	Fulfilled	3	selectedGroup=leaf-domain:pair-8e3df4c9cdcb nodes=3	Active	hl-tstmix7-paasmaster1,hl-tstmix7-paasmaster3,hl-tstmix7-paasmaster2,	261150m	1398146964734
+test-ngd-06-explicit-leaf	Fulfilled	3	selectedGroup=leaf-domain:pair-8e3df4c9cdcb nodes=3	Active	hl-tstmix7-paasmaster1,hl-tstmix7-paasmaster3,hl-tstmix7-paasmaster2,	261150m	1398146964734
+test-ngd-07-no-matching-selector	Failed	0	NoFeasibleGroup: Algorithm returned no feasible topology group				
+test-ngd-08-insufficient-resources	Failed	0	NoFeasibleGroup: Algorithm returned no feasible topology group				
+test-ngd-09-quota-too-small	Failed	0	NoFeasibleGroup: Algorithm returned no feasible topology group				
+test-ngd-10-invalid-topology	Failed	0	AlgorithmRequestFailed: Algorithm HTTP 400: {"requestId":"583c783b-76cd-4b89-9bee-b3be18d096f3-generation-1-state-0d67f9c9","code":"INVALID_TOPOLOGY_LABELS","message":"spec.topologyLabels dataCenter \"NOT-EXIST-DC\" is absent from the configured topology","retryable":false}				

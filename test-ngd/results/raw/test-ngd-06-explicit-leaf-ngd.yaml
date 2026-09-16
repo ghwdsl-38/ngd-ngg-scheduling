@@ -1,0 +1,34 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"scheduling.platform.example.io/v1alpha1","kind":"NodeGroupDemand","metadata":{"annotations":{},"labels":{"ngg.demo/test-suite":"three-node","scheduling.platform.example.io/scheduler":"volcano"},"name":"test-ngd-06-explicit-leaf"},"spec":{"maxNodes":3,"minResources":{"cpu":"200","memory":"1000Gi"},"nodeSelector":{"matchLabels":{"kubernetes.io/arch":"amd64"}},"quota":{"cpu":"300","memory":"1400Gi"},"schedulerName":"volcano","topologyLabels":{"topology.kubernetes.io/leaf-switch":"HB-HL-DC1-102-C03-44U-LTY-CSQ-LEAF-SW01-ZTE5960X"}}}
+  creationTimestamp: "2026-09-16T03:38:09Z"
+  generation: 1
+  labels:
+    ngg.demo/test-suite: three-node
+    scheduling.platform.example.io/scheduler: volcano
+  name: test-ngd-06-explicit-leaf
+  resourceVersion: "394494675"
+  uid: 0d6c7452-0310-4fd6-b2fe-4de5946efe39
+spec:
+  maxNodes: 3
+  minResources:
+    cpu: "200"
+    memory: 1000Gi
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/arch: amd64
+  quota:
+    cpu: "300"
+    memory: 1400Gi
+  schedulerName: volcano
+  topologyLabels:
+    topology.kubernetes.io/leaf-switch: HB-HL-DC1-102-C03-44U-LTY-CSQ-LEAF-SW01-ZTE5960X
+status:
+  grantRef: ngg-test-ngd-06-explicit-leaf
+  lastUpdated: "2026-09-16T03:38:10.029914503Z"
+  message: selectedGroup=leaf-domain:pair-8e3df4c9cdcb nodes=3
+  phase: Fulfilled
+  resolvedNodeCount: 3

@@ -1,0 +1,38 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"scheduling.platform.example.io/v1alpha1","kind":"NodeGroupDemand","metadata":{"annotations":{},"labels":{"ngg.demo/test-suite":"three-node","scheduling.platform.example.io/scheduler":"volcano"},"name":"test-ngd-05-topology-same-leaf"},"spec":{"maxNodes":3,"minResources":{"cpu":"200","memory":"1000Gi"},"nodeSelector":{"matchLabels":{"kubernetes.io/arch":"amd64"}},"quota":{"cpu":"300","memory":"1400Gi"},"schedulerName":"volcano","topologyLabels":{"topology.kubernetes.io/border-switch":"requiredSame","topology.kubernetes.io/data-center":"HB-HL-DC1","topology.kubernetes.io/leaf-switch":"requiredSame","topology.kubernetes.io/room":"HB-HL-DC1-102","topology.kubernetes.io/spine-switch":"spine-01"}}}
+  creationTimestamp: "2026-09-16T03:38:04Z"
+  generation: 1
+  labels:
+    ngg.demo/test-suite: three-node
+    scheduling.platform.example.io/scheduler: volcano
+  name: test-ngd-05-topology-same-leaf
+  resourceVersion: "394494569"
+  uid: 4b1c5d00-7eee-4ce6-9586-3afcfa181a5f
+spec:
+  maxNodes: 3
+  minResources:
+    cpu: "200"
+    memory: 1000Gi
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/arch: amd64
+  quota:
+    cpu: "300"
+    memory: 1400Gi
+  schedulerName: volcano
+  topologyLabels:
+    topology.kubernetes.io/border-switch: requiredSame
+    topology.kubernetes.io/data-center: HB-HL-DC1
+    topology.kubernetes.io/leaf-switch: requiredSame
+    topology.kubernetes.io/room: HB-HL-DC1-102
+    topology.kubernetes.io/spine-switch: spine-01
+status:
+  grantRef: ngg-test-ngd-05-topology-same-leaf
+  lastUpdated: "2026-09-16T03:38:04.548323485Z"
+  message: selectedGroup=leaf-domain:pair-8e3df4c9cdcb nodes=3
+  phase: Fulfilled
+  resolvedNodeCount: 3

@@ -1,0 +1,25 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  name: test-ngd-05-topology-same-leaf
+  labels:
+    scheduling.platform.example.io/scheduler: volcano
+    ngg.demo/test-suite: three-node
+spec:
+  schedulerName: volcano
+  maxNodes: 3
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/arch: amd64
+  minResources:
+    cpu: "200"
+    memory: 1000Gi
+  quota:
+    cpu: "300"
+    memory: 1400Gi
+  topologyLabels:
+    topology.kubernetes.io/data-center: HB-HL-DC1
+    topology.kubernetes.io/room: HB-HL-DC1-102
+    topology.kubernetes.io/border-switch: requiredSame
+    topology.kubernetes.io/spine-switch: spine-01
+    topology.kubernetes.io/leaf-switch: requiredSame

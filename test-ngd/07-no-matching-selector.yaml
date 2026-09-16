@@ -1,0 +1,16 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  name: test-ngd-07-no-matching-selector
+  labels:
+    scheduling.platform.example.io/scheduler: volcano
+    ngg.demo/test-suite: three-node
+spec:
+  schedulerName: volcano
+  maxNodes: 1
+  nodeSelector:
+    matchLabels:
+      ngg.demo/nonexistent: "true"
+  minResources:
+    cpu: "1"
+    memory: 1Gi

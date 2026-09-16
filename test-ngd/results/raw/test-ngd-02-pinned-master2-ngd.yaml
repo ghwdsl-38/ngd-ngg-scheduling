@@ -1,0 +1,32 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"scheduling.platform.example.io/v1alpha1","kind":"NodeGroupDemand","metadata":{"annotations":{},"labels":{"ngg.demo/test-suite":"three-node","scheduling.platform.example.io/scheduler":"volcano"},"name":"test-ngd-02-pinned-master2"},"spec":{"maxNodes":1,"minResources":{"cpu":"1","memory":"1Gi"},"nodeSelector":{"matchLabels":{"kubernetes.io/hostname":"hl-tstmix7-paasmaster2"}},"quota":{"cpu":"110","memory":"470Gi"},"schedulerName":"volcano"}}
+  creationTimestamp: "2026-09-16T03:37:48Z"
+  generation: 1
+  labels:
+    ngg.demo/test-suite: three-node
+    scheduling.platform.example.io/scheduler: volcano
+  name: test-ngd-02-pinned-master2
+  resourceVersion: "394494317"
+  uid: f9582f72-3272-4c44-bb04-f673f5033a0d
+spec:
+  maxNodes: 1
+  minResources:
+    cpu: "1"
+    memory: 1Gi
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: hl-tstmix7-paasmaster2
+  quota:
+    cpu: "110"
+    memory: 470Gi
+  schedulerName: volcano
+status:
+  grantRef: ngg-test-ngd-02-pinned-master2
+  lastUpdated: "2026-09-16T03:37:48.355480572Z"
+  message: selectedGroup=leaf-domain:pair-8e3df4c9cdcb nodes=1
+  phase: Fulfilled
+  resolvedNodeCount: 1

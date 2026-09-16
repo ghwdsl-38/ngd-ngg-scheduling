@@ -1,0 +1,32 @@
+apiVersion: scheduling.platform.example.io/v1alpha1
+kind: NodeGroupDemand
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"scheduling.platform.example.io/v1alpha1","kind":"NodeGroupDemand","metadata":{"annotations":{},"labels":{"ngg.demo/test-suite":"three-node","scheduling.platform.example.io/scheduler":"volcano"},"name":"test-ngd-09-quota-too-small"},"spec":{"maxNodes":3,"minResources":{"cpu":"1","memory":"1Gi"},"nodeSelector":{"matchLabels":{"kubernetes.io/arch":"amd64"}},"quota":{"cpu":"80","memory":"400Gi"},"schedulerName":"volcano"}}
+  creationTimestamp: "2026-09-16T03:38:25Z"
+  generation: 1
+  labels:
+    ngg.demo/test-suite: three-node
+    scheduling.platform.example.io/scheduler: volcano
+  name: test-ngd-09-quota-too-small
+  resourceVersion: "394494935"
+  uid: 324224e2-69a8-493e-a527-7b5f9675e113
+spec:
+  maxNodes: 3
+  minResources:
+    cpu: "1"
+    memory: 1Gi
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/arch: amd64
+  quota:
+    cpu: "80"
+    memory: 400Gi
+  schedulerName: volcano
+status:
+  grantRef: ""
+  lastUpdated: "2026-09-16T03:38:25.941522177Z"
+  message: 'NoFeasibleGroup: Algorithm returned no feasible topology group'
+  phase: Failed
+  resolvedNodeCount: 0

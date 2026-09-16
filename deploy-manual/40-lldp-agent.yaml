@@ -18,10 +18,11 @@ spec:
       automountServiceAccountToken: false
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
-      # 按真实Worker标签修改；目标节点有Taint时增加tolerations。
-      nodeSelector:
-        node-role.kubernetes.io/worker: ""
-      tolerations: []
+      tolerations:
+        - key: virtual-kubelet.io/provider
+          operator: Equal
+          value: dubhe
+          effect: NoSchedule
       containers:
         - name: lldp-agent
           image: ghwdsl/ngd-ngg-scheduling:lldp-v0.6.2

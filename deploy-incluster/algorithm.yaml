@@ -1,0 +1,282 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ngd-ngg-algorithm-topology
+  namespace: welkin-system
+data:
+  topology.yaml: |
+    # 当前联调使用的联通怀来102机房Leaf以上拓扑。
+    version: unicom-huailai-102-test-v1
+    scopes:
+      regions:
+        - id: CN-NORTH
+          name: 华北
+      locations:
+        - id: HB-HL
+          name: 怀来
+          regionId: CN-NORTH
+      dataCenters:
+        - id: HB-HL-DC1
+          locationId: HB-HL
+      rooms:
+        - id: HB-HL-DC1-102
+          name: 102机房
+          dataCenterId: HB-HL-DC1
+    borderDomains:
+      HB-HL-DC1-102-BORDER-DOMAIN-01:
+        roomId: HB-HL-DC1-102
+        mode: exact-set
+        members:
+          - HB-HL-DC1-102-C03-02U-LTY-CSQ-BORDER-SW01-ZTE9904X
+          - HB-HL-DC1-102-D03-02U-LTY-CSQ-BORDER-SW02-ZTE9904X
+    topology:
+      HB-HL-DC1-102:
+        HB-HL-DC1-102-C03-44U-LTY-CSQ-LEAF-SW01-ZTE5960X:
+          SPINE: {}
+          BORDER:
+            HB-HL-DC1-102-C03-02U-LTY-CSQ-BORDER-SW01-ZTE9904X:
+              local_port: cgei-0/1/1/51
+              peer_port: cgei-0/3/0/9
+            HB-HL-DC1-102-D03-02U-LTY-CSQ-BORDER-SW02-ZTE9904X:
+              local_port: cgei-0/1/1/53
+              peer_port: cgei-0/3/0/9
+          LEAF:
+            HB-HL-DC1-102-C04-44U-LTY-CSQ-LEAF-SW02-ZTE5960X:
+              local_port: cgei-0/1/1/54
+              peer_port: cgei-0/1/1/54
+        HB-HL-DC1-102-C04-44U-LTY-CSQ-LEAF-SW02-ZTE5960X:
+          SPINE: {}
+          BORDER:
+            HB-HL-DC1-102-C03-02U-LTY-CSQ-BORDER-SW01-ZTE9904X:
+              local_port: cgei-0/1/1/51
+              peer_port: cgei-0/3/0/10
+            HB-HL-DC1-102-D03-02U-LTY-CSQ-BORDER-SW02-ZTE9904X:
+              local_port: cgei-0/1/1/53
+              peer_port: cgei-0/3/0/10
+          LEAF:
+            HB-HL-DC1-102-C03-44U-LTY-CSQ-LEAF-SW01-ZTE5960X:
+              local_port: cgei-0/1/1/54
+              peer_port: cgei-0/1/1/54
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ngd-ngg-algorithm-metrics
+  namespace: welkin-system
+data:
+  prometheus_metrics.json: |
+    {
+      "version": "node-exporter-network-v1-bupt",
+      "nodeLabel": "node",
+      "metrics": [
+        {
+          "name": "cpuUsageRatio",
+          "unit": "ratio",
+          "normalization": "ratio",
+          "required": true,
+          "query": "label_replace((1 - avg by (paas_node_ip) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))) * on(paas_node_ip) group_left(nodename) max by (paas_node_ip,nodename) (node_uname_info), \"node\", \"$1\", \"nodename\", \"(.*)\")"
+        },
+        {
+          "name": "memoryUsageRatio",
+          "unit": "ratio",
+          "normalization": "ratio",
+          "required": true,
+          "query": "label_replace((1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * on(paas_node_ip) group_left(nodename) max by (paas_node_ip,nodename) (node_uname_info), \"node\", \"$1\", \"nodename\", \"(.*)\")"
+        },
+        {
+          "name": "networkReceiveBytesPerSecond",
+          "unit": "bytes_per_second",
+          "normalization": "non_negative",
+          "required": false,
+          "query": "label_replace((sum by (paas_node_ip) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m]))) * on(paas_node_ip) group_left(nodename) max by (paas_node_ip,nodename) (node_uname_info), \"node\", \"$1\", \"nodename\", \"(.*)\")"
+        },
+        {
+          "name": "networkTransmitBytesPerSecond",
+          "unit": "bytes_per_second",
+          "normalization": "non_negative",
+          "required": false,
+          "query": "label_replace((sum by (paas_node_ip) (rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m]))) * on(paas_node_ip) group_left(nodename) max by (paas_node_ip,nodename) (node_uname_info), \"node\", \"$1\", \"nodename\", \"(.*)\")"
+        },
+        {
+          "name": "networkReceivePacketsPerSecond",
+          "unit": "packets_per_second",
+          "normalization": "non_negative",
+          "required": false,
+          "query": "label_replace((sum by (paas_node_ip) (rate(node_network_receive_packets_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m]))) * on(paas_node_ip) group_left(nodename) max by (paas_node_ip,nodename) (node_uname_info), \"node\", \"$1\", \"nodename\", \"(.*)\")"
+        },
+        {
+          "name": "networkTransmitPacketsPerSecond",
+          "unit": "packets_per_second",
+          "normalization": "non_negative",
+          "required": false,
+          "query": "label_replace((sum by (paas_node_ip) (rate(node_network_transmit_packets_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m]))) * on(paas_node_ip) group_left(nodename) max by (paas_node_ip,nodename) (node_uname_info), \"node\", \"$1\", \"nodename\", \"(.*)\")"
+        },
+        {
+          "name": "networkReceiveDropRatio",
+          "unit": "ratio",
+          "normalization": "ratio",
+          "required": false,
+          "query": "label_replace((clamp_max(sum by (paas_node_ip) (rate(node_network_receive_drop_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])) / clamp_min(sum by (paas_node_ip) (rate(node_network_receive_packets_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])), 1), 1)) * on(paas_node_ip) group_left(nodename) max by (paas_node_ip,nodename) (node_uname_info), \"node\", \"$1\", \"nodename\", \"(.*)\")"
+        },
+        {
+          "name": "networkTransmitDropRatio",
+          "unit": "ratio",
+          "normalization": "ratio",
+          "required": false,
+          "query": "label_replace((clamp_max(sum by (paas_node_ip) (rate(node_network_transmit_drop_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])) / clamp_min(sum by (paas_node_ip) (rate(node_network_transmit_packets_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])), 1), 1)) * on(paas_node_ip) group_left(nodename) max by (paas_node_ip,nodename) (node_uname_info), \"node\", \"$1\", \"nodename\", \"(.*)\")"
+        },
+        {
+          "name": "networkReceiveErrorRatio",
+          "unit": "ratio",
+          "normalization": "ratio",
+          "required": false,
+          "query": "label_replace((clamp_max(sum by (paas_node_ip) (rate(node_network_receive_errs_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])) / clamp_min(sum by (paas_node_ip) (rate(node_network_receive_packets_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])), 1), 1)) * on(paas_node_ip) group_left(nodename) max by (paas_node_ip,nodename) (node_uname_info), \"node\", \"$1\", \"nodename\", \"(.*)\")"
+        },
+        {
+          "name": "networkTransmitErrorRatio",
+          "unit": "ratio",
+          "normalization": "ratio",
+          "required": false,
+          "query": "label_replace((clamp_max(sum by (paas_node_ip) (rate(node_network_transmit_errs_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])) / clamp_min(sum by (paas_node_ip) (rate(node_network_transmit_packets_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])), 1), 1)) * on(paas_node_ip) group_left(nodename) max by (paas_node_ip,nodename) (node_uname_info), \"node\", \"$1\", \"nodename\", \"(.*)\")"
+        },
+        {
+          "name": "tcpRetransmitRatio",
+          "unit": "ratio",
+          "normalization": "ratio",
+          "required": false,
+          "query": "label_replace((clamp_max(sum by (paas_node_ip) (rate(node_netstat_Tcp_RetransSegs[5m])) / clamp_min(sum by (paas_node_ip) (rate(node_netstat_Tcp_OutSegs[5m])), 1), 1)) * on(paas_node_ip) group_left(nodename) max by (paas_node_ip,nodename) (node_uname_info), \"node\", \"$1\", \"nodename\", \"(.*)\")"
+        },
+        {
+          "name": "networkLinkUpRatio",
+          "unit": "ratio",
+          "normalization": "ratio",
+          "required": false,
+          "query": "label_replace((avg by (paas_node_ip) (node_network_up{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"})) * on(paas_node_ip) group_left(nodename) max by (paas_node_ip,nodename) (node_uname_info), \"node\", \"$1\", \"nodename\", \"(.*)\")"
+        },
+        {
+          "name": "networkUtilizationRatio",
+          "unit": "ratio",
+          "normalization": "ratio",
+          "required": false,
+          "query": "label_replace((clamp_max(sum by (paas_node_ip) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m]) + rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])) / clamp_min(sum by (paas_node_ip) (node_network_speed_bytes{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}), 1), 1)) * on(paas_node_ip) group_left(nodename) max by (paas_node_ip,nodename) (node_uname_info), \"node\", \"$1\", \"nodename\", \"(.*)\")"
+        },
+        {
+          "name": "availableBandwidthBytesPerSecond",
+          "unit": "bytes_per_second",
+          "normalization": "non_negative",
+          "required": false,
+          "query": "label_replace((clamp_min(sum by (paas_node_ip) (node_network_speed_bytes{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}) - sum by (paas_node_ip) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m]) + rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|cali.*|cni.*|flannel.*|docker.*|br-.*\"}[5m])), 0)) * on(paas_node_ip) group_left(nodename) max by (paas_node_ip,nodename) (node_uname_info), \"node\", \"$1\", \"nodename\", \"(.*)\")"
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ngd-ngg-algorithm
+  namespace: welkin-system
+spec:
+  selector:
+    app: ngd-ngg-algorithm
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ngd-ngg-algorithm
+  namespace: welkin-system
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ngd-ngg-algorithm
+  template:
+    metadata:
+      labels:
+        app: ngd-ngg-algorithm
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/hostname: hl-tstmix7-paasmaster3
+      tolerations:
+        - effect: NoSchedule
+          key: virtual-kubelet.io/provider
+          operator: Equal
+          value: dubhe
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: algorithm
+          image: hlcsq-registry.cucloud.cn/paas/scheduling/algorithm:v0.6.0
+          imagePullPolicy: IfNotPresent
+          env:
+            # 必须改为Algorithm Pod在集群内可以访问的Prometheus地址。
+            - name: PROMETHEUS_URL
+              value: http://240.5.112.101:8481/select/0/prometheus
+            - name: PROMETHEUS_REFRESH_SECONDS
+              value: "15"
+            - name: PROMETHEUS_STALE_SECONDS
+              value: "120"
+            - name: PROMETHEUS_REQUEST_TIMEOUT_SECONDS
+              value: "5"
+            - name: PROMETHEUS_NODE_LABEL
+              value: node
+            - name: PROMETHEUS_METRICS_CONFIG_FILE
+              value: /etc/ngd-ngg/metrics/prometheus_metrics.json
+            - name: PROMETHEUS_TLS_SERVER_NAME
+              value: ""
+            - name: TOPOLOGY_CONFIG_FILE
+              value: /etc/ngd-ngg/topology/topology.yaml
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: topology
+              mountPath: /etc/ngd-ngg/topology
+              readOnly: true
+            - name: metrics
+              mountPath: /etc/ngd-ngg/metrics
+              readOnly: true
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: topology
+          configMap:
+            name: ngd-ngg-algorithm-topology
+        - name: metrics
+          configMap:
+            name: ngd-ngg-algorithm-metrics
