@@ -165,7 +165,7 @@ kubectl apply -f ngd-go-test-demand.yaml
 如果本地 YAML 有修改，使用下面的命令重新同步到 `/root/ghw`：
 
 ```powershell
-python -c "import base64,sys; sys.stdout.write(base64.b64encode(open(r'D:\project\ngd-ngg-scheduling-demo-git\deploy-incluster\demo\ngd-go-test-demand.yaml','rb').read()).decode('ascii'))" | kubectl --kubeconfig D:/project/ngd-ngg/config-bupt.yaml exec -i -n bupt bupt-ops-mannual -- ssh -o BatchMode=yes 10.129.195.253 "base64 --decode --ignore-garbage | tee /root/ghw/ngd-go-test-demand.yaml >/dev/null; chmod 0644 /root/ghw/ngd-go-test-demand.yaml"
+python -c "import base64,sys; sys.stdout.write(base64.b64encode(open(r'D:\project\ngd-ngg-scheduling\deploy-incluster\demo\ngd-go-test-demand.yaml','rb').read()).decode('ascii'))" | kubectl --kubeconfig D:/project/ngd-ngg/config-bupt.yaml exec -i -n bupt bupt-ops-mannual -- ssh -o BatchMode=yes 10.129.195.253 "base64 --decode --ignore-garbage | tee /root/ghw/ngd-go-test-demand.yaml >/dev/null; chmod 0644 /root/ghw/ngd-go-test-demand.yaml"
 ```
 
 预期输出：

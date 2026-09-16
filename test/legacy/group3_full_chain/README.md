@@ -21,7 +21,7 @@
 在项目根目录执行：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 
 make demo-group3-timing    # Cold/Warm完整链路计时
 make demo-group3-evidence  # 重跑Cold/Warm并生成完整证据

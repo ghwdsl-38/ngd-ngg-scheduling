@@ -318,7 +318,7 @@ evidence/select-N/                          # 该规模完整请求与输出
 ### 9.1 正式运行全部四组
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 make benchmark-3000-all
 ```
 

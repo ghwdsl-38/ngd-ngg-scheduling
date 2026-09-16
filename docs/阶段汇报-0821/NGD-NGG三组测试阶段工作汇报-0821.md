@@ -1,7 +1,7 @@
 # NGD-NGG三组测试阶段汇报
 
 > 日期：2026年8月21日
-> 项目：`/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo`
+> 项目：`/mnt/data0/volcano-scheduler/ngd-ngg-scheduling`
 
 ## 第一部分：三组测试整体预览
 
@@ -78,7 +78,7 @@ envtest启动的 `kube-apiserver` 和 `etcd` 是真实二进制，并安装正�
 三组测试全部运行和查看总览：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 make demo-all-groups
 make demo-show-latest
 ```
@@ -153,7 +153,7 @@ flowchart TD
 结果目录：[第一组最新PASS结果](../../test/legacy/group1_algorithm/runs/20260820-212042)
 
 ```text
-/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/test/legacy/
+/mnt/data0/volcano-scheduler/ngd-ngg-scheduling/test/legacy/
 group1_algorithm/runs/20260820-212042/
 ```
 
@@ -189,7 +189,7 @@ P50和P95表示多次测试的耗时分位数：
 推荐使用完整命令，它会依次执行Timing和Evidence，并检查两遍的候选结果一致：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 make demo-group1
 ```
 
@@ -298,7 +298,7 @@ maxNodes: 1000
 结果目录：[第二组最新PASS结果](../../test/legacy/group2_prc/runs/20260821-112142)
 
 ```text
-/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/test/legacy/
+/mnt/data0/volcano-scheduler/ngd-ngg-scheduling/test/legacy/
 group2_prc/runs/20260821-112142/
 ```
 
@@ -326,7 +326,7 @@ group2_prc/runs/20260821-112142/
 #### 7. 运行和查看命令
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 make demo-group2
 ```
 
@@ -436,7 +436,7 @@ PRC只把rank 1写入正式NGG。NGG中没有 `candidateNodeGroups` 和 `activeG
 结果目录：[第三组最新PASS结果](../../test/legacy/group3_full_chain/runs/20260821-113515)
 
 ```text
-/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/test/legacy/
+/mnt/data0/volcano-scheduler/ngd-ngg-scheduling/test/legacy/
 group3_full_chain/runs/20260821-113515/
 ```
 
@@ -469,7 +469,7 @@ Warm复用Go静态快照、Prometheus指标快照和常驻Python Worker，比Col
 #### 7. 运行和查看命令
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 make demo-group3
 ```
 
@@ -514,7 +514,7 @@ sed -n '1,20p' "$GROUP3_RUN_DIR/evidence-run/infrastructure/prometheus-requests.
 ### 2. 复现命令
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 make demo-group1
 make demo-group2
 make demo-group3

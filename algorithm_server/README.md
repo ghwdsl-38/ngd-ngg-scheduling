@@ -214,7 +214,7 @@ Python `worker.py` 是算法子进程入口，不是 HTTP Server 入口。对外
 专项测试：[worker_test.go](go/algorithm/worker_test.go)。测试使用真实 Python 进程和 [可控异常 Worker](go/algorithm/testdata/recovery_worker.py)，覆盖重复超时恢复、排队取消、协议异常、业务错误、大请求写阻塞、并发调用、关闭、父 Context 取消和重启失败恢复。
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 source scripts/go-test-env.sh
 cd algorithm_server/go
 GOWORK=off go test -mod=vendor -race ./... -count=3
@@ -279,13 +279,13 @@ kubectl -n ngd-ngg-system logs deployment/ngd-ngg-algorithm --tail=20
 可以。最稳定的方式是用 Docker，不需要 Kubernetes、Volcano 和 PRC：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 docker build -t ngd-ngg-algorithm:v0.4.0 -f docker/algorithm/Dockerfile .
 docker run --rm --name ngd-ngg-algorithm-standalone \
   -p 18080:8080 \
   -e PROMETHEUS_URL= \
   -e TOPOLOGY_CONFIG_FILE=/etc/ngd-ngg/topology.yaml \
-  -v /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/config/topology/unicom-huailai-102-sample.yaml:/etc/ngd-ngg/topology.yaml:ro \
+  -v /mnt/data0/volcano-scheduler/ngd-ngg-scheduling/config/topology/unicom-huailai-102-sample.yaml:/etc/ngd-ngg/topology.yaml:ro \
   ngd-ngg-algorithm:v0.4.0
 ```
 
@@ -307,7 +307,7 @@ make go-test-group2
 也可以不经 Docker 直接启动，但需要本机已安装 Go 和 Python 3：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/algorithm_server/go
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling/algorithm_server/go
 PYTHONPATH=../python \
   ALGORITHM_LISTEN_ADDRESS=:18080 \
   PROMETHEUS_URL= \

@@ -5,7 +5,7 @@
 ## 一键运行
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 
 make demo-group1       # Algorithm：Cold/Warm Timing + Evidence
 make demo-group2       # PRC：单一 normal_create Timing + Evidence

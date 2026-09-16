@@ -1,7 +1,7 @@
 # NGD-NGG两层调度项目整体说明 v1.0
 
 > 文档用途：0907阶段汇报与当前代码交接  
-> 代码范围：`/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo`当前工作区  
+> 代码范围：`/mnt/data0/volcano-scheduler/ngd-ngg-scheduling`当前工作区  
 > 说明原则：区分“已经实现”“测试模拟”和“尚未接通”，不把设计目标写成当前能力。
 
 ## 1. 项目解决什么问题
@@ -637,7 +637,7 @@ sequenceDiagram
 运行全部功能组：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 make go-test-all
 ```
 
@@ -747,7 +747,7 @@ CRD/RBAC
 ## 12. 项目目录与关键文件
 
 ```text
-ngd-ngg-scheduling-demo/
+ngd-ngg-scheduling/
 ├── algorithm_server/      Algorithm Server正式实现
 ├── prc/                   PRC正式实现
 ├── topology_agent/        LLDP/Bond拓扑采集正式实现

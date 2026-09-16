@@ -5,7 +5,7 @@
 输入位于`testdata/input/`，预期输出位于`testdata/expected/`，每次实际结果位于本目录`results/<run-id>/`。
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 source scripts/go-test-env.sh
 go test -p=1 ./test/go/group1_algorithm_worker -run '^TestGroup1_' -v -count=1
 ```

@@ -111,7 +111,7 @@ LLDP Agent 还要求集群安全策略允许：
 
 ```bash
 git clone <repository-url>
-cd ngd-ngg-scheduling-demo
+cd ngd-ngg-scheduling
 
 git fetch --all --tags
 git checkout <release-tag-or-commit>

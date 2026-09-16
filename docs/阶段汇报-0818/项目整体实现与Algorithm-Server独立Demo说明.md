@@ -356,7 +356,7 @@ make algorithm
 ## 9. 从零运行整体项目
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 
 # 使用images中的预构建镜像
 make demo-prebuilt
@@ -698,7 +698,7 @@ GPU：8 × 4 = 32张，任务需要32张
 ## 19. 如何单独运行 Algorithm Demo
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 make algorithm-1000-demo
 ```
 
@@ -725,7 +725,7 @@ Algorithm API Server 1000 节点独立演示：PASS
 不运行1000 Node驱动，只启动服务：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 docker build -t ngd-ngg-algorithm:v0.4.0 -f docker/algorithm/Dockerfile .
 docker run --rm --name ngd-ngg-algorithm-standalone \
   -p 18080:8080 \

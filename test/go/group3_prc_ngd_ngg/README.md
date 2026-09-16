@@ -3,7 +3,7 @@
 envtest启动真实`kube-apiserver`和`etcd`，安装联通正式NGD/NGG CRD。测试预置1000个Node后创建正式NGD，验证真实PRC Watch、Reconcile、Mock Algorithm调用、正式NGG创建和Status更新。
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 source scripts/go-test-env.sh
 go test -p=1 ./test/go/group3_prc_ngd_ngg -run '^TestGroup3_' -v -count=1
 ```

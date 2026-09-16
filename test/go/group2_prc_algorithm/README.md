@@ -5,7 +5,7 @@
 本组不启动Kubernetes API Server，不测试Watch和NGG写入。
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 source scripts/go-test-env.sh
 go test -p=1 ./test/go/group2_prc_algorithm -run '^TestGroup2_' -v -count=1
 ```

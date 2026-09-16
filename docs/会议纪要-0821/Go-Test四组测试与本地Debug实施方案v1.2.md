@@ -1,7 +1,7 @@
 # Go Test四组测试与本地Debug实施方案 v1.2
 
 > 日期：2026年8月21日  
-> 项目：`/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo`  
+> 项目：`/mnt/data0/volcano-scheduler/ngd-ngg-scheduling`  
 > 状态：设计方案，尚未开始修改生产代码和测试代码
 
 ## 1. 目标
@@ -641,7 +641,7 @@ go.work
 envtest二进制位置：
 
 ```text
-/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/.cache/envtest/1.35.5/
+/mnt/data0/volcano-scheduler/ngd-ngg-scheduling/.cache/envtest/1.35.5/
 ├── kube-apiserver
 ├── etcd
 └── kubectl
@@ -652,8 +652,8 @@ envtest二进制位置：
 ```text
 /mnt/data0/tools/go/
 /mnt/data0/tools/bin/dlv
-/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/.cache/go-mod/
-/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/.cache/go-build/
+/mnt/data0/volcano-scheduler/ngd-ngg-scheduling/.cache/go-mod/
+/mnt/data0/volcano-scheduler/ngd-ngg-scheduling/.cache/go-build/
 ```
 
 Go Debug可以进入PRC和Go Algorithm代码。Python Worker是独立子进程，默认通过保存的JSONL协议文件进行边界调试；如果后续要求进入Python代码打断点，再增加可选的 `debugpy` 远程调试配置。
@@ -663,7 +663,7 @@ Go Debug可以进入PRC和Go Algorithm代码。Python Worker是独立子进程�
 以下命令为实施完成后的规划命令，当前尚不可直接执行：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 
 go test ./test/go/group1_algorithm_worker -v -count=1
 go test ./test/go/group2_prc_algorithm -v -count=1

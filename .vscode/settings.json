@@ -1,9 +1,9 @@
 {
   "go.goroot": "/mnt/data0/tools/go",
   "go.toolsEnvVars": {
-    "GOMODCACHE": "/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/.cache/go-mod",
-    "GOCACHE": "/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/.cache/go-build",
-    "KUBEBUILDER_ASSETS": "/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/.cache/envtest/1.35.5",
+    "GOMODCACHE": "/mnt/data0/volcano-scheduler/ngd-ngg-scheduling/.cache/go-mod",
+    "GOCACHE": "/mnt/data0/volcano-scheduler/ngd-ngg-scheduling/.cache/go-build",
+    "KUBEBUILDER_ASSETS": "/mnt/data0/volcano-scheduler/ngd-ngg-scheduling/.cache/envtest/1.35.5",
     "GOMAXPROCS": "2"
   },
   "go.alternateTools": {

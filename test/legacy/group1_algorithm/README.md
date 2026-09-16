@@ -25,7 +25,7 @@
 在项目根目录执行：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 
 make demo-group1-timing    # 第一遍：只计时，不启用Trace和协议落盘
 make demo-group1-evidence  # 第二遍：生成完整输入、过程和输出，不作为性能结果

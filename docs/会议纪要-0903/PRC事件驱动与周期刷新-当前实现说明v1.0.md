@@ -326,7 +326,7 @@ Mock部分只有 Kubernetes运行环境、Prometheus数据和输入节点；PRC�
 运行：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 . ./scripts/go-test-env.sh
 go test -p=1 ./test/go/group4_full_real_algorithm \
   -run '^TestGroup4_' -v -count=1 -timeout=10m
@@ -349,7 +349,7 @@ Group5 在 Group4 真实链路基础上继续验证：
 运行：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 . ./scripts/go-test-env.sh
 go test -p=1 ./test/go/group5_prc_refresh_lifecycle \
   -run '^TestGroup5_' -v -count=1 -timeout=10m
@@ -384,7 +384,7 @@ test/go/group5_prc_refresh_lifecycle/results/<timestamp>/actual/
 ### 8.3 全部回归
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 make go-test-all
 ```
 

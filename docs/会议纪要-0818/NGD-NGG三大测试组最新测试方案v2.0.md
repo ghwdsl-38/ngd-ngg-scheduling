@@ -1048,7 +1048,7 @@ intermediate/ngg-consumer/
 首次修改 Algorithm 后重建镜像：
 
 ~~~bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 make algorithm-image
 ~~~
 

@@ -54,7 +54,7 @@ Algorithm API Server 负责接收 PRC 发来的任务计算请求，结合以下
 目标目录结构如下：
 
 ```text
-ngd-ngg-scheduling-demo/
+ngd-ngg-scheduling/
 ├── prc/
 ├── algorithm_server/
 │   └── python/algorithm_worker/

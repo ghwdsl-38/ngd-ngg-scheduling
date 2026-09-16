@@ -28,7 +28,7 @@
 在项目根目录执行：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 
 make demo-group2-timing    # 只测PRC Watch到NGG Ready的业务耗时
 make demo-group2-evidence  # 重新运行并生成完整输入、协议过程和输出

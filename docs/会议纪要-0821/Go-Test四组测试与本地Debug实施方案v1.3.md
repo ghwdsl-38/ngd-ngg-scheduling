@@ -1,7 +1,7 @@
 # Go Test四组测试与本地Debug实施方案 v1.3
 
 > 日期：2026年8月24日
-> 项目：`/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo`
+> 项目：`/mnt/data0/volcano-scheduler/ngd-ngg-scheduling`
 > 状态：已确认并实施；四组测试已通过
 > 基于版本：v1.2
 
@@ -634,8 +634,8 @@ go.work
 ```text
 /mnt/data0/tools/go/
 /mnt/data0/tools/bin/dlv
-/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/.cache/go-mod/
-/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/.cache/go-build/
+/mnt/data0/volcano-scheduler/ngd-ngg-scheduling/.cache/go-mod/
+/mnt/data0/volcano-scheduler/ngd-ngg-scheduling/.cache/go-build/
 ```
 
 Go Debug能够进入PRC和Go Algorithm。Python Worker是独立子进程，Go Delve不能直接进入Python代码；本阶段通过保存的JSONL输入、输出和`pipelineTrace`调试Python边界。
@@ -645,7 +645,7 @@ Go Debug能够进入PRC和Go Algorithm。Python Worker是独立子进程，Go De
 以下命令已经可以直接运行：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 
 GOMAXPROCS=2 go test -p=1 ./test/go/group1_algorithm_worker -v -count=1
 GOMAXPROCS=2 go test -p=1 ./test/go/group2_prc_algorithm -v -count=1

@@ -3,7 +3,7 @@
 本组使用envtest真实Watch、真实PRC、真实Go Algorithm Application、真实Python Worker和带Bearer认证的Go Mock Prometheus，最终生成联通正式NGG。
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 source scripts/go-test-env.sh
 go test -p=1 ./test/go/group4_full_real_algorithm -run '^TestGroup4_' -v -count=1
 ```
@@ -71,7 +71,7 @@ Group4和正式进程一样，由`algorithm.Server.Start`在HTTP监听启动后�
 必须在项目根目录执行：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 source scripts/go-test-env.sh
 
 NGG_TEST_DEBUG=true \
@@ -386,7 +386,7 @@ PASS
 
 ### 5. VS Code运行方式
 
-1. 用VS Code打开项目根目录`/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo`；
+1. 用VS Code打开项目根目录`/mnt/data0/volcano-scheduler/ngd-ngg-scheduling`；
 2. 打开上述8个文件位置，在行号左侧单击设置红色断点；
 3. 按`Ctrl+Shift+D`打开“运行和调试”；
 4. 选择`Debug Group4 - Full component chain`；

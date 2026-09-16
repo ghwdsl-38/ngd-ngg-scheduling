@@ -8,7 +8,7 @@ import (
 	algorithm "demo.ngg/algorithm-server/algorithm"
 )
 
-// ProjectRoot返回ngd-ngg-scheduling-demo绝对路径，不依赖测试启动目录。
+// ProjectRoot返回ngd-ngg-scheduling绝对路径，不依赖测试启动目录。
 func ProjectRoot() string {
 	_, source, _, _ := runtime.Caller(0)
 	return filepath.Clean(filepath.Join(filepath.Dir(source), "..", "..", ".."))

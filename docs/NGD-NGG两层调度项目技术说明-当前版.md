@@ -1,6 +1,6 @@
 # NGD-NGG 两层调度项目技术说明（当前版）
 
-> 项目路径：`/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo`  
+> 项目路径：`/mnt/data0/volcano-scheduler/ngd-ngg-scheduling`  
 > 整理日期：2026-09-02  
 > 代码基线：`main` 分支，提交 `54fac80`（`feat: add Unicom border-domain topology scheduling`）
 
@@ -695,7 +695,7 @@ Cluster-scoped NodeGroupGrant
 从项目根目录执行：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 make demo
 ```
 

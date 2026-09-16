@@ -119,7 +119,7 @@ sequenceDiagram
 ### 5.1 拓扑解析和LLDP边界
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 source scripts/go-test-env.sh
 
 cd algorithm_server/go
@@ -134,7 +134,7 @@ GOWORK=off go test ./... -run TestSimulatedLLDPWritesOnlyDirectLeafAsNodeLabel -
 ### 5.2 四组测试
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 source scripts/go-test-env.sh
 go test -p=1 ./test/go/group1_algorithm_worker -run '^TestGroup1_' -v -count=1
 go test -p=1 ./test/go/group2_prc_algorithm -run '^TestGroup2_' -v -count=1

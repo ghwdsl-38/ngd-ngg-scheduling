@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-project_root="/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo"
+project_root="/mnt/data0/volcano-scheduler/ngd-ngg-scheduling"
 cd "$project_root"
 source scripts/go-test-env.sh
 

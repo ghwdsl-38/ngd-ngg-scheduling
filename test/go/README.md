@@ -14,7 +14,7 @@
 进入项目根目录：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 ```
 
 串行运行全部现有测试组：
@@ -42,7 +42,7 @@ make go-test-all
 直接执行 `go test` 或命令行 Debug 前，先加载环境：
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 source scripts/go-test-env.sh
 ```
 
@@ -252,7 +252,7 @@ cat "$latest_result/comparison/diff.txt"
 1. 使用 VS Code打开项目根目录：
 
    ```text
-   /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+   /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
    ```
 2. 打开左侧“运行和调试”。
 3. 在下拉框选择以下任一配置：
@@ -375,7 +375,7 @@ ls -l "$KUBEBUILDER_ASSETS/etcd"
 它固定准备3000个静态Node，分别选择1000、800、500、300、100和10个Node；四组中每个规模预热3次、正式计时30次，自动生成Mean、P50、P95、Min、Max、标准差和24行总表。
 
 ```bash
-cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+cd /mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 make benchmark-3000-all
 ```
 

@@ -2,18 +2,18 @@
 
 ## 1. 文档目的
 
-本文说明 `ngd-ngg-scheduling-demo` 一次运行过程中，会在 `results/` 下生成哪些文件、每个文件由哪个步骤产生，以及在哪里查看算法选择和 Pod 最终分配结果。
+本文说明 `ngd-ngg-scheduling` 一次运行过程中，会在 `results/` 下生成哪些文件、每个文件由哪个步骤产生，以及在哪里查看算法选择和 Pod 最终分配结果。
 
 项目目录：
 
 ```text
-/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo
+/mnt/data0/volcano-scheduler/ngd-ngg-scheduling
 ```
 
 结果目录：
 
 ```text
-/mnt/data0/volcano-scheduler/ngd-ngg-scheduling-demo/results
+/mnt/data0/volcano-scheduler/ngd-ngg-scheduling/results
 ```
 
 需要特别注意：当前结果目录不是按运行批次隔离的。同名文件会被新一次运行覆盖，目录中也可能同时保留历史版本、镜像构建、Prometheus 检查和 1000 节点独立 Demo 的结果。因此，不能认为 `results/` 中的所有文件都来自最近一次 `make run`。
