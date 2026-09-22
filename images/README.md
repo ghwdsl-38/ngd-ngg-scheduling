@@ -22,6 +22,18 @@ ghwdsl/ngd-ngg-scheduling:lldp-v0.6.2-local-amd64
 
 ## 2. 构建但不Push
 
+三个组件可以分别构建：
+
+```bash
+RELEASE_VERSION=v0.6.2 make release-prc-image
+RELEASE_VERSION=v0.6.2 make release-algorithm-image
+RELEASE_VERSION=v0.6.2 make release-lldp-image
+```
+
+每个命令只预编译对应组件的amd64、arm64二进制，并生成该组件的本机amd64测试镜像和多架构OCI包。
+
+一次构建全部三个组件：
+
 ```bash
 RELEASE_VERSION=v0.6.2 make release-images
 ```
@@ -127,10 +139,12 @@ RELEASE_VERSION=v0.6.2 make release-push
 
 该命令默认发布三个多架构Tag，并使用`docker buildx imagetools inspect`检查远端Manifest。Push不会发布`-local-amd64`测试Tag。
 
-只发布LLDP时使用：
+也可以分别发布三个组件：
 
 ```bash
-RELEASE_VERSION=v0.6.2 RELEASE_COMPONENTS=lldp make release-push
+RELEASE_VERSION=v0.6.2 make release-prc-push
+RELEASE_VERSION=v0.6.2 make release-algorithm-push
+RELEASE_VERSION=v0.6.2 make release-lldp-push
 ```
 
 ## 5. 验证边界

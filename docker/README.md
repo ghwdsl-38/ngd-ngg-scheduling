@@ -32,6 +32,14 @@ RELEASE_VERSION=v0.6.2 make release-verify
 RELEASE_VERSION=v0.6.2 make release-push
 ```
 
+只构建单个组件时使用：
+
+```bash
+RELEASE_VERSION=v0.6.2 make release-prc-image
+RELEASE_VERSION=v0.6.2 make release-algorithm-image
+RELEASE_VERSION=v0.6.2 make release-lldp-image
+```
+
 直接执行Docker构建时，必须从项目根目录提供上下文：
 
 ```bash

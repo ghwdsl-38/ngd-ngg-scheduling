@@ -6,11 +6,21 @@ source "${SCRIPT_DIR}/common.sh"
 
 RELEASE_VERSION="${RELEASE_VERSION:-v0.6.2}"
 GO_BUILDER_IMAGE="${GO_BUILDER_IMAGE:-golang:1.25.0}"
+RELEASE_COMPONENTS="${RELEASE_COMPONENTS:-prc algorithm lldp}"
 
 [[ "${RELEASE_VERSION}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
   die "RELEASE_VERSION包含非法字符: ${RELEASE_VERSION}"
 require_cmd docker
 docker info >/dev/null || die "Docker daemon不可用"
+
+components=()
+for component in ${RELEASE_COMPONENTS}; do
+  case "${component}" in
+    prc | algorithm | lldp) components+=("${component}") ;;
+    *) die "未知发布组件: ${component}（允许: prc algorithm lldp）" ;;
+  esac
+done
+((${#components[@]} > 0)) || die "RELEASE_COMPONENTS不能为空"
 
 VCS_REF="$(git -C "${ROOT_DIR}" rev-parse --short=12 HEAD 2>/dev/null || printf unknown)"
 BUILD_ROOT="${ROOT_DIR}/build/release/${RELEASE_VERSION}"
@@ -47,25 +57,34 @@ build_component() {
   log "Go预编译完成 component=${component} file=${output_dir}/${output_name}"
 }
 
+artifacts=()
 for target_arch in amd64 arm64; do
-  build_component prc prc ./cmd prc "${target_arch}" -mod=mod
-  build_component algorithm algorithm_server/go ./cmd/algorithm-server algorithm-server "${target_arch}" -mod=vendor
-  build_component lldp topology_agent . topology-agent "${target_arch}" -mod=mod
+  for component in "${components[@]}"; do
+    case "${component}" in
+      prc)
+        build_component prc prc ./cmd prc "${target_arch}" -mod=mod
+        artifacts+=("${BUILD_ROOT}/linux-${target_arch}/prc")
+        ;;
+      algorithm)
+        build_component algorithm algorithm_server/go ./cmd/algorithm-server algorithm-server "${target_arch}" -mod=vendor
+        artifacts+=("${BUILD_ROOT}/linux-${target_arch}/algorithm-server")
+        ;;
+      lldp)
+        build_component lldp topology_agent . topology-agent "${target_arch}" -mod=mod
+        artifacts+=("${BUILD_ROOT}/linux-${target_arch}/topology-agent")
+        ;;
+    esac
+  done
 done
 
-sha256sum \
-  "${BUILD_ROOT}/linux-amd64/prc" \
-  "${BUILD_ROOT}/linux-amd64/algorithm-server" \
-  "${BUILD_ROOT}/linux-amd64/topology-agent" \
-  "${BUILD_ROOT}/linux-arm64/prc" \
-  "${BUILD_ROOT}/linux-arm64/algorithm-server" \
-  "${BUILD_ROOT}/linux-arm64/topology-agent" >"${BUILD_ROOT}/SHA256SUMS"
+sha256sum "${artifacts[@]}" >"${BUILD_ROOT}/SHA256SUMS"
 
 {
   printf 'version=%s\n' "${RELEASE_VERSION}"
   printf 'vcsRef=%s\n' "${VCS_REF}"
   printf 'goBuilderImage=%s\n' "${GO_BUILDER_IMAGE}"
   printf 'platforms=linux/amd64,linux/arm64\n'
+  printf 'components=%s\n' "${components[*]}"
 } >"${BUILD_ROOT}/BUILD-INFO.txt"
 
-log "双架构Go二进制准备完成: ${BUILD_ROOT}"
+log "双架构Go二进制准备完成 components=${components[*]} path=${BUILD_ROOT}"

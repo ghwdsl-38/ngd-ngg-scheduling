@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: check go-test-topology-agent go-test-group1 go-test-group2 go-test-group3 go-test-group4 go-test-group5 go-test-group7 go-test-all benchmark-3000-group1 benchmark-3000-group2 benchmark-3000-group3 benchmark-3000-group4 benchmark-3000-all benchmark-3000-report release-binaries release-images release-verify release-push crds algorithm-image algorithm lldp-agent-image lldp-agent prc-image prc deploy
+.PHONY: check go-test-topology-agent go-test-group1 go-test-group2 go-test-group3 go-test-group4 go-test-group5 go-test-group7 go-test-all benchmark-3000-group1 benchmark-3000-group2 benchmark-3000-group3 benchmark-3000-group4 benchmark-3000-all benchmark-3000-report release-binaries release-images release-prc-image release-algorithm-image release-lldp-image release-verify release-push release-prc-push release-algorithm-push release-lldp-push crds algorithm-image algorithm lldp-agent-image lldp-agent prc-image prc deploy
 
 check:
 	./scripts/00-check-env.sh
@@ -52,11 +52,32 @@ release-binaries:
 release-images: release-binaries
 	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.2}" ./scripts/04-release-package-images.sh
 
+release-prc-image:
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.2}" RELEASE_COMPONENTS=prc ./scripts/04-release-build-binaries.sh
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.2}" RELEASE_COMPONENTS=prc ./scripts/04-release-package-images.sh
+
+release-algorithm-image:
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.2}" RELEASE_COMPONENTS=algorithm ./scripts/04-release-build-binaries.sh
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.2}" RELEASE_COMPONENTS=algorithm ./scripts/04-release-package-images.sh
+
+release-lldp-image:
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.2}" RELEASE_COMPONENTS=lldp ./scripts/04-release-build-binaries.sh
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.2}" RELEASE_COMPONENTS=lldp ./scripts/04-release-package-images.sh
+
 release-verify:
 	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.2}" ./images/verify.sh
 
 release-push:
 	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.2}" ./scripts/04-release-push-images.sh
+
+release-prc-push:
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.2}" RELEASE_COMPONENTS=prc ./scripts/04-release-push-images.sh
+
+release-algorithm-push:
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.2}" RELEASE_COMPONENTS=algorithm ./scripts/04-release-push-images.sh
+
+release-lldp-push:
+	RELEASE_VERSION="$${RELEASE_VERSION:-v0.6.2}" RELEASE_COMPONENTS=lldp ./scripts/04-release-push-images.sh
 
 crds:
 	./scripts/03-install-apis.sh
