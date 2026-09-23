@@ -6,13 +6,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	topologypkg "demo.ngg/algorithm-server/topology"
+	"go.uber.org/zap"
 )
 
 // Config 描述一个可独立启动的 Algorithm Application。
@@ -32,9 +34,11 @@ type Config struct {
 	PythonPath               string
 	WorkerEvidenceDir        string
 	TopologyConfigFile       string
-	// TopologyConfigData is used by deterministic tests; production reads the
-	// operator-managed file mounted into Algorithm Server.
+	TopologySourceFile       string
+	Logger                   *zap.Logger
+	// Data fields are used by deterministic tests; production reads mounted files.
 	TopologyConfigData []byte
+	TopologySourceData []byte
 }
 
 // Application 是 Algorithm 进程内所有有状态组件的生命周期容器。
@@ -44,6 +48,7 @@ type Application struct {
 	service     *service
 	handler     http.Handler
 	worker      *PythonWorker
+	logger      *zap.SugaredLogger
 	metricsOnce sync.Once
 	once        sync.Once
 }
@@ -71,6 +76,7 @@ func ConfigFromEnv() (Config, error) {
 		PythonPath:             os.Getenv("PYTHONPATH"),
 		WorkerEvidenceDir:      os.Getenv("ALGORITHM_WORKER_EVIDENCE_DIR"),
 		TopologyConfigFile:     env("TOPOLOGY_CONFIG_FILE", "/etc/ngd-ngg/topology.yaml"),
+		TopologySourceFile:     os.Getenv("TOPOLOGY_SOURCE_FILE"),
 	}, nil
 }
 
@@ -94,6 +100,11 @@ func NewApplication(config Config) (*Application, error) {
 	if config.PythonModule == "" {
 		config.PythonModule = "algorithm_worker.worker"
 	}
+	baseLogger := config.Logger
+	if baseLogger == nil {
+		baseLogger = zap.NewNop()
+	}
+	logger := baseLogger.With(zap.String("component", "algorithm")).Sugar()
 
 	catalogue, err := loadMetricCatalogue(config.PrometheusMetricsFile)
 	if err != nil {
@@ -104,20 +115,29 @@ func NewApplication(config Config) (*Application, error) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	topology, err := loadTopologyCache(config.TopologyConfigFile, config.TopologyConfigData)
+	var networkTopology *topologypkg.Cache
+	if config.TopologySourceFile != "" || len(config.TopologySourceData) > 0 {
+		networkTopology, err = topologypkg.LoadSource(config.TopologySourceFile, config.TopologySourceData)
+	} else {
+		networkTopology, err = topologypkg.LoadConfig(config.TopologyConfigFile, config.TopologyConfigData)
+	}
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("load Algorithm network topology: %w", err)
 	}
-	topologyStatus := topology.status()
-	log.Printf("component=algorithm event=topology_loaded version=%s snapshotId=%s leafCount=%v roomCount=%v borderDomainCount=%v",
-		topology.version, shortLogID(topology.snapshotID), topologyStatus["leafCount"],
-		topologyStatus["roomCount"], topologyStatus["borderDomainCount"])
+	topologyStatus := networkTopology.Status()
+	logger.Infow("topology loaded", "event", "topology_loaded", "version", networkTopology.Version(), "topologyMode", networkTopology.Mode(),
+		"snapshotId", shortLogID(networkTopology.SnapshotID()), "leafCount", topologyStatus["leafCount"],
+		"roomCount", topologyStatus["roomCount"], "leafDomainCount", topologyStatus["leafDomainCount"],
+		"spineDomainCount", topologyStatus["spineDomainCount"], "borderDomainCount", topologyStatus["borderDomainCount"],
+		"spineOnlyLeafCount", topologyStatus["spineOnlyLeafCount"], "borderOnlyLeafCount", topologyStatus["borderOnlyLeafCount"],
+		"layeredLeafCount", topologyStatus["layeredLeafCount"])
 	worker, err := NewPythonWorker(ctx, WorkerConfig{
 		EvidenceDir: config.WorkerEvidenceDir,
 		Executable:  config.PythonExecutable,
 		Module:      config.PythonModule,
 		PythonPath:  config.PythonPath,
+		Logger:      baseLogger,
 	})
 	if err != nil {
 		cancel()
@@ -127,17 +147,18 @@ func NewApplication(config Config) (*Application, error) {
 		baseURL: config.PrometheusURL, definitions: catalogue.Metrics,
 		catalogueVersion: catalogue.Version, bearerToken: config.PrometheusBearerToken,
 		nodeLabel: config.PrometheusNodeLabel, interval: config.MetricsRefreshInterval,
-		staleAfter: config.MetricsStaleAfter, client: config.PrometheusClient,
+		staleAfter: config.MetricsStaleAfter, client: config.PrometheusClient, logger: logger,
 	}
-	service := &service{bootID: config.BootID, static: &staticCache{}, topology: topology, metrics: metrics, worker: worker}
+	service := &service{bootID: config.BootID, logger: logger, static: &staticCache{}, topology: networkTopology, metrics: metrics, worker: worker}
 	mux := http.NewServeMux()
 	registerRoutes(mux, service)
-	app := &Application{ctx: ctx, cancel: cancel, service: service, handler: mux, worker: worker}
+	app := &Application{ctx: ctx, cancel: cancel, service: service, handler: mux, worker: worker, logger: logger}
 	if !config.DisableBackgroundMetrics {
 		app.StartBackgroundMetrics()
 	}
-	log.Printf("component=algorithm event=application_ready bootId=%s prometheusEnabled=%t metricCount=%d topologySnapshotId=%s",
-		config.BootID, metrics.enabled(), len(metrics.configuredDefinitions()), shortLogID(topology.snapshotID))
+	logger.Infow("application ready", "event", "application_ready", "bootId", config.BootID,
+		"prometheusEnabled", metrics.enabled(), "metricCount", len(metrics.configuredDefinitions()),
+		"topologySnapshotId", shortLogID(networkTopology.SnapshotID()))
 	return app, nil
 }
 
@@ -151,8 +172,8 @@ func (a *Application) StartBackgroundMetrics() {
 		return
 	}
 	a.metricsOnce.Do(func() {
-		log.Printf("component=algorithm event=prometheus_refresh_loop_started enabled=%t interval=%s",
-			a.service.metrics.enabled(), a.service.metrics.interval)
+		a.logger.Infow("Prometheus refresh loop started", "event", "prometheus_refresh_loop_started",
+			"enabled", a.service.metrics.enabled(), "interval", a.service.metrics.interval)
 		go a.service.metrics.run(a.ctx)
 	})
 }
@@ -201,23 +222,23 @@ func registerRoutes(mux *http.ServeMux, app *service) {
 	mux.HandleFunc("PUT /internal/v1/node-static-snapshots/{snapshotID}", func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		snapshotID := r.PathValue("snapshotID")
-		log.Printf("component=algorithm event=static_snapshot_received snapshotId=%s", shortLogID(snapshotID))
+		app.logger.Debugw("static snapshot received", "event", "static_snapshot_received", "snapshotId", shortLogID(snapshotID))
 		body, apiErr := decodeBody(r)
 		if apiErr != nil {
-			log.Printf("component=algorithm event=static_snapshot_rejected snapshotId=%s code=%s elapsedMs=%.3f error=%q",
-				shortLogID(snapshotID), apiErr.Code, durationMilliseconds(started), apiErr.Message)
+			app.logger.Warnw("static snapshot rejected", "event", "static_snapshot_rejected", "snapshotId", shortLogID(snapshotID),
+				"code", apiErr.Code, "elapsedMs", durationMilliseconds(started), "error", apiErr.Message)
 			writeAPIError(w, apiErr)
 			return
 		}
 		snapshot, err := app.static.put(snapshotID, body)
 		if err != nil {
-			log.Printf("component=algorithm event=static_snapshot_rejected snapshotId=%s code=INVALID_REQUEST elapsedMs=%.3f error=%q",
-				shortLogID(snapshotID), durationMilliseconds(started), err.Error())
+			app.logger.Warnw("static snapshot rejected", "event", "static_snapshot_rejected", "snapshotId", shortLogID(snapshotID),
+				"code", "INVALID_REQUEST", "elapsedMs", durationMilliseconds(started), "error", err.Error())
 			writeAPIError(w, &apiError{Code: "INVALID_REQUEST", Message: err.Error(), Status: 400})
 			return
 		}
-		log.Printf("component=algorithm event=static_snapshot_accepted snapshotId=%s nodeCount=%d bootId=%s elapsedMs=%.3f",
-			shortLogID(snapshot.SnapshotID), len(snapshot.Nodes), app.bootID, durationMilliseconds(started))
+		app.logger.Infow("static snapshot accepted", "event", "static_snapshot_accepted", "snapshotId", shortLogID(snapshot.SnapshotID),
+			"nodeCount", len(snapshot.Nodes), "bootId", app.bootID, "elapsedMs", durationMilliseconds(started))
 		writeJSON(w, 200, map[string]any{"accepted": true, "snapshotId": snapshot.SnapshotID, "acceptedSnapshotId": snapshot.SnapshotID, "algorithmBootId": app.bootID, "bootId": app.bootID, "nodeCount": len(snapshot.Nodes), "checksum": snapshot.SnapshotID})
 	})
 	mux.HandleFunc("POST /api/v1/allocate", calculateHandler(app))
@@ -228,18 +249,18 @@ func calculateHandler(app *service) http.HandlerFunc {
 		acceptedAt := time.Now()
 		body, apiErr := decodeBody(r)
 		if apiErr != nil {
-			log.Printf("component=algorithm event=allocation_rejected code=%s elapsedMs=%.3f error=%q",
-				apiErr.Code, durationMilliseconds(acceptedAt), apiErr.Message)
+			app.logger.Warnw("allocation rejected", "event", "allocation_rejected", "code", apiErr.Code,
+				"elapsedMs", durationMilliseconds(acceptedAt), "error", apiErr.Message)
 			writeAPIError(w, apiErr)
 			return
 		}
 		requestID := stringValue(body["requestId"])
-		log.Printf("component=algorithm event=allocation_received requestId=%s ngdUID=%s generation=%v",
-			requestID, stringValue(body["ngdUID"]), body["ngdGeneration"])
+		app.logger.Infow("allocation received", "event", "allocation_received", "requestId", requestID,
+			"ngdUID", stringValue(body["ngdUID"]), "generation", body["ngdGeneration"])
 		response, apiErr := app.allocate(r.Context(), body)
 		if apiErr != nil {
-			log.Printf("component=algorithm event=allocation_failed requestId=%s code=%s statusCode=%d retryable=%t elapsedMs=%.3f error=%q",
-				requestID, apiErr.Code, apiErr.Status, apiErr.Retryable, durationMilliseconds(acceptedAt), apiErr.Message)
+			app.logger.Errorw("allocation failed", "event", "allocation_failed", "requestId", requestID, "code", apiErr.Code,
+				"statusCode", apiErr.Status, "retryable", apiErr.Retryable, "elapsedMs", durationMilliseconds(acceptedAt), "error", apiErr.Message)
 			writeAPIError(w, apiErr)
 			return
 		}
@@ -249,14 +270,15 @@ func calculateHandler(app *service) http.HandlerFunc {
 			"boundary": "HTTP handler accepted request -> candidate result ready",
 		}
 		groups, _ := response["candidateNodeGroups"].([]map[string]any)
-		log.Printf("component=algorithm event=allocation_completed requestId=%s status=%s candidateGroupCount=%d degraded=%v warningCount=%d elapsedMs=%.3f",
-			requestID, stringValue(response["status"]), len(groups), response["degraded"], len(stringSlice(response["warnings"])), processingMs)
+		app.logger.Infow("allocation completed", "event", "allocation_completed", "requestId", requestID,
+			"status", stringValue(response["status"]), "candidateGroupCount", len(groups), "degraded", response["degraded"],
+			"warningCount", len(stringSlice(response["warnings"])), "elapsedMs", processingMs)
 		writeJSON(w, 200, response)
 	}
 }
 
 func cacheStatus(app *service) map[string]any {
-	return map[string]any{"bootId": app.bootID, "runtime": "go", "nodeStatic": app.static.status(), "networkTopology": app.topology.status(), "schedulerState": map[string]any{"cached": false, "mode": "request-scoped"}, "metrics": app.metrics.status()}
+	return map[string]any{"bootId": app.bootID, "runtime": "go", "nodeStatic": app.static.status(), "networkTopology": app.topology.Status(), "schedulerState": map[string]any{"cached": false, "mode": "request-scoped"}, "metrics": app.metrics.status()}
 }
 
 func decodeBody(r *http.Request) (map[string]any, *apiError) {

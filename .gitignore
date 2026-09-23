@@ -15,3 +15,13 @@ coverage.html
 debug.test*
 test/legacy/**/runs/*
 !test/legacy/**/runs/.gitkeep
+# Site-specific physical topology (do not commit)
+/sw.yaml
+/sw-*.yaml
+/IDC*.yaml
+/IDC[0-9]*
+# Cluster kubeconfig credentials
+/confign-bupt.yaml
+/config-bupt.yaml
+# Local jump Pod snapshot
+/bupt-ops-mannual-new.yaml

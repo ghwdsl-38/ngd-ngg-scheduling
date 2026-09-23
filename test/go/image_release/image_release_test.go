@@ -203,13 +203,13 @@ func TestReleaseImagesWithEnvtest(t *testing.T) {
 		"published formal platform NGG",
 	})
 	assertContainerLogsContain(t, algorithmName, filepath.Join(actualDirectory, "algorithm-container.log"), []string{
-		"event=topology_loaded",
-		"event=prometheus_refresh_completed status=success",
-		"event=static_snapshot_accepted",
-		"event=allocation_received",
-		"event=topology_resolution_completed",
-		"event=python_worker_jsonl_started",
-		"event=allocation_completed",
+		`"level":"info"`,
+		`"event":"topology_loaded"`,
+		`"event":"prometheus_refresh_completed","status":"success"`,
+		`"event":"static_snapshot_accepted"`,
+		`"event":"allocation_received"`,
+		`"event":"python_calculation_completed"`,
+		`"event":"allocation_completed"`,
 	})
 
 	cache := fetchJSON(t, algorithmURL+"/internal/v1/cache/status")

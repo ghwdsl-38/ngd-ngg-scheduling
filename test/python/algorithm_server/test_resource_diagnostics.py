@@ -1,5 +1,6 @@
 import unittest
 
+from algorithm_worker.services.node_view_builder import NodeViewBuilder
 from algorithm_worker.worker import AlgorithmWorker
 
 
@@ -101,6 +102,22 @@ class WorkerResourceTests(unittest.TestCase):
         }
         result = self.worker.calculate(payload(ngd, self.nodes))
         self.assertEqual("QUOTA_PREVENTS_MINIMUM", result["failure"]["code"])
+
+
+    def test_required_same_rejects_unresolved_domain(self) -> None:
+        self.assertFalse(
+            NodeViewBuilder._matches_topology(
+                {"roomId": "room-1", "borderDomainId": ""},
+                {"borderDomain": "requiredSame"},
+            )
+        )
+        self.assertTrue(
+            NodeViewBuilder._matches_topology(
+                {"roomId": "room-1", "borderDomainId": "border-1"},
+                {"borderDomain": "requiredSame"},
+            )
+        )
+
 
 
 if __name__ == "__main__":

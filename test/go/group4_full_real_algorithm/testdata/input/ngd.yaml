@@ -21,4 +21,4 @@ spec:
     topology.kubernetes.io/data-center: HB-HL-DC1
     topology.kubernetes.io/leaf-switch: requiredSame
     topology.kubernetes.io/room: HB-HL-DC1-102
-    topology.kubernetes.io/spine-switch: spine-01
+    topology.kubernetes.io/spine-switch: requiredSame

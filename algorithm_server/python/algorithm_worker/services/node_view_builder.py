@@ -18,6 +18,7 @@ class NodeViewBuilder:
         "borderDomain": "borderDomainId",
         "spineDomain": "spineDomainId",
         "leafDomain": "leafDomainId",
+        "uplinkDomain": "uplinkDomainId",
     }
 
     def build(
@@ -109,9 +110,11 @@ class NodeViewBuilder:
             return False
         for level, raw_value in constraints.items():
             value = str(raw_value)
-            if value == "requiredSame":
-                continue
             field = cls.TOPOLOGY_FIELDS[level]
+            if value == "requiredSame":
+                if not str(topology.get(field, "")):
+                    return False
+                continue
             if str(topology.get(field, "")) != value:
                 return False
         return True

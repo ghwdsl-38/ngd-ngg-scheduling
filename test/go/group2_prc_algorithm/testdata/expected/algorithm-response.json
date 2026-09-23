@@ -36,7 +36,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-040"
+            "switchId": "leaf-040",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-04",
+            "uplinkKind": "border"
           }
         },
         {
@@ -70,7 +73,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-040"
+            "switchId": "leaf-040",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-04",
+            "uplinkKind": "border"
           }
         },
         {
@@ -104,7 +110,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-040"
+            "switchId": "leaf-040",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-04",
+            "uplinkKind": "border"
           }
         },
         {
@@ -138,7 +147,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-040"
+            "switchId": "leaf-040",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-04",
+            "uplinkKind": "border"
           }
         },
         {
@@ -172,7 +184,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-040"
+            "switchId": "leaf-040",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-04",
+            "uplinkKind": "border"
           }
         },
         {
@@ -206,7 +221,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-040"
+            "switchId": "leaf-040",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-04",
+            "uplinkKind": "border"
           }
         },
         {
@@ -240,7 +258,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-040"
+            "switchId": "leaf-040",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-04",
+            "uplinkKind": "border"
           }
         },
         {
@@ -274,7 +295,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-040"
+            "switchId": "leaf-040",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-04",
+            "uplinkKind": "border"
           }
         },
         {
@@ -308,7 +332,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-040"
+            "switchId": "leaf-040",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-04",
+            "uplinkKind": "border"
           }
         },
         {
@@ -342,7 +369,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-040"
+            "switchId": "leaf-040",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-04",
+            "uplinkKind": "border"
           }
         }
       ],
@@ -384,7 +414,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-012"
+            "switchId": "leaf-012",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -418,7 +451,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-012"
+            "switchId": "leaf-012",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -452,7 +488,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-012"
+            "switchId": "leaf-012",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -486,7 +525,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-012"
+            "switchId": "leaf-012",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -520,7 +562,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-012"
+            "switchId": "leaf-012",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -554,7 +599,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-012"
+            "switchId": "leaf-012",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -588,7 +636,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-012"
+            "switchId": "leaf-012",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -622,7 +673,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-012"
+            "switchId": "leaf-012",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -656,7 +710,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-012"
+            "switchId": "leaf-012",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -690,7 +747,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-012"
+            "switchId": "leaf-012",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         }
       ],
@@ -732,7 +792,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-004"
+            "switchId": "leaf-004",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -766,7 +829,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-004"
+            "switchId": "leaf-004",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -800,7 +866,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-004"
+            "switchId": "leaf-004",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -834,7 +903,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-004"
+            "switchId": "leaf-004",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -868,7 +940,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-004"
+            "switchId": "leaf-004",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -902,7 +977,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-004"
+            "switchId": "leaf-004",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -936,7 +1014,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-004"
+            "switchId": "leaf-004",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -970,7 +1051,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-004"
+            "switchId": "leaf-004",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -1004,7 +1088,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-004"
+            "switchId": "leaf-004",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         },
         {
@@ -1038,7 +1125,10 @@
             "roomId": "HB-HL-DC1-102",
             "spineDomainId": "",
             "spineSwitchIds": [],
-            "switchId": "leaf-004"
+            "switchId": "leaf-004",
+            "topologyMode": "uplink-compatible",
+            "uplinkDomainId": "border:HB-HL-DC1-102-BORDER-DOMAIN-01",
+            "uplinkKind": "border"
           }
         }
       ],
@@ -6419,10 +6509,10 @@
           }
         ],
         "effectiveTopologyConstraints": {
-          "borderDomain": "requiredSame",
           "dataCenter": "HB-HL-DC1",
           "leafDomain": "requiredSame",
-          "room": "HB-HL-DC1-102"
+          "room": "HB-HL-DC1-102",
+          "uplinkDomain": "requiredSame"
         },
         "parameters": {},
         "podMinimums": [],
@@ -6431,7 +6521,7 @@
           "topology.kubernetes.io/data-center": "HB-HL-DC1",
           "topology.kubernetes.io/leaf-switch": "requiredSame",
           "topology.kubernetes.io/room": "HB-HL-DC1-102",
-          "topology.kubernetes.io/spine-switch": "spine-01"
+          "topology.kubernetes.io/spine-switch": "requiredSame"
         }
       },
       "output": {
@@ -15452,7 +15542,5 @@
   "status": "SUCCESS",
   "taskUID": "\u003cuid\u003e",
   "topologySnapshotId": "\u003csnapshot-hash\u003e",
-  "warnings": [
-    "SPINE_NOT_FOUND_FALLBACK: Spine \"spine-01\" is absent from the configured topology; using existing border-switch constraint \"requiredSame\""
-  ]
+  "warnings": null
 }

@@ -15,6 +15,7 @@ import (
 type staticNode struct {
 	NodeName    string            `json:"nodeName"`
 	NodeUID     string            `json:"nodeUID"`
+	NodeIP      string            `json:"nodeIP,omitempty"`
 	CreatedAt   string            `json:"createdAt"`
 	Allocatable map[string]string `json:"allocatable"`
 	Labels      map[string]string `json:"labels"`
@@ -67,7 +68,7 @@ func buildStaticSnapshot(clusterID string, nodes []corev1.Node) (string, staticS
 			allocatable[string(name)] = quantity.String()
 		}
 		result.Nodes = append(result.Nodes, staticNode{
-			NodeName: node.Name, NodeUID: string(node.UID), CreatedAt: node.CreationTimestamp.UTC().Format(time.RFC3339),
+			NodeName: node.Name, NodeUID: string(node.UID), NodeIP: nodeInternalIP(node), CreatedAt: node.CreationTimestamp.UTC().Format(time.RFC3339),
 			Allocatable: allocatable, Labels: node.Labels, Topology: topo,
 		})
 	}
@@ -213,6 +214,15 @@ func contentHash(value any) (string, error) {
 	}
 	sum := sha256.Sum256(canonical)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func nodeInternalIP(node *corev1.Node) string {
+	for _, address := range node.Status.Addresses {
+		if address.Type == corev1.NodeInternalIP {
+			return strings.TrimSpace(address.Address)
+		}
+	}
+	return ""
 }
 
 func nodeReady(node *corev1.Node) bool {

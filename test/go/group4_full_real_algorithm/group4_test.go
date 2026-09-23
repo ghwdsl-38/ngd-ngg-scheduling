@@ -268,8 +268,8 @@ func TestGroup4_PRCWatchesNGDCallsRealAlgorithmAndCreatesNGG(t *testing.T) {
 		t.Fatalf("topologyLevel=%s, want leafDomain because leaf-switch=requiredSame", got)
 	}
 	warnings, _ := algorithmResponse["warnings"].([]any)
-	if len(warnings) != 1 || !strings.Contains(fmt.Sprint(warnings[0]), "SPINE_NOT_FOUND_FALLBACK") {
-		t.Fatalf("warnings=%v, want missing-Spine to Border-Same fallback", warnings)
+	if len(warnings) != 0 {
+		t.Fatalf("warnings=%v, want none", warnings)
 	}
 	selectedNodes := firstGroup["nodes"].([]any)
 	if len(grantNodes) != len(selectedNodes) {

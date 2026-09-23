@@ -31,7 +31,7 @@ spec:
         - name: PROMETHEUS_REQUEST_TIMEOUT_SECONDS
           value: "5"
         - name: PROMETHEUS_NODE_LABEL
-          value: node
+          value: paas_node_ip
         - name: TOPOLOGY_CONFIG_FILE
           value: /etc/ngd-ngg/topology/topology.yaml
         volumeMounts:

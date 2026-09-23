@@ -9,7 +9,7 @@ Algorithm不访问Kubernetes API。
 目录中的清单包括：
 
 1. `lldp-agent.yaml`：LLDP ServiceAccount、Node最小权限RBAC和DaemonSet；
-2. `algorithm.yaml`：上层拓扑ConfigMap、Algorithm Service和Deployment；
+2. `algorithm.yaml`：Algorithm指标ConfigMap、Service和Deployment；根目录`sw.yaml`是独立的原始多Room拓扑文件；
 3. `prc.yaml`：PRC ServiceAccount、NGD/NGG等权限RBAC和Deployment；
 4. `kustomization.yaml`：将三个组件作为一套清单部署。
 
@@ -53,7 +53,7 @@ huailaitst-registry.cucloud.cn:30028/paas/scheduling/algorithm:v0.6.2
 部署前检查：
 
 - Algorithm 已指向当前集群的 VictoriaMetrics vmselect，并挂载适配`paas_node_ip`的14项指标目录；
-- `algorithm.yaml`中ConfigMap里的真实上层拓扑；
+- 根目录`sw.yaml`中的真实上层拓扑；部署前需要将它创建或更新为`ngd-ngg-algorithm-topology` ConfigMap；
 - `prc.yaml`中的`CLUSTER_ID`；
 - NGD和NGG CRD必须已经安装到集群。
 
@@ -68,22 +68,29 @@ DaemonSet默认不使用`nodeSelector`，会尝试覆盖所有未被Taint阻止�
 先查看最终清单：
 
 ```bash
-kubectl kustomize deploy-lldp-incluster
+kubectl kustomize deploy-incluster
 ```
 
-部署完整三组件：
+部署完整三组件时，也要先创建或更新独立的拓扑ConfigMap：
 
 ```bash
-kubectl apply -k deploy-lldp-incluster
+kubectl -n welkin-system create configmap ngd-ngg-algorithm-topology --from-file=sw.yaml=./sw.yaml --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -k deploy-incluster
 ```
 
-也可以分别部署：
+也可以分别部署。Algorithm清单不再内嵌拓扑，先在项目根目录把原始`sw.yaml`创建或更新为ConfigMap，再应用Algorithm：
 
 ```bash
-kubectl apply -f deploy-lldp-incluster/algorithm.yaml
-kubectl apply -f deploy-lldp-incluster/prc.yaml
-kubectl apply -f deploy-lldp-incluster/lldp-agent.yaml
+kubectl -n welkin-system create configmap ngd-ngg-algorithm-topology --from-file=sw.yaml=./sw.yaml --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f deploy-incluster/algorithm.yaml
+kubectl -n welkin-system rollout restart deployment/ngd-ngg-algorithm
+kubectl -n welkin-system rollout status deployment/ngd-ngg-algorithm --timeout=300s
+
+kubectl apply -f deploy-incluster/prc.yaml
+kubectl apply -f deploy-incluster/lldp-agent.yaml
 ```
+
+`TOPOLOGY_SOURCE_FILE`仍是Pod内路径`/etc/ngd-ngg/topology/sw.yaml`。Deployment把上述ConfigMap以只读文件方式挂载到该路径；它不能直接访问部署机上的`D:\project\...\sw.yaml`。
 
 ## 验证
 
@@ -115,12 +122,14 @@ kubectl get nodes \
 ## 更新与删除
 
 ```bash
-kubectl apply -k deploy-lldp-incluster
+kubectl -n welkin-system create configmap ngd-ngg-algorithm-topology --from-file=sw.yaml=./sw.yaml --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -k deploy-incluster
 kubectl -n welkin-system rollout status deployment/ngd-ngg-algorithm --timeout=300s
 kubectl -n welkin-system rollout status deployment/platform-resource-controller --timeout=300s
 kubectl -n welkin-system rollout status daemonset/lldp-agent --timeout=300s
 
-kubectl delete -k deploy-lldp-incluster
+kubectl delete -k deploy-incluster
+kubectl -n welkin-system delete configmap ngd-ngg-algorithm-topology --ignore-not-found
 ```
 
 删除清单不会删除NGD、NGG、CRD，也不会自动清理Node上已有的拓扑标签和注解。

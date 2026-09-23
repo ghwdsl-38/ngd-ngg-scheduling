@@ -12,7 +12,7 @@ type staticSnapshot struct {
 }
 
 type metricSnapshot struct {
-	// Nodes 以 Kubernetes Node 名称为键，保存 CPU、内存和网络指标。
+	// Nodes 在缓存中以 Prometheus identity label 为键；发送给 Worker 前会规范化为 Kubernetes nodeName。
 	SnapshotID       string                        `json:"snapshotId"`
 	CapturedAt       string                        `json:"capturedAt"`
 	CapturedUnix     float64                       `json:"capturedAtUnix"`

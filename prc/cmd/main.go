@@ -4,11 +4,14 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
+	gozap "go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	prcapp "scheduling.demo.ngg.io/prc/pkg/application"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	ctrlzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 const (
@@ -41,10 +44,14 @@ func main() {
 	flag.BoolVar(&leaderElection, "leader-elect", true, "Enable leader election")
 	flag.DurationVar(&refresh.interval, "demand-refresh-interval", defaultDemandRefreshInterval, "normal delay between completed refreshes of one NGD")
 	flag.IntVar(&refresh.maxConcurrent, "max-concurrent-refreshes", defaultMaxConcurrentRefreshes, "maximum number of NGDs refreshed concurrently")
-	opts := zap.Options{Development: false}
+	opts := ctrlzap.Options{Development: false}
+	if err := applyLogEnvironment(&opts); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "level=error component=prc event=logger_initialization_failed error=%q\n", err)
+		os.Exit(2)
+	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	ctrl.SetLogger(ctrlzap.New(ctrlzap.UseFlagOptions(&opts)).WithValues("component", "prc"))
 	if err := refresh.validate(); err != nil {
 		ctrl.Log.Error(err, "invalid PRC refresh configuration")
 		os.Exit(2)
@@ -72,4 +79,25 @@ func env(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func applyLogEnvironment(options *ctrlzap.Options) error {
+	if raw := strings.TrimSpace(os.Getenv("LOG_LEVEL")); raw != "" {
+		var level zapcore.Level
+		if err := level.Set(strings.ToLower(raw)); err != nil {
+			return fmt.Errorf("invalid LOG_LEVEL %q: %w", raw, err)
+		}
+		options.Level = level
+	}
+	format := strings.ToLower(strings.TrimSpace(os.Getenv("LOG_FORMAT")))
+	if format == "" || format == "json" {
+		return nil
+	}
+	if format != "console" {
+		return fmt.Errorf("invalid LOG_FORMAT %q: must be json or console", format)
+	}
+	encoderConfig := gozap.NewProductionEncoderConfig()
+	encoderConfig.EncodeTime = zapcore.RFC3339NanoTimeEncoder
+	options.Encoder = zapcore.NewConsoleEncoder(encoderConfig)
+	return nil
 }

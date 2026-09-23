@@ -45,6 +45,7 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 	resolvedNodes := make([]any, 0, nodeCount)
 	states := make([]any, 0, nodeCount)
 	metrics := make(map[string]map[string]float64, nodeCount)
+	nodeMetrics := make(map[string]map[string]float64, nodeCount)
 	nodes := make([]corev1.Node, 0, nodeCount)
 	pods := []corev1.Pod{}
 	leafCount := nodeCount / 20
@@ -53,6 +54,7 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 		borderNumber := (leafNumber-1)*4/leafCount + 1
 		name := fmt.Sprintf("worker-%04d", number)
 		uid := fmt.Sprintf("uid-worker-%04d", number)
+		nodeIP := fmt.Sprintf("10.20.%d.%d", (number-1)/250, (number-1)%250+1)
 		leaf := fmt.Sprintf("leaf-%03d", leafNumber)
 		borderDomain := fmt.Sprintf("HB-HL-DC1-102-BORDER-DOMAIN-%02d", borderNumber)
 		borders := []string{
@@ -79,13 +81,14 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 		resolvedTopology := map[string]any{
 			"regionId": "CN-NORTH", "locationId": "HB-HL", "dataCenterId": "HB-HL-DC1",
 			"roomId": "HB-HL-DC1-102", "borderDomainId": borderDomain,
+			"topologyMode": "uplink-compatible", "uplinkDomainId": "border:" + borderDomain, "uplinkKind": "border",
 			"borderSwitchIds": borders, "spineDomainId": "", "spineSwitchIds": []any{},
 			"leafSwitchId": leaf, "leafSwitchIds": leafIDs, "switchId": leaf,
 			"leafDomainId": leaf, "leafDomainSwitchIds": leafIDs, "peerLeafSwitchIds": []any{},
 			"bandwidthGbps": bandwidth, "latencyMillis": latency,
 		}
 		staticNode := map[string]any{
-			"nodeName": name, "nodeUID": uid, "createdAt": "2026-08-21T00:00:00Z",
+			"nodeName": name, "nodeUID": uid, "nodeIP": nodeIP, "createdAt": "2026-08-21T00:00:00Z",
 			"allocatable": map[string]any{"cpu": "32", "memory": "128Gi", "nvidia.com/gpu": "4"},
 			"labels":      labels, "topology": topology,
 		}
@@ -103,7 +106,7 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 		receivePPS := float64(20_000 + (number*97)%800_000)
 		transmitPPS := float64(18_000 + (number*89)%700_000)
 		utilization := minFloat(0.95, (receiveBPS+transmitBPS)/(bandwidth*125_000_000))
-		metrics[name] = map[string]float64{
+		nodeMetric := map[string]float64{
 			"cpuUsageRatio": cpu, "memoryUsageRatio": memory,
 			"networkReceiveBytesPerSecond": receiveBPS, "networkTransmitBytesPerSecond": transmitBPS,
 			"networkReceivePacketsPerSecond": receivePPS, "networkTransmitPacketsPerSecond": transmitPPS,
@@ -121,6 +124,8 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 			"networkUtilizationRatio":          utilization,
 			"availableBandwidthBytesPerSecond": maxFloat(0, bandwidth*125_000_000-receiveBPS-transmitBPS),
 		}
+		metrics[nodeIP] = nodeMetric
+		nodeMetrics[name] = nodeMetric
 		allocatable := corev1.ResourceList{
 			corev1.ResourceCPU: resource.MustParse("32"), corev1.ResourceMemory: resource.MustParse("128Gi"),
 			corev1.ResourceName("nvidia.com/gpu"): resource.MustParse("4"),
@@ -136,7 +141,7 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 				CreationTimestamp: metav1.NewTime(time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)),
 			},
 			Spec:   corev1.NodeSpec{Unschedulable: inUse},
-			Status: corev1.NodeStatus{Capacity: allocatable.DeepCopy(), Allocatable: allocatable.DeepCopy(), Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}},
+			Status: corev1.NodeStatus{Capacity: allocatable.DeepCopy(), Allocatable: allocatable.DeepCopy(), Addresses: []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: nodeIP}}, Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}},
 		})
 		if number%100 == 1 {
 			pods = append(pods, corev1.Pod{
@@ -160,14 +165,13 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 	ngdSpec := map[string]any{
 		"schedulerName": "volcano",
 		"nodeSelector":  map[string]any{"matchLabels": map[string]any{"tests.ngg.io/worker": "true"}},
-		// 严格使用联通新版topologyLabels。spine-01在模拟拓扑中不存在，
-		// Algorithm Go层会降级为Border requiredSame；Leaf requiredSame是更窄
-		// 的硬约束，因此最终仍只允许从一个Leaf逻辑域选择Node。
+		// 兼容模式下，Spine/Border requiredSame 都映射为同一 Uplink Domain；
+		// Leaf requiredSame 继续限制为更窄的 Leaf Domain。
 		"topologyLabels": map[string]any{
 			"topology.kubernetes.io/data-center":   "HB-HL-DC1",
 			"topology.kubernetes.io/room":          "HB-HL-DC1-102",
 			"topology.kubernetes.io/border-switch": "requiredSame",
-			"topology.kubernetes.io/spine-switch":  "spine-01",
+			"topology.kubernetes.io/spine-switch":  "requiredSame",
 			"topology.kubernetes.io/leaf-switch":   "requiredSame",
 		},
 		// 每个Leaf有20个Node，其中约1/3处于占用状态；10个Node的最低需求
@@ -180,7 +184,7 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 		"requestId": "group-request-1000", "taskUID": "task-uid-1000", "ngdUID": "ngd-uid-1000", "ngdGeneration": int64(1),
 		"requestMode": "resourcePool", "nodeStaticSnapshotId": snapshotID, "nodeUsageStates": states, "ngd": ngdSpec, "debugTrace": true,
 	}
-	metricSnapshotID, err := CanonicalHash(map[string]any{"catalogueVersion": "node-exporter-network-v1", "nodes": metrics})
+	metricSnapshotID, err := CanonicalHash(map[string]any{"catalogueVersion": "node-exporter-network-v1", "nodes": nodeMetrics})
 	if err != nil {
 		return nil, err
 	}
@@ -189,18 +193,19 @@ func GenerateFixture(nodeCount int) (*Fixture, error) {
 	workerRequest := copyMap(allocation)
 	// Group1直接测试Go到Python Worker边界，因此输入使用Algorithm Go层已经
 	// 解析好的内部逻辑域约束。其他组通过真实Algorithm HTTP服务自动生成它。
+	workerRequest["topologyMode"] = "uplink-compatible"
 	workerRequest["topologyConstraints"] = map[string]any{
 		"dataCenter": "HB-HL-DC1", "room": "HB-HL-DC1-102",
-		"borderDomain": "requiredSame", "leafDomain": "requiredSame",
+		"uplinkDomain": "requiredSame", "leafDomain": "requiredSame",
 	}
 	workerPayload := map[string]any{
 		"request": workerRequest, "staticSnapshot": workerStatic,
 		"metricSnapshot": map[string]any{
 			"snapshotId": metricSnapshotID, "capturedAt": "2026-08-21T00:00:00Z", "capturedAtUnix": float64(1787270400),
-			"catalogueVersion": "node-exporter-network-v1", "nodes": metrics,
+			"catalogueVersion": "node-exporter-network-v1", "nodes": nodeMetrics,
 		},
 		"metricsDegraded": false,
-		"warnings":        []any{"SPINE_NOT_FOUND_FALLBACK: Spine \"spine-01\" is absent from the configured topology; using existing border-switch constraint \"requiredSame\""},
+		"warnings":        []any{},
 	}
 	demand := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "scheduling.platform.example.io/v1alpha1", "kind": "NodeGroupDemand",

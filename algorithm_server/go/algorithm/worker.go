@@ -7,13 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type calculator interface {
@@ -28,6 +29,7 @@ type WorkerConfig struct {
 	Executable  string
 	Module      string
 	PythonPath  string
+	Logger      *zap.Logger
 }
 
 // PythonWorker是生产Application和第一组Go Test共用的Worker生命周期入口。
@@ -60,6 +62,7 @@ type pythonWorker struct {
 	closeErr    error
 	nextID      atomic.Uint64
 	evidenceDir string
+	logger      *zap.SugaredLogger
 }
 
 const workerCleanupTimeout = 2 * time.Second
@@ -104,7 +107,11 @@ func NewPythonWorker(ctx context.Context, config WorkerConfig) (*PythonWorker, e
 	if config.Module == "" {
 		config.Module = "algorithm_worker.worker"
 	}
-	inner, err := startPythonWorkerWithPath(ctx, config.EvidenceDir, config.PythonPath, config.Executable, "-m", config.Module)
+	logger := config.Logger
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	inner, err := startPythonWorkerWithLogger(ctx, config.EvidenceDir, config.PythonPath, logger, config.Executable, "-m", config.Module)
 	if err != nil {
 		return nil, err
 	}
@@ -112,14 +119,19 @@ func NewPythonWorker(ctx context.Context, config WorkerConfig) (*PythonWorker, e
 }
 
 func startPythonWorkerWithPath(ctx context.Context, evidenceDir, pythonPath, command string, arguments ...string) (*pythonWorker, error) {
+	return startPythonWorkerWithLogger(ctx, evidenceDir, pythonPath, zap.NewNop(), command, arguments...)
+}
+
+func startPythonWorkerWithLogger(ctx context.Context, evidenceDir, pythonPath string, baseLogger *zap.Logger, command string, arguments ...string) (*pythonWorker, error) {
 	lifetime, cancel := context.WithCancel(ctx)
-	w := &pythonWorker{ctx: lifetime, cancel: cancel, gate: make(chan struct{}, 1), evidenceDir: evidenceDir}
+	logger := baseLogger.With(zap.String("component", "algorithm")).Sugar()
+	w := &pythonWorker{ctx: lifetime, cancel: cancel, gate: make(chan struct{}, 1), evidenceDir: evidenceDir, logger: logger}
 	w.start = func() (*workerProcess, error) {
 		cmd := exec.CommandContext(lifetime, command, arguments...)
 		if pythonPath != "" {
 			cmd.Env = append(os.Environ(), "PYTHONPATH="+pythonPath)
 		}
-		return startPythonWorkerCommand(cmd)
+		return startPythonWorkerCommand(cmd, logger)
 	}
 	var err error
 	w.process, err = w.start()
@@ -132,7 +144,7 @@ func startPythonWorkerWithPath(ctx context.Context, evidenceDir, pythonPath, com
 	return w, nil
 }
 
-func startPythonWorkerCommand(cmd *exec.Cmd) (*workerProcess, error) {
+func startPythonWorkerCommand(cmd *exec.Cmd, logger *zap.SugaredLogger) (*workerProcess, error) {
 	cmd.Stderr = os.Stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -150,7 +162,7 @@ func startPythonWorkerCommand(cmd *exec.Cmd) (*workerProcess, error) {
 		_ = stdoutPipe.Close()
 		return nil, err
 	}
-	log.Printf("component=algorithm event=python_worker_started pid=%d", cmd.Process.Pid)
+	logger.Infow("Python worker started", "event", "python_worker_started", "pid", cmd.Process.Pid)
 	return &workerProcess{command: cmd, stdin: stdin, stdout: scanner, stdoutPipe: stdoutPipe, reaped: make(chan struct{})}, nil
 }
 
@@ -174,15 +186,15 @@ func workerTimeout(err error) *apiError {
 func (w *pythonWorker) calculate(ctx context.Context, payload workerPayload) (result workerResult, resultErr *apiError) {
 	started := time.Now()
 	requestID := stringValue(payload.Request["requestId"])
-	log.Printf("component=algorithm event=python_worker_request_queued requestId=%s", requestID)
+	w.logger.Debugw("Python worker request queued", "event", "python_worker_request_queued", "requestId", requestID)
 	defer func() {
 		if resultErr != nil {
-			log.Printf("component=algorithm event=python_worker_request_completed requestId=%s status=failed code=%s elapsedMs=%.3f",
-				requestID, resultErr.Code, durationMilliseconds(started))
+			w.logger.Errorw("Python worker request failed", "event", "python_worker_request_completed", "requestId", requestID,
+				"status", "failed", "code", resultErr.Code, "elapsedMs", durationMilliseconds(started))
 			return
 		}
-		log.Printf("component=algorithm event=python_worker_request_completed requestId=%s status=success candidateGroupCount=%d elapsedMs=%.3f",
-			requestID, len(result.CandidateNodeGroups), durationMilliseconds(started))
+		w.logger.Debugw("Python worker request completed", "event", "python_worker_request_completed", "requestId", requestID,
+			"status", "success", "candidateGroupCount", len(result.CandidateNodeGroups), "elapsedMs", durationMilliseconds(started))
 	}()
 	// 当前为单 Worker 串行模型；消息 ID 用于检测协议错位。
 	select {
@@ -205,7 +217,7 @@ func (w *pythonWorker) calculate(ctx context.Context, payload workerPayload) (re
 		}
 	}
 	if w.process == nil {
-		log.Printf("component=algorithm event=python_worker_restart_wait requestId=%s backoffUntil=%s", requestID, w.nextStart.UTC().Format(time.RFC3339Nano))
+		w.logger.Warnw("waiting to restart Python worker", "event", "python_worker_restart_wait", "requestId", requestID, "backoffUntil", w.nextStart.UTC().Format(time.RFC3339Nano))
 		timer := time.NewTimer(time.Until(w.nextStart))
 		defer timer.Stop()
 		select {
@@ -223,7 +235,7 @@ func (w *pythonWorker) calculate(ctx context.Context, payload workerPayload) (re
 		}
 	}
 	id := strconv.FormatUint(w.nextID.Add(1), 10)
-	log.Printf("component=algorithm event=python_worker_jsonl_started requestId=%s workerRequestId=%s", requestID, id)
+	w.logger.Debugw("Python worker JSONL exchange started", "event", "python_worker_jsonl_started", "requestId", requestID, "workerRequestId", id)
 	request := workerEnvelope{ID: id, Payload: payload}
 	raw, err := json.Marshal(request)
 	if err != nil {

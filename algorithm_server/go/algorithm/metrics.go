@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"math"
 	"net/http"
 	"net/url"
@@ -13,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type metricsCache struct {
@@ -31,6 +32,7 @@ type metricsCache struct {
 	lastError        string
 	lastWarnings     []string
 	lastQuery        time.Time
+	logger           *zap.SugaredLogger
 
 	// 仅保留给旧配置和现有测试构造器兼容；正式进程使用 definitions。
 	cpuQuery    string
@@ -57,7 +59,7 @@ func (c *metricsCache) enabled() bool {
 
 func (c *metricsCache) run(ctx context.Context) {
 	if !c.enabled() {
-		log.Printf("component=algorithm event=prometheus_refresh_skipped reason=disabled")
+		c.logger.Infow("Prometheus refresh skipped", "event", "prometheus_refresh_skipped", "reason", "disabled")
 		return
 	}
 	c.refresh(ctx)
@@ -106,21 +108,24 @@ func (c *metricsCache) refresh(ctx context.Context) {
 	// 必需指标失败时保留上一份完整快照；可选网络指标失败只进入降级告警。
 	if fatalError != nil {
 		c.lastError = fatalError.Error()
-		log.Printf("component=algorithm event=prometheus_refresh_completed status=failed metricCount=%d nodeCount=%d warningCount=%d elapsedMs=%.3f error=%q",
-			len(coverage), len(values), len(warnings), durationMilliseconds(started), c.lastError)
+		c.logger.Errorw("Prometheus refresh failed", "event", "prometheus_refresh_completed", "status", "failed",
+			"metricCount", len(coverage), "nodeCount", len(values), "warningCount", len(warnings),
+			"elapsedMs", durationMilliseconds(started), "error", c.lastError)
 		return
 	}
 	if len(values) == 0 {
 		c.lastError = "Prometheus returned no Node metrics"
-		log.Printf("component=algorithm event=prometheus_refresh_completed status=failed metricCount=%d nodeCount=0 warningCount=%d elapsedMs=%.3f error=%q",
-			len(coverage), len(warnings), durationMilliseconds(started), c.lastError)
+		c.logger.Errorw("Prometheus refresh returned no Node metrics", "event", "prometheus_refresh_completed", "status", "failed",
+			"metricCount", len(coverage), "nodeCount", 0, "warningCount", len(warnings),
+			"elapsedMs", durationMilliseconds(started), "error", c.lastError)
 		return
 	}
 	id, err := canonicalHash(map[string]any{"catalogueVersion": c.catalogueVersion, "nodes": values})
 	if err != nil {
 		c.lastError = err.Error()
-		log.Printf("component=algorithm event=prometheus_refresh_completed status=failed metricCount=%d nodeCount=%d warningCount=%d elapsedMs=%.3f error=%q",
-			len(coverage), len(values), len(warnings), durationMilliseconds(started), c.lastError)
+		c.logger.Errorw("Prometheus refresh failed", "event", "prometheus_refresh_completed", "status", "failed",
+			"metricCount", len(coverage), "nodeCount", len(values), "warningCount", len(warnings),
+			"elapsedMs", durationMilliseconds(started), "error", c.lastError)
 		return
 	}
 	next := &metricSnapshot{
@@ -133,8 +138,15 @@ func (c *metricsCache) refresh(ctx context.Context) {
 	}
 	c.current = next
 	c.lastError = ""
-	log.Printf("component=algorithm event=prometheus_refresh_completed status=success metricCount=%d nodeCount=%d warningCount=%d snapshotId=%s elapsedMs=%.3f",
-		len(coverage), len(values), len(warnings), shortLogID(id), durationMilliseconds(started))
+	if len(warnings) > 0 {
+		c.logger.Warnw("Prometheus refresh completed with optional metric warnings", "event", "prometheus_refresh_completed", "status", "degraded",
+			"metricCount", len(coverage), "nodeCount", len(values), "warningCount", len(warnings),
+			"snapshotId", shortLogID(id), "elapsedMs", durationMilliseconds(started))
+	} else {
+		c.logger.Infow("Prometheus refresh completed", "event", "prometheus_refresh_completed", "status", "success",
+			"metricCount", len(coverage), "nodeCount", len(values), "warningCount", 0,
+			"snapshotId", shortLogID(id), "elapsedMs", durationMilliseconds(started))
+	}
 }
 
 func (c *metricsCache) query(ctx context.Context, definition metricDefinition, destination map[string]map[string]float64) (int, error) {
@@ -183,7 +195,7 @@ func (c *metricsCache) query(ctx context.Context, definition metricDefinition, d
 			value = math.Max(0, value)
 		}
 		if _, duplicate := seen[name]; duplicate {
-			return 0, fmt.Errorf("duplicate Node series %q", name)
+			return 0, fmt.Errorf("duplicate Prometheus series for %s %q", c.nodeLabel, name)
 		}
 		samples[name] = value
 		seen[name] = struct{}{}

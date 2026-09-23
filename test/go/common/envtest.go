@@ -5,7 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
+	"sort"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,9 +28,10 @@ import (
 
 // TestEnvironment持有本组独立的API Server和etcd生命周期。
 type TestEnvironment struct {
-	Environment *envtest.Environment
-	Config      *rest.Config
-	Scheme      *runtime.Scheme
+	Environment       *envtest.Environment
+	Config            *rest.Config
+	Scheme            *runtime.Scheme
+	WindowsProcessIDs []int
 }
 
 // StartEnvTest安装联通正式NGD/NGG CRD。
@@ -47,8 +53,9 @@ func StartEnvTest(t *testing.T) *TestEnvironment {
 	}
 	assets := os.Getenv("KUBEBUILDER_ASSETS")
 	if assets == "" {
-		assets = filepath.Join(root, ".cache", "envtest", "1.35.5")
+		assets = filepath.Join(root, ".cache", "envtest", "1.35.0")
 	}
+	before := windowsEnvtestProcessIDs(assets)
 	environment := &envtest.Environment{CRDs: crds, BinaryAssetsDirectory: assets}
 	config, err := environment.Start()
 	if err != nil {
@@ -58,7 +65,7 @@ func StartEnvTest(t *testing.T) *TestEnvironment {
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add core scheme: %v", err)
 	}
-	return &TestEnvironment{Environment: environment, Config: config, Scheme: scheme}
+	return &TestEnvironment{Environment: environment, Config: config, Scheme: scheme, WindowsProcessIDs: newProcessIDs(before, windowsEnvtestProcessIDs(assets))}
 }
 
 func readCRD(path string) (*extensionsv1.CustomResourceDefinition, error) {
@@ -82,9 +89,50 @@ func readCRD(path string) (*extensionsv1.CustomResourceDefinition, error) {
 
 func (e *TestEnvironment) Stop(t *testing.T) {
 	t.Helper()
-	if err := e.Environment.Stop(); err != nil {
-		t.Errorf("stop envtest: %v", err)
+	err := e.Environment.Stop()
+	if err == nil {
+		return
 	}
+	if goruntime.GOOS != "windows" || !strings.Contains(err.Error(), "not supported by windows") {
+		t.Errorf("stop envtest: %v", err)
+		return
+	}
+	for _, pid := range e.WindowsProcessIDs {
+		_ = exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(pid)).Run()
+	}
+}
+
+func windowsEnvtestProcessIDs(assets string) map[int]struct{} {
+	result := map[int]struct{}{}
+	if goruntime.GOOS != "windows" {
+		return result
+	}
+	paths := []string{
+		filepath.Join(assets, "kube-apiserver.exe"),
+		filepath.Join(assets, "etcd.exe"),
+	}
+	script := `& { param([string]$first, [string]$second) Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $first -or $_.ExecutablePath -eq $second } | ForEach-Object { $_.ProcessId } }`
+	output, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script, paths[0], paths[1]).Output()
+	if err != nil {
+		return result
+	}
+	for _, field := range strings.Fields(string(output)) {
+		if pid, err := strconv.Atoi(field); err == nil {
+			result[pid] = struct{}{}
+		}
+	}
+	return result
+}
+
+func newProcessIDs(before, after map[int]struct{}) []int {
+	result := make([]int, 0, len(after))
+	for pid := range after {
+		if _, existed := before[pid]; !existed {
+			result = append(result, pid)
+		}
+	}
+	sort.Ints(result)
+	return result
 }
 
 // CreateKubernetesInputs在计时前创建1000个Node和Pod，并通过Status子资源写入状态。

@@ -50,7 +50,7 @@
 
 成功用例统一选择 `leaf-domain:pair-8e3df4c9cdcb`。多节点结果始终按分数降序排列：master1（94）、master3（92）、master2（91）。
 
-用例 05 中配置的 `spine-01` 不存在于当前拓扑文件，Algorithm 记录 `warningCount=1`，自动回退到同 Border Domain。生成的 NGG 包含 DataCenter、Room、Border 和 Leaf，没有伪造 Spine 字段，最终仍满足当前三节点的实际拓扑。
+2026-09-23 复测中，原用例 05 的 `spine-01` 不在当前拓扑，算法正确返回 `TOPOLOGY_SWITCH_NOT_FOUND`。现已将 Spine 和 Border 都设为 `requiredSame`，在当前 Uplink Domain 模式下重新运行成功，生成包含三个节点的 NGG。
 
 用例 09 说明 `quota` 是整个候选节点集合的资源上限。算法加入节点时按该节点的完整动态可用容量累加；本例 CPU Quota 为 80，而三台节点各自均超过 80 CPU，因此没有节点能够加入候选组。
 
@@ -100,4 +100,4 @@ cat results/summary.tsv
 
 ## 最新复测
 
-最新镜像复测记录：[2026-09-16-v0.6.1-smoke-test.md](./2026-09-16-v0.6.1-smoke-test.md)
+最新复测：[2026-09-23-v0.6.3-smoke-test.md](./2026-09-23-v0.6.3-smoke-test.md)。历史记录：[2026-09-16-v0.6.1-smoke-test.md](./2026-09-16-v0.6.1-smoke-test.md)。

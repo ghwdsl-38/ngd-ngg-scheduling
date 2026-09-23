@@ -24,7 +24,7 @@ flowchart TB
 - Node 动态数据：由 PRC 随每次任务请求发送，只在本次请求中使用，不跨请求缓存。
 - Prometheus 指标：由 Go 自己周期读取，进程内保存当前和前一个有效快照。
 - Node静态拓扑：PRC只上传每个Node的直连`leafSwitchId`。
-- 上层网络拓扑：Go从独立YAML加载Region→Location→DataCenter→Room→Border Domain→可选Spine→Leaf；NGD只通过`topologyLabels`引用其中DataCenter到Leaf的名称，不携带拓扑图。
+- 上层网络拓扑：Go 直接读取网络团队提供的 `Room -> Leaf -> SPINE/BORDER/LEAF` 原始 YAML，自动生成逻辑域并选择 `layered` 或 `uplink-compatible` 模式；NGD 字段保持不变。
 - 输出：Python 最多返回 3 个稳定排序候选组；Go 和 PRC 均不修改分数和顺序。
 
 ## 2. 目录结构
@@ -72,8 +72,8 @@ algorithm_server/
 | `go/algorithm/server.go`                                   | 完整Algorithm进程封装；统一拥有Application、HTTP Listener、Prometheus后台刷新、Python Worker关闭和Ready等待。生产入口、Group2和Group4共用。                                  |
 | `go/algorithm/application.go`                              | Algorithm内部组装层，创建缓存、Prometheus、Python Worker和HTTP Handler；由`Server`统一管理生命周期。                                                                        |
 | `go/algorithm/cache.go`                                    | Node静态快照缓存。校验`sha256:`内容Hash、Node UID唯一性和直连Leaf，内存中仅保留current/previous两份。                                                                     |
-| `go/algorithm/topology.go`                                 | 严格解析独立拓扑YAML，校验显式Border Domain，用Leaf补齐上层拓扑；校验五级`topologyLabels`、映射物理交换机到逻辑域，并处理Spine缺失回退。                                  |
-| `go/algorithm/metrics.go`                                  | Prometheus 采集与缓存。周期调用 instant query，按 Node 名合并 CPU、内存、吞吐、丢包、错误、重传、链路和带宽指标。                                                           |
+| `go/topology/` | 独立拓扑包：解析原始 `sw.yaml`、生成 Leaf/Spine/Border/Uplink Domain、转换 NGD 约束、合并 Node 的 LLDP Leaf，并输出拓扑状态。 |
+| `go/algorithm/metrics.go`                                  | Prometheus 采集与缓存。周期调用 instant query，按 `paas_node_ip` 聚合 CPU、内存、吞吐、丢包、错误、重传、链路和带宽指标。                                                           |
 | `go/algorithm/metrics_config.go`                           | 加载指标目录，配置 Bearer Token/Token 文件、CA、TLS Server Name 和超时。                                                                                                    |
 | `go/algorithm/prometheus_metrics.json`                     | Mock 与真实 Prometheus 共用的14项指标契约。                                                                                                                                |
 | `go/algorithm/service.go`                                  | 校验协议、解析静态快照、适配Node动态状态、调用Worker并组装响应。                                                                                                            |
@@ -90,7 +90,7 @@ algorithm_server/
 | `python/algorithm_worker/quantity.py`                      | 解析 Kubernetes CPU、内存和扩展资源 Quantity，计算 PodSet 最小资源需求并进行节点装箱检查。                                                                                    |
 | `python/algorithm_worker/services/node_view_builder.py`    | 合并Node静态属性、请求级占用状态、`nodeSelector`和Go层解析后的具体拓扑逻辑域约束，生成本次算法使用的Node视图。                                                            |
 | `python/algorithm_worker/algorithms/requirement.py`        | 固定FILTER步骤：排除不可用或标签不匹配的Node，并形成扣减已请求资源后的可用视图。                                                                                              |
-| `python/algorithm_worker/algorithms/topology.py`           | 固定GROUP步骤：只按Leaf→可选Spine→Border Domain→Room→DataCenter执行NarrowestFit，并按`requiredSame`限制可扩展的最宽层级。                                                  |
+| `python/algorithm_worker/algorithms/topology.py` | GROUP 步骤：`layered` 按 Leaf→Spine→Border→Room→DataCenter，`uplink-compatible` 按 Leaf→Uplink→Room→DataCenter 执行 NarrowestFit。 |
 | `python/algorithm_worker/algorithms/loadbalance.py`        | 固定SCORE步骤：综合资源和Prometheus指标评分，逐层验证资源可行性，再按`minResources/maxNodes/quota`选具体Node并稳定排序。                                                       |
 | `python/algorithm_worker/config/loadbalance_profiles.json` | 评分 profile 及资源、负载、拓扑权重，新增 profile 无需修改 Go 主服务。                                                                                                        |
 | `docker/algorithm/Dockerfile`                                     | 位于项目`docker/algorithm/`目录。第一阶段编译 Go 二进制，第二阶段加入 Python Worker，最终`ENTRYPOINT` 为 `/app/algorithm-server`。                                                         |
@@ -125,7 +125,7 @@ loadbalance/v1 (SCORE)
 
 ### GROUP
 
-正式NGD不携带拓扑profile。GROUP固定按`Leaf → 可选Spine Domain → Border Domain → Room → DataCenter`形成拓扑组；SCORE按该顺序验证资源可行性。某一层出现可行组后立即停止。具体交换机名先由Go映射为逻辑域；`requiredSame`限制结果不能跨出相应层级。联通样例`SPINE: {}`或指定Spine不存在时，本次Spine约束转换为Border `requiredSame`并返回Warning。
+正式 NGD 不增加字段。只有所有 Leaf 同时具有 SPINE 和 BORDER 时使用 `layered`；任一 Leaf 缺少其中一层时，全局使用 `uplink-compatible`。兼容模式下，`spine-switch: requiredSame`、`border-switch: requiredSame` 或两者同时填写，都转换为内部 `uplinkDomain: requiredSame`。具体交换机名称仍严格匹配真实邻接关系，不进行缺失交换机回退。
 
 ### SCORE
 
@@ -323,14 +323,19 @@ PYTHONPATH=../python \
 | `PROMETHEUS_REFRESH_SECONDS`         |          15 | 后台刷新周期，与PRC Reconcile周期一致 |
 | `PROMETHEUS_STALE_SECONDS`           |         120 | 指标过期阈值                |
 | `PROMETHEUS_REQUEST_TIMEOUT_SECONDS` |           5 | 单次查询超时                |
-| `PROMETHEUS_NODE_LABEL`              | 指标目录中的 `node` | Prometheus 结果中的节点标签 |
+| `PROMETHEUS_NODE_LABEL`              | 指标目录中的 `paas_node_ip` | Prometheus 结果中的节点 IP 标签 |
 | `PROMETHEUS_METRICS_CONFIG_FILE`     | 内嵌指标目录 | 可选的外部 JSON 指标目录   |
 | `PROMETHEUS_BEARER_TOKEN`            | 空 | 直接配置 Bearer Token（与文件方式互斥） |
 | `PROMETHEUS_BEARER_TOKEN_FILE`       | 空 | 从 Secret 挂载文件读取 Bearer Token |
 | `PROMETHEUS_CA_FILE`                 | 空 | 自定义 CA PEM 文件          |
 | `PROMETHEUS_TLS_SERVER_NAME`         | 空 | TLS Server Name             |
+| `LOG_LEVEL`                          | `info` | 日志等级：`debug`、`info`、`warn` 或 `error` |
+| `LOG_FORMAT`                         | `json` | 命令行日志格式：`json` 或 `console` |
 | `PROMETHEUS_INSECURE_SKIP_VERIFY`    | false | 仅隔离测试环境可显式启用  |
-| `TOPOLOGY_CONFIG_FILE`               | `/etc/ngd-ngg/topology.yaml` | 独立上层网络拓扑YAML；无效时服务拒绝启动 |
+| `TOPOLOGY_CONFIG_FILE`               | `/etc/ngd-ngg/topology.yaml` | 兼容原有规范化拓扑格式；未设置原始拓扑时使用 |
+| `TOPOLOGY_SOURCE_FILE`               | 空 | 原始 `Room -> Leaf -> SPINE/BORDER/LEAF` 拓扑文件 |
+
+PRC 静态快照携带 Kubernetes `Node.status.addresses[InternalIP]`。Algorithm 将 Prometheus 的 `paas_node_ip` 映射为 Kubernetes `nodeName` 后再传给 Python Worker；无法映射、重复 IP 或缺失指标会进入 warnings 并标记 `degraded=true`。
 
 未要求实时指标时，Prometheus 不可用会返回 `degraded=true` 并继续使用硬约束；算法参数设置 `requireMetrics=true` 时，指标未就绪返回 HTTP 503。
 
@@ -349,3 +354,9 @@ make demo-group1
 ```
 
 该组使用真实Go Server、真实长期Python Worker、Mock Prometheus基础设施和固定3000 Node Fixture。Timing与Evidence使用相同输入但独立运行：Timing不启用Trace或协议落盘；Evidence输出PRC↔Go HTTP、Go↔Python JSONL、Go缓存和Python Pipeline全过程。详细目录见`test/legacy/README.md`。
+
+### 原始多机房拓扑
+
+生产部署通过 `TOPOLOGY_SOURCE_FILE` 指向按 `Room -> Leaf -> SPINE/BORDER/LEAF` 组织的原始 `sw.yaml`。`deploy-incluster/algorithm.yaml`不内嵌该文件；部署前使用`kubectl create configmap --from-file`提交根目录`sw.yaml`，Deployment再以只读文件挂载。Room 名称用于推导 Location 和 DataCenter；拓扑版本来自文件内容哈希。PRC、NGD 和 NGG 协议不变。
+
+当前生产拓扑包含 200 个 Spine-only Leaf 和 34 个 Border-only Leaf，因此自动进入 `uplink-compatible` 模式。启动日志和缓存状态会显示模式及三类 Leaf 数量。更新 ConfigMap 后需要重启 Algorithm。

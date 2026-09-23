@@ -4,14 +4,17 @@ package algorithm
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
+
+	topologypkg "demo.ngg/algorithm-server/topology"
+	"go.uber.org/zap"
 )
 
 type service struct {
 	bootID   string
+	logger   *zap.SugaredLogger
 	static   *staticCache
-	topology *topologyCache
+	topology *topologypkg.Cache
 	metrics  *metricsCache
 	worker   calculator
 }
@@ -19,6 +22,7 @@ type service struct {
 func (s *service) allocate(ctx context.Context, request map[string]any) (map[string]any, *apiError) {
 	// 请求必须引用已经由 PRC PUT 到本进程中的静态快照。
 	requestID := stringValue(request["requestId"])
+	logger := s.logger.With("requestId", requestID, "ngdUID", stringValue(request["ngdUID"]))
 	for _, field := range []string{"requestId", "taskUID", "ngdUID", "nodeStaticSnapshotId"} {
 		if stringValue(request[field]) == "" {
 			return nil, &apiError{RequestID: requestID, Code: "INVALID_REQUEST", Message: field + " must not be empty", Status: 400}
@@ -28,39 +32,46 @@ func (s *service) allocate(ctx context.Context, request map[string]any) (map[str
 	if !found {
 		return nil, &apiError{RequestID: requestID, Code: "STATIC_SNAPSHOT_NOT_FOUND", Message: fmt.Sprintf("node static snapshot %q is not available", request["nodeStaticSnapshotId"]), Retryable: true, Status: 409}
 	}
-	log.Printf("component=algorithm event=static_snapshot_resolved requestId=%s snapshotId=%s nodeCount=%d",
-		requestID, shortLogID(static.SnapshotID), len(static.Nodes))
-	resolvedStatic, topologyWarnings, topologyErr := s.topology.resolve(static)
+	logger.Debugw("static snapshot resolved", "event", "static_snapshot_resolved",
+		"snapshotId", shortLogID(static.SnapshotID), "nodeCount", len(static.Nodes))
+	resolvedNodes, topologyWarnings, topologyErr := s.topology.ResolveNodes(static.Nodes)
+	resolvedStatic := static
+	resolvedStatic.TopologyVersion = s.topology.Version()
+	resolvedStatic.Nodes = resolvedNodes
 	if topologyErr != nil {
 		return nil, &apiError{RequestID: requestID, Code: "TOPOLOGY_RESOLUTION_FAILED", Message: topologyErr.Error(), Retryable: true, Status: 409}
 	}
-	log.Printf("component=algorithm event=topology_resolution_completed requestId=%s inputNodeCount=%d resolvedNodeCount=%d filteredNodeCount=%d warningCount=%d topologySnapshotId=%s",
-		requestID, len(static.Nodes), len(resolvedStatic.Nodes), len(static.Nodes)-len(resolvedStatic.Nodes),
-		len(topologyWarnings), shortLogID(s.topology.snapshotID))
+	logger.Debugw("topology resolution completed", "event", "topology_resolution_completed", "inputNodeCount", len(static.Nodes),
+		"resolvedNodeCount", len(resolvedStatic.Nodes), "filteredNodeCount", len(static.Nodes)-len(resolvedStatic.Nodes),
+		"warningCount", len(topologyWarnings), "topologySnapshotId", shortLogID(s.topology.SnapshotID()))
 	// 新协议直接发送 nodeUsageStates；旧协议 schedulerState 在 Go 中适配。
 	normalized, err := normalizeUsageStates(request, static.Nodes)
 	if err != nil {
 		return nil, &apiError{RequestID: requestID, Code: "INVALID_REQUEST", Message: err.Error(), Status: 400}
 	}
-	log.Printf("component=algorithm event=scheduler_state_normalized requestId=%s nodeCount=%d", requestID, len(normalized))
+	logger.Debugw("scheduler state normalized", "event", "scheduler_state_normalized", "nodeCount", len(normalized))
 	requestCopy := copyMap(request)
 	requestCopy["nodeUsageStates"] = normalized
+	requestCopy["topologyMode"] = s.topology.Mode()
 	// topologyConstraints是Go层生成的内部协议字段，不接受HTTP调用方注入。
 	delete(requestCopy, "topologyConstraints")
-	topologyConstraints, constraintWarnings, constraintErr := s.topology.resolveDemandTopologyLabels(requestCopy)
+	topologyConstraints, constraintWarnings, constraintErr := s.topology.ResolveDemandTopologyLabels(requestCopy)
 	if constraintErr != nil {
 		return nil, &apiError{RequestID: requestID, Code: "INVALID_TOPOLOGY_LABELS", Message: constraintErr.Error(), Status: 400}
 	}
 	if len(topologyConstraints) > 0 {
 		requestCopy["topologyConstraints"] = topologyConstraints
 	}
-	log.Printf("component=algorithm event=topology_constraints_resolved requestId=%s constraintCount=%d warningCount=%d",
-		requestID, len(topologyConstraints), len(constraintWarnings))
+	logger.Debugw("topology constraints resolved", "event", "topology_constraints_resolved",
+		"constraintCount", len(topologyConstraints), "warningCount", len(constraintWarnings))
 	requestCopy, resolvedStatic, resourceErr := normalizeWorkerResources(requestCopy, resolvedStatic)
 	if resourceErr != nil {
 		return nil, resourceErr
 	}
 	metric, degraded, warnings := s.metrics.resolve()
+	metric, mappingDegraded, mappingWarnings := bindMetricSnapshotToNodes(metric, resolvedStatic, s.metrics.nodeLabel)
+	degraded = degraded || mappingDegraded
+	warnings = append(warnings, mappingWarnings...)
 	warnings = append(warnings, topologyWarnings...)
 	warnings = append(warnings, constraintWarnings...)
 	warnings = append(warnings, ignoredNGDWarnings(requestCopy)...)
@@ -73,15 +84,20 @@ func (s *service) allocate(ctx context.Context, request map[string]any) (map[str
 		metricIDForLog = shortLogID(metric.SnapshotID)
 		metricNodeCount = len(metric.Nodes)
 	}
-	log.Printf("component=algorithm event=metric_snapshot_resolved requestId=%s snapshotId=%s nodeCount=%d degraded=%t warningCount=%d",
-		requestID, metricIDForLog, metricNodeCount, degraded, len(warnings))
+	if degraded {
+		logger.Warnw("metric snapshot resolved in degraded mode", "event", "metric_snapshot_resolved", "snapshotId", metricIDForLog,
+			"nodeCount", metricNodeCount, "degraded", true, "warningCount", len(warnings))
+	} else {
+		logger.Debugw("metric snapshot resolved", "event", "metric_snapshot_resolved", "snapshotId", metricIDForLog,
+			"nodeCount", metricNodeCount, "degraded", false, "warningCount", len(warnings))
+	}
 	// Worker 每次收到完整上下文，因此 Python 不需要维护跨请求缓存。
 	workerStarted := time.Now()
-	log.Printf("component=algorithm event=python_calculation_started requestId=%s nodeCount=%d", requestID, len(resolvedStatic.Nodes))
+	logger.Debugw("Python calculation started", "event", "python_calculation_started", "nodeCount", len(resolvedStatic.Nodes))
 	result, workerErr := s.worker.calculate(ctx, workerPayload{Request: requestCopy, StaticSnapshot: resolvedStatic, MetricSnapshot: metric, MetricsDegraded: degraded, Warnings: warnings})
 	if workerErr != nil {
-		log.Printf("component=algorithm event=python_calculation_failed requestId=%s code=%s retryable=%t elapsedMs=%.3f error=%q",
-			requestID, workerErr.Code, workerErr.Retryable, durationMilliseconds(workerStarted), workerErr.Message)
+		logger.Errorw("Python calculation failed", "event", "python_calculation_failed", "code", workerErr.Code,
+			"retryable", workerErr.Retryable, "elapsedMs", durationMilliseconds(workerStarted), "error", workerErr.Message)
 		return nil, workerErr
 	}
 	groups := result.CandidateNodeGroups
@@ -98,8 +114,8 @@ func (s *service) allocate(ctx context.Context, request map[string]any) (map[str
 			topGroupNodeCount = len(nodes)
 		}
 	}
-	log.Printf("component=algorithm event=python_calculation_completed requestId=%s candidateGroupCount=%d topGroupId=%s topGroupNodeCount=%d elapsedMs=%.3f",
-		requestID, len(groups), topGroupID, topGroupNodeCount, durationMilliseconds(workerStarted))
+	logger.Infow("Python calculation completed", "event", "python_calculation_completed", "candidateGroupCount", len(groups),
+		"topGroupId", topGroupID, "topGroupNodeCount", topGroupNodeCount, "elapsedMs", durationMilliseconds(workerStarted))
 	metricID := "metrics-disabled"
 	metricCapturedAt := ""
 	if s.metrics.enabled() {
@@ -117,7 +133,7 @@ func (s *service) allocate(ctx context.Context, request map[string]any) (map[str
 		"requestId": requestID, "taskUID": stringValue(request["taskUID"]), "ngdUID": stringValue(request["ngdUID"]),
 		"ngdGeneration": request["ngdGeneration"], "algorithmBootId": s.bootID,
 		"nodeStaticSnapshotId": static.SnapshotID, "metricsSnapshotId": metricID, "metricSnapshotId": metricID,
-		"topologySnapshotId":       s.topology.snapshotID,
+		"topologySnapshotId":       s.topology.SnapshotID(),
 		"metricSnapshotCapturedAt": metricCapturedAt,
 		"degraded":                 degraded, "warnings": warnings, "status": status, "candidateNodeGroups": groups,
 	}

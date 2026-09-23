@@ -36,7 +36,7 @@ make go-test-all
 | Go                  | `/mnt/data0/tools/go/bin/go`                             |
 | Delve               | `/mnt/data0/tools/bin/dlv`                               |
 | Python 3            | 启动真实 Python Algorithm Worker                           |
-| envtest             | `.cache/envtest/1.35.5/`中的 API Server、etcd 和 kubectl |
+| envtest             | `.cache/envtest/1.35.0/`中的 API Server、etcd 和 kubectl |
 | Go module/build缓存 | 项目下`.cache/go-mod`和`.cache/go-build`               |
 
 直接执行 `go test` 或命令行 Debug 前，先加载环境：

@@ -5,7 +5,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TOOLS_DIR="${TOOLS_DIR:-${ROOT_DIR}/../.tools}"
-ENVTEST_VERSION="${ENVTEST_VERSION:-1.35.5}"
+ENVTEST_VERSION="${ENVTEST_VERSION:-1.35.0}"
 
 if [[ -d "${TOOLS_DIR}/go/bin" ]]; then
   export PATH="${TOOLS_DIR}/go/bin:${PATH}"

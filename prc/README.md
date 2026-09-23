@@ -79,7 +79,7 @@ prc/
 | Annotation | `topology.demo.ngg.io/leaf-switch-ids` | JSON 数组，最多两个 Leaf。 |
 | Annotation | `topology.demo.ngg.io/leaf-links` | JSON 数组，包含 bond、接口、Leaf、远端端口和 active 状态。 |
 
-静态快照包含 Node 名称、UID、创建时间、`allocatable`、Labels 和直连 Leaf 信息。内容经过稳定排序并计算 `sha256:` Hash。只有 Algorithm 明确确认该 Hash 后，任务计算才会使用它。
+静态快照包含 Node 名称、UID、Kubernetes InternalIP、创建时间、`allocatable`、Labels 和直连 Leaf 信息。内容经过稳定排序并计算 `sha256:` Hash。只有 Algorithm 明确确认该 Hash 后，任务计算才会使用它。
 
 Node 静态信息变化时，PRC 会先把快照状态设为未就绪，避免新旧拓扑并发使用。仅心跳变化不会触发无意义的静态快照更新。Algorithm 重启或缓存丢失后，PRC 会重新同步当前快照。
 
@@ -189,6 +189,8 @@ Algorithm 返回的 `failure.code` 和 `failure.message` 会进入 NGD 状态。
 |---|---|---|
 | `ALGORITHM_URL` | `http://ngd-ngg-algorithm.ngd-ngg-system.svc:8080` | Algorithm API Server 地址。 |
 | `CLUSTER_ID` | `default-cluster` | 写入静态快照的集群身份。 |
+| `LOG_LEVEL` | `info` | 日志等级：`debug`、`info`、`warn` 或 `error`。 |
+| `LOG_FORMAT` | `json` | 命令行日志格式：`json` 或 `console`。 |
 
 ### 命令行参数
 

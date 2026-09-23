@@ -21,12 +21,12 @@
       "topology.kubernetes.io/data-center": "HB-HL-DC1",
       "topology.kubernetes.io/leaf-switch": "requiredSame",
       "topology.kubernetes.io/room": "HB-HL-DC1-102",
-      "topology.kubernetes.io/spine-switch": "spine-01"
+      "topology.kubernetes.io/spine-switch": "requiredSame"
     }
   },
   "ngdGeneration": 1,
   "ngdUID": "ngd-uid-1000",
-  "nodeStaticSnapshotId": "sha256:30c5efddac9f20b891efda3310ab1a40cb68dc329a99d8b41a8c1c434175d6cd",
+  "nodeStaticSnapshotId": "sha256:720f47b82ca73bf66c694f1be3b4bfa79bc509427da1a80762f66b7e57075589",
   "nodeUsageStates": [
     {
       "inUse": false,

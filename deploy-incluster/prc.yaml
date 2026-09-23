@@ -82,7 +82,7 @@ spec:
         runAsGroup: 65532
       containers:
         - name: platform-resource-controller
-          image: hlcsq-registry.cucloud.cn/paas/scheduling/prc:v0.6.1
+          image: hlcsq-registry.cucloud.cn/paas/scheduling/prc:v0.6.2
           imagePullPolicy: IfNotPresent
           args:
             - --leader-elect=true
@@ -90,6 +90,10 @@ spec:
             - --demand-refresh-interval=15s
             - --max-concurrent-refreshes=5
           env:
+            - name: LOG_LEVEL
+              value: info
+            - name: LOG_FORMAT
+              value: json
             - name: ALGORITHM_URL
               value: http://ngd-ngg-algorithm.welkin-system.svc:8080
             - name: CLUSTER_ID
